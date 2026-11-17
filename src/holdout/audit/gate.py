@@ -35,6 +35,18 @@ class UnsealDecision(BaseModel):
     )
 
 
+def validate_risk_reason(accept_risk: str | None) -> str | None:
+    """The stripped reason, or None; raise `ValueError` when it is too short to be one."""
+    if accept_risk is None:
+        return None
+    reason = accept_risk.strip()
+    if len(reason) < MIN_RISK_REASON_CHARS:
+        raise ValueError(
+            f"--accept-risk needs a reason of at least {MIN_RISK_REASON_CHARS} characters"
+        )
+    return reason
+
+
 def decide_unseal(
     report: AuditReport,
     *,
@@ -42,11 +54,7 @@ def decide_unseal(
     ack_warnings: bool = False,
     accept_risk: str | None = None,
 ) -> UnsealDecision:
-    reason = accept_risk.strip() if accept_risk is not None else None
-    if reason is not None and len(reason) < MIN_RISK_REASON_CHARS:
-        raise ValueError(
-            f"--accept-risk needs a reason of at least {MIN_RISK_REASON_CHARS} characters"
-        )
+    reason = validate_risk_reason(accept_risk)
     blocked: list[str] = []
     if report.holdout_invalid:
         invalidating = sorted({f.check.value for f in report.flags if f.invalidates_holdout})

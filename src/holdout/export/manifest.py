@@ -16,7 +16,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from holdout.core.schemas import ColumnKind, CVResult, Direction, HoldoutResult, MetricName, Task
+from holdout.audit.gate import UnsealDecision
+from holdout.audit.render import fix_text
+from holdout.audit.types import AuditReport
+from holdout.core.schemas import (
+    ColumnKind,
+    CVResult,
+    Direction,
+    EntityScope,
+    HoldoutResult,
+    MetricName,
+    Task,
+)
 from holdout.data.profile import DatasetProfile
 from holdout.data.split import SplitProposal, SplitSpec
 from holdout.plan.schema import ModelPlan, PlanIssue
@@ -124,13 +135,15 @@ class EnvironmentRecord(_Record):
 
 
 class RunManifest(_Record):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     run_id: str
     started_at: datetime
     finished_at: datetime
     data: DataRecord
     target: str
     task: Task
+    goal_text: str
+    entity_scope: EntityScope | None = Field(description="user declaration; None = unanswered")
     metric: MetricName
     direction: Direction
     profile: ProfileSummary
@@ -140,6 +153,11 @@ class RunManifest(_Record):
     plans: list[PlanRecord] = Field(description="baseline first, then the selected plan")
     selected_plan: str
     validation_score: float
+    thresholds_hash: str = Field(description="sha256 of the audit thresholds file")
+    audit: AuditReport
+    unseal: UnsealDecision
+    holdout_invalid: bool
+    caveats: list[str]
     holdout: HoldoutResult | Literal["not unsealed"]
     optimism_gap: float | None = Field(description="validation_score - holdout score")
     artifacts: list[str]
@@ -171,16 +189,40 @@ def render_report(manifest: RunManifest) -> str:
     holdout_text = NOT_UNSEALED if isinstance(holdout, str) else f"{holdout.score:.4f}"
     gap_text = "n/a" if manifest.optimism_gap is None else f"{manifest.optimism_gap:+.4f}"
     split = manifest.split
-    lines = [
-        f"# Holdout run {manifest.run_id}",
-        "",
+    lines = [f"# Holdout run {manifest.run_id}", ""]
+    unseal = manifest.unseal
+    if unseal.accepted_risk is not None and unseal.allowed:
+        lines += [
+            "> **RISK ACCEPTED.** The holdout was unsealed despite critical audit flag(s): "
+            f"{'; '.join(unseal.overridden_criticals) or 'none'}.",
+            f"> Reason given: *{unseal.accepted_risk}*",
+            "",
+        ]
+    if manifest.holdout_invalid:
+        lines += [
+            "> **HOLDOUT INVALID.** The sealed holdout shares rows, entities or time with the "
+            "development data, so it can never be evaluated. Start a new run with the "
+            "corrected split (see the audit fixes below).",
+            "",
+        ]
+    for caveat in manifest.caveats:
+        lines += [f"> **Caveat:** {caveat}", ""]
+    scope = (
+        "unanswered (treated as new)"
+        if manifest.entity_scope is None
+        else manifest.entity_scope.value
+    )
+    lines += [
+        f"- **Goal:** {manifest.goal_text}",
         f"- **Data:** `{Path(manifest.data.path).name}`, {manifest.data.n_rows} rows x "
         f"{manifest.data.n_cols} columns (sha256 `{manifest.data.sha256[:12]}...`)",
         f"- **Target:** `{manifest.target}` ({manifest.task.value}); "
         f"metric **{manifest.metric.value}** ({manifest.direction.value} is better)",
         f"- **Split:** {split.spec.strategy.value} ({split.source}), "
         f"{split.n_dev_rows} development / {split.n_holdout_rows} sealed holdout rows",
-        f"- **Run seed:** {manifest.run_seed}",
+        f"- **Entities:** {scope}",
+        f"- **Run seed:** {manifest.run_seed}; thresholds sha256 "
+        f"`{manifest.thresholds_hash[:12]}...`",
         "",
         "## Results",
         "",
@@ -197,6 +239,7 @@ def render_report(manifest: RunManifest) -> str:
             "For a lower-is-better metric, a *negative* gap means validation was optimistic.",
             "",
         ]
+    lines += _audit_section(manifest)
     lines += ["## Split reasoning", ""] + [f"- {r}" for r in split.reasons]
     warnings = split.warnings + split.reuse_warnings
     if warnings:
@@ -208,6 +251,39 @@ def render_report(manifest: RunManifest) -> str:
     lines += [f"- **{k}:** {v}" for k, v in selected.plan.rationale.model_dump().items()]
     lines += ["", "## Artifacts", ""] + [f"- `{a}`" for a in manifest.artifacts]
     return "\n".join(lines) + "\n"
+
+
+def _audit_section(manifest: RunManifest) -> list[str]:
+    audit = manifest.audit
+    counts = audit.counts
+    status = "complete" if audit.complete else "INCOMPLETE (a check failed)"
+    lines = [
+        "## Audit",
+        "",
+        f"{status}; {counts['critical']} critical, {counts['warning']} warning, "
+        f"{counts['info']} info{'; deep mode' if audit.deep_mode else ''}.",
+        "",
+    ]
+    if audit.flags:
+        lines += ["| check | severity | columns | message | fix |", "|---|---|---|---|---|"]
+        for flag in audit.flags:
+            columns = ", ".join(f"`{c}`" for c in flag.columns) or "-"
+            lines.append(
+                f"| {flag.check.value} | {flag.severity.value} | {columns} | "
+                f"{_cell(flag.message)} | {_cell(fix_text(flag.fix))} |"
+            )
+        lines.append("")
+    errors = [r for r in audit.checks_run if r.status == "error"]
+    lines += [f"- {r.check.value} failed: {r.detail}" for r in errors]
+    unseal = manifest.unseal
+    if unseal.requested:
+        verdict = "allowed" if unseal.allowed else "refused"
+        lines += [f"**Unseal {verdict}.**"] + [f"- {b}" for b in unseal.blocked_by] + [""]
+    return lines
+
+
+def _cell(text: str) -> str:
+    return text.replace("|", "\\|").replace("\n", " ")
 
 
 def write_report(path: Path, manifest: RunManifest) -> Path:

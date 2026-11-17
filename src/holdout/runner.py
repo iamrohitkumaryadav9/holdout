@@ -1,26 +1,39 @@
-"""Run orchestration: load -> profile -> propose split -> seal -> baseline -> plan -> unseal.
+"""Run orchestration: load -> profile -> propose split -> seal -> baseline -> plan -> audit
+-> (gated) unseal.
 
 Kept separate from the CLI so the same sequence can be driven by tests today and by an
 agent loop later (an LLM proposing plans in place of ``default_plan``). The order of the
 steps is the guarantee: the profile is target-blind, the plan is validated before the seal
-so a rejected plan never leaves a half-finished run, and the holdout is opened at most once,
-at the very end, through :meth:`SealedHoldout.evaluate`.
+so a rejected plan never leaves a half-finished run, the audit reads development rows only,
+and the holdout is opened at most once, at the very end, only if the unseal gate allows it.
 """
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import ValidationError
 
-from holdout.core.errors import PlanValidationError, SplitError
-from holdout.core.schemas import CVResult, DataType, HoldoutResult, SplitStrategy, Task
+from holdout.audit.gate import UnsealDecision, decide_unseal, validate_risk_reason
+from holdout.audit.runner import run_audits
+from holdout.audit.thresholds import load_thresholds
+from holdout.audit.types import AuditReport
+from holdout.core.errors import HoldoutError, PlanValidationError, SplitError
+from holdout.core.schemas import (
+    CVResult,
+    DataType,
+    EntityScope,
+    HoldoutResult,
+    SplitStrategy,
+    Task,
+)
 from holdout.core.state import RunState
 from holdout.data.load import load_dataset
 from holdout.data.profile import DatasetProfile, profile_schema
-from holdout.data.seal import SealedHoldout
-from holdout.data.split import SplitProposal, SplitSpec, propose_split
+from holdout.data.seal import SealedHoldout, dev_index_sha256
+from holdout.data.split import SplitProposal, SplitSpec, apply_split, propose_split
 from holdout.export.manifest import (
     NOT_UNSEALED,
     DataRecord,
@@ -38,8 +51,9 @@ from holdout.plan.defaults import baseline_plan, default_plan
 from holdout.plan.metrics import get_metric
 from holdout.plan.schema import ModelPlan, PlanIssue, Severity, validate_plan
 
-#: Caller name recorded in the holdout access log for CLI unsealing.
+#: Caller names recorded in the holdout access log.
 UNSEAL_CALLER = "holdout run --unseal"
+AUDIT_CALLER = "holdout audit"
 
 
 @dataclass(frozen=True)
@@ -53,6 +67,10 @@ class RunOptions:
     plan_path: Path | None = None
     unseal: bool = False
     out_dir: Path = Path("runs")
+    goal: str | None = None
+    entities: EntityScope | None = None
+    ack_warnings: bool = False
+    accept_risk: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +82,8 @@ class RunOutcome:
     plan_issues: list[PlanIssue]
     baseline: CVResult
     result: CVResult
+    audit: AuditReport
+    unseal: UnsealDecision
     holdout: HoldoutResult | None
 
 
@@ -143,9 +163,14 @@ def _checked_plan(
 
 
 def execute_run(options: RunOptions, observer: RunObserver | None = None) -> RunOutcome:
-    """Run the full Week 1 flow and write all artifacts into ``out_dir/<run_id>/``."""
+    """Run the full flow and write all artifacts into ``out_dir/<run_id>/``."""
     watch = observer if observer is not None else _SilentObserver()
     started_at = datetime.now(UTC)
+    goal = options.goal if options.goal else f"predict {options.target}"
+    try:
+        validate_risk_reason(options.accept_risk)  # fail before any work is done
+    except ValueError as exc:
+        raise HoldoutError(str(exc)) from exc
     watch.on_stage(f"loading {options.csv}")
     loaded = load_dataset(options.csv, options.target)
     frame = loaded.frame
@@ -153,8 +178,15 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
     watch.on_stage("profiling schema (target-blind)")
     profile = profile_schema(frame, options.target, task=options.task)
     task = options.task if options.task is not None else profile.task_hint
-    proposal = propose_split(profile, task, options.data_type, seed=options.seed)
-    spec = parse_split_option(options.split, options.seed) or proposal.spec
+    proposal = propose_split(
+        profile, task, options.data_type, seed=options.seed, entity_scope=options.entities
+    )
+    explicit = parse_split_option(options.split, options.seed)
+    spec = (
+        explicit.model_copy(update={"entity_scope": options.entities})
+        if explicit is not None
+        else proposal.spec
+    )
     watch.on_split(proposal, spec)
     plan, issues = _checked_plan(options, profile, task)
 
@@ -169,8 +201,32 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
     watch.on_stage(f"cross-validating the plan ({plan.model.name})")
     result = evaluate_cv(plan, dev, options.target, spec, profile, label=plan.model.name)
 
+    watch.on_stage("auditing the pipeline on development rows")
+    thresholds = load_thresholds()
+    audit = run_audits(
+        state,
+        dev,
+        plan,
+        result,
+        baseline=baseline,
+        profile=profile,
+        spec=spec,
+        target=options.target,
+        thresholds=thresholds,
+        overlap_source=seal,
+        goal_text=goal,
+    )
+    if audit.holdout_invalid:
+        seal.mark_invalid(_invalid_reasons(audit), caller=AUDIT_CALLER)
+    decision = decide_unseal(
+        audit,
+        requested=options.unseal,
+        ack_warnings=options.ack_warnings,
+        accept_risk=options.accept_risk,
+    )
+
     holdout: HoldoutResult | None = None
-    if options.unseal:
+    if decision.allowed:
         watch.on_stage("fitting on all development rows and evaluating the holdout once")
         fitted = fit_final(plan, dev, options.target, spec, profile)
         holdout = seal.evaluate(fitted, get_metric(plan.metric), caller=UNSEAL_CALLER)
@@ -183,7 +239,9 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
         for p in (
             state.holdout_path,
             state.seal_state_path,
+            state.holdout_digests_path,
             state.access_log_path,
+            state.audit_path,
             state.pipeline_path,
             state.manifest_path,
             state.report_path,
@@ -204,6 +262,8 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
         ),
         target=options.target,
         task=task,
+        goal_text=goal,
+        entity_scope=options.entities,
         metric=metric.name,
         direction=metric.direction,
         profile=ProfileSummary.from_profile(profile),
@@ -223,6 +283,11 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
         ],
         selected_plan=result.plan_label,
         validation_score=result.mean,
+        thresholds_hash=thresholds[1],
+        audit=audit,
+        unseal=decision,
+        holdout_invalid=audit.holdout_invalid,
+        caveats=seal.caveats,
         holdout=holdout if holdout is not None else NOT_UNSEALED,
         optimism_gap=None if holdout is None else result.mean - holdout.score,
         artifacts=artifacts,
@@ -238,5 +303,67 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
         plan_issues=issues,
         baseline=baseline,
         result=result,
+        audit=audit,
+        unseal=decision,
         holdout=holdout,
     )
+
+
+def reaudit_run(run_dir: Path) -> AuditReport:
+    """Re-run the audits of an existing run (never unseals).
+
+    The development rows are rebuilt by re-applying the recorded split to the recorded
+    CSV; both are verified (the CSV's sha256, and the development-row fingerprint recorded
+    at seal time), so the audit sees exactly the rows the run used. The holdout file is
+    never read. The latest audit replaces ``audit.json``; the manifest keeps the audit made
+    at run time. A contaminated holdout is marked invalid in the seal.
+
+    Raises:
+        HoldoutError: if the run, its CSV or its seal cannot be matched.
+    """
+    manifest_path = run_dir / "run_manifest.json"
+    if not manifest_path.is_file():
+        raise HoldoutError(f"no run manifest in {run_dir}")
+    raw: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+    target = str(raw["target"])
+    loaded = load_dataset(Path(raw["data"]["path"]), target)
+    if loaded.sha256 != raw["data"]["sha256"]:
+        raise HoldoutError(
+            f"{loaded.path} changed since the run (sha256 {loaded.sha256}, run used "
+            f"{raw['data']['sha256']}); cannot re-audit"
+        )
+    spec = SplitSpec.model_validate(raw["split"]["spec"])
+    plan = ModelPlan.model_validate(raw["plans"][-1]["plan"])
+    baseline = CVResult.model_validate(raw["plans"][0]["cv"])
+    result = CVResult.model_validate(raw["plans"][-1]["cv"])
+    profile = profile_schema(loaded.frame, target, task=Task(raw["task"]))
+    dev, _ = apply_split(loaded.frame, spec, target)
+    state = RunState(
+        run_id=str(raw["run_id"]),
+        out_dir=run_dir.parent,
+        run_seed=int(raw["run_seed"]),
+        created_at=datetime.fromisoformat(raw["started_at"]),
+    )
+    seal = SealedHoldout.load(state)
+    recorded = seal.record.dev_index_sha256
+    if recorded is not None and recorded != dev_index_sha256(dev):
+        raise HoldoutError("re-applied split does not reproduce the run's development rows")
+    report = run_audits(
+        state,
+        dev,
+        plan,
+        result,
+        baseline=baseline,
+        profile=profile,
+        spec=spec,
+        target=target,
+        overlap_source=seal,
+        goal_text=str(raw.get("goal_text") or f"predict {target}"),
+    )
+    if report.holdout_invalid and not seal.holdout_invalid:
+        seal.mark_invalid(_invalid_reasons(report), caller=AUDIT_CALLER)
+    return report
+
+
+def _invalid_reasons(report: AuditReport) -> list[str]:
+    return [f"{f.check.value}: {f.message}" for f in report.flags if f.invalidates_holdout]

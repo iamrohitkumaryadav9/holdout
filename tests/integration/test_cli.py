@@ -98,7 +98,12 @@ def test_timeseries_example_warns_when_declared_tabular(examples: Path, tmp_path
     manifest = _assert_artifacts(_only_run_dir(out))
     assert manifest["holdout"] == "not unsealed"
     assert manifest["optimism_gap"] is None
-    assert not (_only_run_dir(out) / "holdout_access.jsonl").exists()
+    # Week 2: A6 finds the time leak, so the randomly drawn holdout is marked invalid; the
+    # access log records only that (nothing ever read the holdout).
+    assert manifest["holdout_invalid"] is True
+    assert "Start a NEW run with the corrected split" in result.output.replace("\n", " ")
+    log = (_only_run_dir(out) / "holdout_access.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["outcome"] for line in log] == ["marked_invalid"]
 
 
 def test_timeseries_example_with_time_split(examples: Path, tmp_path: Path) -> None:
@@ -114,6 +119,9 @@ def test_timeseries_example_with_time_split(examples: Path, tmp_path: Path) -> N
             "--data-type",
             "timeseries",
             "--unseal",
+            # Forward-chaining folds train early folds on little data, so A12 warns that
+            # the fold scores spread widely; acknowledging it is the user's call.
+            "--ack-warnings",
             "--out",
             str(out),
         ],

@@ -5,6 +5,17 @@ from pathlib import Path
 
 import pytest
 
+from holdout.audit.gate import UnsealDecision, decide_unseal
+from holdout.audit.types import (
+    AuditFlag,
+    AuditReport,
+    Category,
+    CheckId,
+    CheckRun,
+    NoAction,
+    ScoreEvidence,
+    Severity,
+)
 from holdout.core.schemas import CVResult, Direction, HoldoutResult, MetricName, SplitStrategy
 from holdout.data.examples import make_classification_example
 from holdout.data.profile import profile_schema
@@ -54,8 +65,42 @@ def _cv(label: str, mean: float, metric: MetricName, direction: Direction) -> CV
     )
 
 
+def _audit(*flags: AuditFlag) -> AuditReport:
+    return AuditReport(
+        flags=list(flags),
+        checks_run=[CheckRun(check=CheckId.A1, status="ran", seconds=0.1)],
+        thresholds_hash="t" * 64,
+        deep_mode=False,
+        entity_scope=None,
+    )
+
+
+def _flag(severity: Severity, invalidates: bool = False) -> AuditFlag:
+    return AuditFlag(
+        check=CheckId.A5,
+        category=Category.GROUP_LEAKAGE,
+        severity=severity,
+        columns=["account"],
+        evidence=ScoreEvidence(
+            metric=MetricName.ROC_AUC,
+            score=0.9,
+            dummy_score=0.5,
+            normalized_score=0.8,
+            deep_mode=False,
+        ),
+        message="Grouping by 'account' drops the score | a lot.",
+        fix=NoAction(reason="start a new run"),
+        invalidates_holdout=invalidates,
+    )
+
+
 def _manifest(
-    holdout: HoldoutResult | None, direction: Direction = Direction.HIGHER
+    holdout: HoldoutResult | None,
+    direction: Direction = Direction.HIGHER,
+    *,
+    audit: AuditReport | None = None,
+    unseal: UnsealDecision | None = None,
+    caveats: list[str] | None = None,
 ) -> RunManifest:
     frame = make_classification_example(n_rows=200, seed=0)
     profile = profile_schema(frame, "churned")
@@ -99,6 +144,13 @@ def _manifest(
         ],
         selected_plan="hist_gb",
         validation_score=0.7,
+        goal_text="predict churned",
+        entity_scope=None,
+        thresholds_hash="t" * 64,
+        audit=audit if audit is not None else _audit(),
+        unseal=unseal if unseal is not None else decide_unseal(_audit(), requested=False),
+        holdout_invalid=(audit or _audit()).holdout_invalid,
+        caveats=caveats or [],
         holdout=holdout if holdout is not None else NOT_UNSEALED,
         optimism_gap=None if holdout is None else 0.7 - holdout.score,
         artifacts=["pipeline.py"],
@@ -130,3 +182,45 @@ def test_report_for_an_unsealed_lower_is_better_run() -> None:
     assert "| Holdout (single evaluation) | 0.7500 |" in report
     assert manifest.optimism_gap == pytest.approx(-0.05)
     assert "negative* gap means validation was optimistic" in report
+
+
+def test_report_audit_table_escapes_cells_and_shows_counts() -> None:
+    report = render_report(_manifest(None, audit=_audit(_flag(Severity.WARNING))))
+    assert "complete; 0 critical, 1 warning, 0 info." in report
+    assert (
+        "| A5 | warning | `account` | Grouping by 'account' drops the score \\| a lot. |" in report
+    )
+
+
+def test_report_shows_accepted_risk_prominently() -> None:
+    audit = _audit(_flag(Severity.CRITICAL))
+    reason = "approved by the data owner for a demo"
+    unseal = decide_unseal(audit, requested=True, accept_risk=reason)
+    report = render_report(_manifest(None, audit=audit, unseal=unseal))
+    first_lines = report.splitlines()[:4]
+    assert any("RISK ACCEPTED" in line for line in first_lines)
+    assert f"*{reason}*" in report
+    assert "**Unseal allowed.**" in report
+
+
+def test_report_shows_invalid_holdout_and_caveats() -> None:
+    audit = _audit(_flag(Severity.CRITICAL, invalidates=True))
+    unseal = decide_unseal(audit, requested=True)
+    report = render_report(_manifest(None, audit=audit, unseal=unseal, caveats=["re-drawn"]))
+    assert "HOLDOUT INVALID" in report
+    assert "> **Caveat:** re-drawn" in report
+    assert "**Unseal refused.**" in report
+    assert "not overridable" in report
+
+
+def test_report_lists_failed_checks() -> None:
+    audit = AuditReport(
+        flags=[],
+        checks_run=[CheckRun(check=CheckId.A6, status="error", seconds=0.0, detail="boom")],
+        thresholds_hash="t",
+        deep_mode=False,
+        entity_scope=None,
+    )
+    report = render_report(_manifest(None, audit=audit))
+    assert "INCOMPLETE" in report
+    assert "- A6 failed: boom" in report
