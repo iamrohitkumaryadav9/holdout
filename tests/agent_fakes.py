@@ -87,7 +87,7 @@ def report(request: LLMRequest) -> dict[str, Any]:
     return {
         "summary": summary,
         "findings": findings,
-        "caveats": data(request, "caveats"),
+        "caveats": [],
         "recommendations": ["Review the audit flags before relying on the score."],
         "causal_claim": causal,
     }

@@ -27,6 +27,7 @@ from holdout.agent.report import (
     full_text,
     placeholder_catalogue,
     prose_problems,
+    state_identifiers,
 )
 from holdout.agent.schemas import (
     EDAProposal,
@@ -330,7 +331,8 @@ class LLMPlanner:
         )
 
     def draft_report(self, ctx: ReportContext) -> ReportOutcome:
-        allowed = allowed_tokens(ctx.columns, ctx.plan)
+        # Identifiers inside code-written caveats (run ids, column names) are run state.
+        allowed = allowed_tokens(ctx.columns, ctx.plan) | state_identifiers(ctx.caveats)
         placeholders = set(ctx.values)
         required = sorted({f.check.value for f in _open_flags(ctx.flags)})
 

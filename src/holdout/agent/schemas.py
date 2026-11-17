@@ -83,7 +83,7 @@ class RoundRecord(_Strict):
     plan_source: Literal["llm", "code_substitution", "default"]
     cv: CVResult
     flag_counts: dict[str, int]
-    flags: list[str] = Field(description="check id, severity and columns of every flag")
+    flags: list[str] = Field(description="check id, severity, category and columns per flag")
 
 
 class NodeUsage(_Strict):

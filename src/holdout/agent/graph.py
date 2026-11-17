@@ -368,7 +368,9 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
             cv=CVResult.model_validate(state["cv"]),
             flag_counts=report.counts,
             flags=[
-                f"{f.check.value} {f.severity.value} {','.join(f.columns)}".strip()
+                " ".join(
+                    [f.check.value, f.severity.value, f.category.value, ",".join(f.columns)]
+                ).strip()
                 for f in report.flags
             ],
         )

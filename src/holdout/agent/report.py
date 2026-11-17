@@ -61,6 +61,11 @@ def allowed_tokens(columns: Iterable[str], plan: ModelPlan | None) -> set[str]:
     return allowed
 
 
+def state_identifiers(texts: Iterable[str]) -> set[str]:
+    """Tokens with digits inside code-written text (e.g. run ids in caveats): run state."""
+    return {t.lower() for text in texts for t in _TOKEN.findall(text) if _HAS_DIGIT.search(t)}
+
+
 def _plan_tokens(value: Any) -> set[str]:
     if isinstance(value, dict):
         return {t for k, v in value.items() for t in {str(k).lower(), *_plan_tokens(v)}}
