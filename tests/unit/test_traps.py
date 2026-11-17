@@ -1,6 +1,8 @@
 """Trap generators: deterministic per seed, truth metadata matches the data, twins differ
 only by the planted mechanism."""
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -152,7 +154,5 @@ def test_regression_variants_of_column_traps() -> None:
 
 def test_clean_twin_needs_provenance() -> None:
     case = build_case("direct_leak", 0)
-    from dataclasses import replace
-
     with pytest.raises(ValueError, match="provenance"):
         clean_twin(replace(case, provenance=None))

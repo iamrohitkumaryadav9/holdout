@@ -32,18 +32,25 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Ruff lint
-        run: ruff check src tests scripts
+        run: ruff check src tests scripts bench
 
       - name: Ruff format
-        run: ruff format --check src tests scripts
+        run: ruff format --check src tests scripts bench
 
-      # Strict on the whole package (a superset of core, data and plan).
+      # Strict on the whole package (a superset of core, data and plan) and the trap bench.
       - name: Mypy (strict)
-        run: mypy src/holdout
+        run: mypy src/holdout bench
 
-      # Coverage source and the 85% floor are configured in pyproject.toml.
+      # Coverage sources and the 85% overall floor are configured in pyproject.toml.
+      # The 50k-row performance tests (marked slow) run on Ubuntu only.
       - name: Pytest with coverage
-        run: pytest --cov --cov-report=term-missing --cov-report=xml
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then MARKERS=""; else MARKERS="not slow"; fi
+          pytest -m "$MARKERS" --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Audit coverage (>= 90% on holdout/audit)
+        run: coverage report --include="*/holdout/audit/*" --fail-under=90
 
       - name: Upload coverage report
         if: always()

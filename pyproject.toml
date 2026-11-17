@@ -75,7 +75,7 @@ filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
 
 [tool.coverage.run]
 branch = true
-source = ["holdout.core", "holdout.data", "holdout.plan", "holdout.export"]
+source = ["holdout.core", "holdout.data", "holdout.plan", "holdout.export", "holdout.audit"]
 
 [tool.coverage.report]
 fail_under = 85

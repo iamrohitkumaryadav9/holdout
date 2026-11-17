@@ -37,7 +37,12 @@ from holdout.plan.compiler import compile_plan, cv_from_split
 
 def candidates(ctx: AuditContext) -> list[EntityCandidate]:
     t = ctx.thresholds.a05_group
-    exclude = [ctx.target] + ([ctx.spec.group_col] if ctx.spec.group_col else [])
+    # Datetime columns repeat (several rows per day) but are time keys, handled by A6.
+    exclude = (
+        [ctx.target]
+        + ([ctx.spec.group_col] if ctx.spec.group_col else [])
+        + ctx.profile.datetime_candidates
+    )
     found = entity_candidates(
         ctx.dev,
         exclude=exclude,
