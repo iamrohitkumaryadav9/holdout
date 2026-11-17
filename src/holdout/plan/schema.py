@@ -223,7 +223,10 @@ def validate_plan(plan: ModelPlan, profile: DatasetProfile) -> list[PlanIssue]:
             and minority is not None
             and minority < config.ACCURACY_MIN_MINORITY_FRACTION
         ):
-            error(
+            # A warning here, not an error: the run proceeds so the audit (A7) can show
+            # how misleading accuracy is next to balanced metrics, and A7 raises it to a
+            # critical flag that blocks unsealing.
+            warn(
                 "accuracy_on_imbalanced_target",
                 "metric",
                 f"the minority class is {minority:.1%} of rows (< "

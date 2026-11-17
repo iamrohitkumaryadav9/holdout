@@ -127,10 +127,15 @@ def test_plan_round_trips_through_json() -> None:
 # ------------------------------------------------------------------ validate_plan
 
 
-def test_accuracy_is_rejected_on_a_10_percent_minority(imbalanced_profile: DatasetProfile) -> None:
+def test_accuracy_on_a_10_percent_minority_is_flagged_pre_seal(
+    imbalanced_profile: DatasetProfile,
+) -> None:
+    # Week 2: a pre-seal warning (the run proceeds); the A7 audit makes it a critical flag
+    # that blocks unsealing (tests/unit/audit/test_a07_metric.py).
     plan = ModelPlan.model_validate(plan_dict(metric="accuracy"))
     issues = validate_plan(plan, imbalanced_profile)
-    assert "accuracy_on_imbalanced_target" in codes(issues, Severity.ERROR)
+    assert "accuracy_on_imbalanced_target" in codes(issues, Severity.WARNING)
+    assert "accuracy_on_imbalanced_target" not in codes(issues, Severity.ERROR)
     message = next(i.message for i in issues if i.code == "accuracy_on_imbalanced_target")
     assert "10.0%" in message
     assert "balanced_accuracy" in message
