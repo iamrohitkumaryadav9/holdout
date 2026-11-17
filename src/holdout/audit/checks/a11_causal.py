@@ -79,6 +79,10 @@ _OBJECT_WINDOW = 5
 #: The object of the verb ends at the clause: "leads to higher conversion, improving the
 #: score" is still a claim about conversion.
 _CLAUSE_END = re.compile(r"[,;:.!?()]|\b(?:and|but|while|which|so|whereas)\b")
+#: A verb inside an indirect question or a condition in the same clause is not asserted:
+#: "the model cannot confirm whether specific factors cause churn" (the second paid smoke
+#: run's churn report: "cannot" is outside the 4-word negation window) or "if X drives Y".
+_NOT_ASSERTED = re.compile(r"\b(?:whether|if)\b")
 
 
 @dataclass(frozen=True)
@@ -121,6 +125,9 @@ def _causal_phrases(sentence: str) -> list[str]:
             preceding = _WORD.findall(lowered[: match.start()])[-_NEGATION_WINDOW:]
             if _NEGATIONS.intersection(preceding):
                 continue
+            clause = _CLAUSE_END.split(lowered[: match.start()])[-1]
+            if _NOT_ASSERTED.search(clause):
+                continue  # "cannot confirm whether X causes Y": a question, not a claim
             obj = _CLAUSE_END.split(lowered[match.end() :], maxsplit=1)[0]
             following = _WORD.findall(obj)[:_OBJECT_WINDOW]
             if name in _VERB_PATTERNS and _EVALUATION_OBJECTS.intersection(following):

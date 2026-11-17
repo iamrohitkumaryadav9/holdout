@@ -187,9 +187,13 @@ def test_the_smoke_report_is_accepted_in_one_call(tmp_path: Path) -> None:
         "an optimism gap of -0.0619.",
         "Dropping the leaking column led to a lower validation score.",
         "Stronger regularisation results in a smaller gap between folds.",
+        # Verbatim from the second paid smoke run's churn report (kept in rejected_attempts):
+        "This model reflects statistical associations in historical data and cannot confirm "
+        "whether specific factors cause churn.",
+        "It is unclear if tenure drives churn.",
     ],
 )
-def test_a11_ignores_verbs_about_the_runs_own_statistics(sentence: str) -> None:
+def test_a11_ignores_run_statistics_and_unasserted_verbs(sentence: str) -> None:
     assert check_causal_claims(sentence) == []
 
 
@@ -202,6 +206,7 @@ def test_a11_ignores_verbs_about_the_runs_own_statistics(sentence: str) -> None:
         "Customers convert because of the discount.",
         "The effect of price on demand is large.",
         "Discounts cause higher sales and a better score.",
+        "We checked whether the data was clean, and discounts cause higher sales.",
     ],
 )
 def test_a11_still_flags_claims_about_the_data(sentence: str) -> None:
