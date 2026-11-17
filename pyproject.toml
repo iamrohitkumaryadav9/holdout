@@ -27,6 +27,17 @@ dependencies = [
     "typer>=0.29,<1",
     "rich>=15,<16",
     "pyarrow>=21,<22",
+    # Week 3: the agent.
+    "google-genai>=3.4,<4",
+    "langgraph>=1.2,<1.3",
+    "langgraph-checkpoint-sqlite>=3.1,<3.2",
+    # xxhash (a langgraph dependency) is pinned below 4: Windows Smart App Control blocks
+    # the xxhash 4.1 wheel's DLL; 3.6 loads (docs/design.md, "Environment").
+    "xxhash>=3.6,<3.7",
+    "opentelemetry-api>=1.45,<1.46",
+    "opentelemetry-sdk>=1.45,<1.46",
+    "psutil>=7.2,<8",
+    "matplotlib>=3.11,<3.12",
 ]
 
 [project.optional-dependencies]

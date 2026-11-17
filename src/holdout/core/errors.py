@@ -46,5 +46,25 @@ class EvaluationError(HoldoutError):
     """Cross-validation or holdout scoring failed for a reason the user can act on."""
 
 
+class LLMError(HoldoutError):
+    """Base class for language-model failures (never silently replaced by a default)."""
+
+
+class LLMUnavailableError(LLMError):
+    """No API key, an unavailable model, or a transport failure after bounded retries."""
+
+
+class LLMOutputError(LLMError):
+    """The model's answer failed schema validation even after one repair attempt."""
+
+
+class BudgetExceededError(LLMError):
+    """A call would exceed the per-run or project spend cap."""
+
+
+class AgentError(HoldoutError):
+    """The agent stopped: a loop guard tripped, a node timed out, or a plan was rejected."""
+
+
 class ExportError(HoldoutError):
     """An artifact (pipeline script, manifest, report) could not be produced."""

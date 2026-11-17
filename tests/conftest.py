@@ -7,6 +7,8 @@ is set here, before collection, because seed parametrisations depend on it
 """
 
 import os
+import socket
+from collections.abc import Iterator
 from pathlib import Path
 
 import pandas as pd
@@ -28,6 +30,33 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_configure(config: pytest.Config) -> None:
     tier = config.getoption("--tier") or os.environ.get("HOLDOUT_TEST_TIER", "fast")
     os.environ["HOLDOUT_TEST_TIER"] = tier
+
+
+class NetworkBlockedError(RuntimeError):
+    """Raised by any socket use during tests: CI never touches the network."""
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_network() -> Iterator[None]:
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise NetworkBlockedError("network access is blocked in tests (use FakeLLM)")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(socket.socket, "connect", refuse)
+        patch.setattr(socket.socket, "connect_ex", refuse)
+        patch.setattr(socket, "create_connection", refuse)
+        patch.setattr(socket, "getaddrinfo", refuse)
+        yield
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_holdout_home(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """Spend ledger and LLM cache go to a temporary HOLDOUT_HOME, never ~/.holdout."""
+    home = tmp_path_factory.mktemp("holdout_home")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("HOLDOUT_HOME", str(home))
+        patch.delenv("GEMINI_API_KEY", raising=False)
+        yield home
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
