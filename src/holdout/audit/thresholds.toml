@@ -27,9 +27,11 @@ tree_max_depth = 3
 warn_relative_lift = 0.8
 # Warn when one feature alone gets at least this share of the way from dummy to perfect.
 warn_normalized_score = 0.95
-# Relative lift is only meaningful when the full plan beats the dummy by at least this
-# normalized margin; below it, only the normalized rule applies.
-min_full_normalized_lift = 0.05
+# The relative-lift rule applies only when the full plan is at least this far (normalized)
+# from dummy to perfect. Carrying most of a *small* lift is what an honest dominant
+# feature of a modest model looks like, not a leak; below this, only the normalized rule
+# applies.
+min_full_normalized_lift = 0.5
 
 [a02_hints]
 # A name hint is raised to a warning only when the column also shows at least this
