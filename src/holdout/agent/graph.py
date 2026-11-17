@@ -41,6 +41,7 @@ from holdout.agent.report import placeholder_values
 from holdout.agent.schemas import (
     AgentRecord,
     Decision,
+    LLMOutage,
     NodeUsage,
     RoundRecord,
     SandboxResult,
@@ -51,7 +52,7 @@ from holdout.audit.gate import UnsealDecision, decide_unseal
 from holdout.audit.runner import run_audits, write_audit
 from holdout.audit.thresholds import load_thresholds
 from holdout.audit.types import AuditFlag, AuditReport, ChangeSplit, CheckId, CheckRun, Severity
-from holdout.core.errors import AgentError
+from holdout.core.errors import AgentError, LLMUnavailableError
 from holdout.core.schemas import CVResult, DataType, EntityScope, HoldoutResult, Task
 from holdout.core.state import RunState
 from holdout.data.load import LoadedData, load_dataset
@@ -59,6 +60,7 @@ from holdout.data.profile import DatasetProfile, profile_schema
 from holdout.data.seal import SealedHoldout
 from holdout.data.split import SplitProposal, SplitSpec, apply_split, propose_split
 from holdout.llm import config as llm_config
+from holdout.llm.progress import NullProgress, Progress
 from holdout.llm.structured import LLMSession
 from holdout.plan.compiler import evaluate_cv, fit_final
 from holdout.plan.defaults import baseline_plan
@@ -92,6 +94,15 @@ class AgentOptions:
     use_cache: bool = True
     previous_run_id: str | None = None
     allow_followup: bool = True
+    #: ``--model`` as given (None = the configured model).
+    model: str | None = None
+    #: The model this run is pinned to, resolved once at the start; resume and follow-up
+    #: runs reuse it, so a run never switches models.
+    pinned_model: str | None = None
+
+    @property
+    def model_overridden(self) -> bool:
+        return self.model is not None
 
     def to_json(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -126,6 +137,7 @@ class AgentState(TypedDict, total=False):
     stop_reason: str
     next_spec: dict[str, Any] | None
     status: str
+    nodes_done: list[str]
 
 
 @dataclass
@@ -137,6 +149,14 @@ class AgentDeps:
     node_start_index: int = 0
     timeout_seconds: float = field(default_factory=lambda: NODE_TIMEOUT_SECONDS)
     after_node: Callable[[str], None] | None = field(default=None)
+    progress: Progress = field(default_factory=NullProgress)
+    #: The node running now (named in an LLM-unavailable pause).
+    current_node: str | None = None
+    #: Calls made in nodes that later failed with LLM unavailability (lost from the
+    #: checkpoint, but spent): carried from the paused manifest into the final one.
+    carried_calls: list[dict[str, Any]] = field(default_factory=list)
+    #: Earlier pauses of this run (LLMOutage records as JSON).
+    outages: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -199,11 +219,18 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
             session = deps.session
             start_index = len(session.records) if session is not None else 0
             deps.node_start_index = start_index
+            deps.current_node = name
+            waited_before = session.retry_wait_seconds if session is not None else 0.0
+            deps.progress.node_started(name)
             started = time.perf_counter()
             with tracer().start_as_current_span(
                 f"holdout.agent.{name}", record_exception=False
             ) as span:
-                update = fn(state)
+                try:
+                    update = fn(state)
+                except LLMUnavailableError as exc:
+                    exc.node = exc.node or name
+                    raise
                 new = session.records[start_index:] if session is not None else []
                 span.set_attribute("holdout.node", name)
                 span.set_attribute("llm.calls", len(new))
@@ -212,13 +239,19 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
                 span.set_attribute("llm.output_tokens", sum(r.output_tokens for r in new))
                 span.set_attribute("llm.thinking_tokens", sum(r.thinking_tokens for r in new))
                 span.set_attribute("llm.inr", sum(r.inr for r in new))
+                span.set_attribute("llm.retries", sum(r.retries for r in new))
             elapsed = time.perf_counter() - started
-            if elapsed > deps.timeout_seconds:
+            deps.progress.node_finished(name, elapsed)
+            # Time spent waiting out an outage is not the node's work: it does not count
+            # against the limit (each call's retries are bounded by the retry policy).
+            waited = (session.retry_wait_seconds if session is not None else 0.0) - waited_before
+            if elapsed - waited > deps.timeout_seconds:
                 raise AgentError(
                     f"node {name} took {elapsed:.0f} s, over the {deps.timeout_seconds:.0f} s limit"
                 )
             if new and name != "report":
                 update["calls"] = [*state.get("calls", []), *(dataclasses.asdict(r) for r in new)]
+            update["nodes_done"] = [*state.get("nodes_done", []), name]
             if deps.after_node is not None:
                 deps.after_node(name)
             return update
@@ -647,22 +680,26 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
     calls = [*state.get("calls", [])]
     if session is not None:
         calls += [dataclasses.asdict(r) for r in session.records[deps.node_start_index :]]
+    spent_calls = [*deps.carried_calls, *calls]
     record = AgentRecord(
         mode=opts.mode,  # type: ignore[arg-type]
         offline=opts.offline,
         llm_client=deps.llm_client,
         model=None if session is None else session.client.model,
+        model_overridden=opts.model_overridden and session is not None,
         model_verified=deps.model_verified,
         seed_passed_to_model=session is not None and session.client.supports_seed,
         thinking_level=None if session is None else llm_config.THINKING_LEVEL,
         max_output_tokens=None if session is None else llm_config.MAX_OUTPUT_TOKENS,
         prompts={
             c["prompt_name"]: {"version": c["prompt_version"], "sha256": c["prompt_sha256"]}
-            for c in calls
+            for c in spent_calls
         },
-        usage_by_node=_usage_by_node(calls),
-        total_inr=sum(c["inr"] for c in calls),
-        cache_hits=sum(bool(c["cache_hit"]) for c in calls),
+        usage_by_node=usage_by_node(spent_calls),
+        total_inr=sum(c["inr"] for c in spent_calls),
+        cache_hits=sum(bool(c["cache_hit"]) for c in spent_calls),
+        retries=sum(int(c.get("retries", 0)) for c in spent_calls),
+        outages=[LLMOutage.model_validate(o) for o in deps.outages],
         run_cap_inr=session.budget.run_cap_inr if session is not None else llm_config.RUN_CAP_INR,
         project_cap_inr=(
             session.budget.project_cap_inr if session is not None else llm_config.PROJECT_CAP_INR
@@ -733,7 +770,7 @@ def _with_causal_check(report: AuditReport, causal: list[AuditFlag], *, ran: boo
     return report.model_copy(update={"flags": [*report.flags, *causal], "checks_run": runs})
 
 
-def _usage_by_node(calls: list[dict[str, Any]]) -> dict[str, NodeUsage]:
+def usage_by_node(calls: list[dict[str, Any]]) -> dict[str, NodeUsage]:
     nodes: dict[str, list[dict[str, Any]]] = {}
     for call in calls:
         nodes.setdefault(call["node"], []).append(call)
@@ -745,6 +782,7 @@ def _usage_by_node(calls: list[dict[str, Any]]) -> dict[str, NodeUsage]:
             output_tokens=sum(c["output_tokens"] for c in items),
             thinking_tokens=sum(c["thinking_tokens"] for c in items),
             inr=sum(c["inr"] for c in items),
+            retries=sum(int(c.get("retries", 0)) for c in items),
         )
         for node, items in sorted(nodes.items())
     }

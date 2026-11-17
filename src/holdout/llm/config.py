@@ -31,8 +31,7 @@ MAX_OUTPUT_TOKENS: Final = 4096
 
 TEMPERATURE: Final = 0.0
 REQUEST_TIMEOUT_SECONDS: Final = 120
-#: Retries for rate limits (429) and server errors (5xx), with exponential backoff.
-MAX_TRANSIENT_RETRIES: Final = 3
+# Retries for 429 / 5xx / timeouts: see holdout.llm.retry.RetryPolicy (the single owner).
 
 #: Spend caps in rupees.
 RUN_CAP_INR: Final = 15.0
@@ -61,7 +60,28 @@ PRICE_TABLE: Final[dict[str, tuple[Price, ...]]] = {
         Price(date(2026, 1, 1), 0.75, 3.75),
         Price(date(2027, 1, 1), 1.50, 7.50),
     ),
+    # Alternatives for ``--model`` (same pricing page, same day). No price change is
+    # announced for these; add a dated entry here when one is.
+    "gemini-3.6-flash": (Price(date(2026, 1, 1), 0.75, 3.75),),
+    "gemini-3-flash-preview": (Price(date(2026, 1, 1), 0.50, 3.00),),
 }
+
+
+def require_priced(model: str, on: date) -> None:
+    """Refuse a model Holdout cannot price (spend must never be computed as zero).
+
+    Raises:
+        LLMConfigError: with the priced models listed.
+    """
+    from holdout.core.errors import LLMConfigError
+
+    try:
+        price_for(model, on)
+    except KeyError as exc:
+        raise LLMConfigError(
+            f"model {model!r} has no price in holdout.llm.config.PRICE_TABLE; "
+            f"priced models: {', '.join(sorted(PRICE_TABLE))}"
+        ) from exc
 
 
 def price_for(model: str, on: date) -> Price:

@@ -12,11 +12,11 @@ import sys
 from datetime import datetime
 from importlib import metadata
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from holdout.agent.schemas import AgentRecord
+from holdout.agent.schemas import AgentRecord, Decision, LLMOutage, NodeUsage, RoundRecord
 from holdout.audit.gate import UnsealDecision
 from holdout.audit.render import fix_text
 from holdout.audit.types import AuditReport
@@ -137,6 +137,7 @@ class EnvironmentRecord(_Record):
 
 class RunManifest(_Record):
     schema_version: Literal[3] = 3
+    status: Literal["completed"] = "completed"
     run_id: str
     started_at: datetime
     finished_at: datetime
@@ -168,6 +169,37 @@ class RunManifest(_Record):
     )
 
 
+class PausedRunManifest(_Record):
+    """Written to ``run_manifest.json`` when an agent run pauses because the LLM stayed
+    unavailable; replaced by a :class:`RunManifest` once the resumed run completes."""
+
+    schema_version: Literal[3] = 3
+    status: Literal["paused_llm_unavailable"] = "paused_llm_unavailable"
+    run_id: str
+    started_at: datetime
+    paused_at: datetime
+    target: str
+    goal_text: str | None
+    run_seed: int
+    model: str
+    model_overridden: bool
+    outage: LLMOutage = Field(description="this pause")
+    earlier_outages: list[LLMOutage]
+    message: str
+    resume_command: str
+    completed_nodes: list[str] = Field(description="graph nodes checkpointed before the pause")
+    usage_by_node: dict[str, NodeUsage] = Field(description="including the failed call")
+    total_inr: float
+    retries: int
+    interrupted_calls: list[dict[str, Any]] = Field(
+        description="calls of nodes that did not finish (spent, but not in the checkpoint); "
+        "carried into the final manifest on resume"
+    )
+    decisions: list[Decision]
+    rounds: list[RoundRecord]
+    environment: EnvironmentRecord
+
+
 def capture_environment() -> EnvironmentRecord:
     """Record interpreter, OS, package versions and (if available) the git commit."""
     commit, dirty = _git_state(Path(__file__).resolve().parent)
@@ -180,7 +212,7 @@ def capture_environment() -> EnvironmentRecord:
     )
 
 
-def write_manifest(path: Path, manifest: RunManifest) -> Path:
+def write_manifest(path: Path, manifest: RunManifest | PausedRunManifest) -> Path:
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         handle.write(manifest.model_dump_json(indent=2) + "\n")
     return path
@@ -297,11 +329,20 @@ def _agent_section(agent: AgentRecord) -> list[str]:
         f"- **Mode:** {agent.mode}{' (offline: no API calls)' if agent.offline else ''}; "
         f"model `{model}` via {agent.llm_client}",
         f"- **Spend:** Rs {agent.total_inr:.2f} of a Rs {agent.run_cap_inr:.2f} run cap; "
-        f"{agent.cache_hits} cached response(s)",
+        f"{agent.cache_hits} cached response(s); {agent.retries} transient-error retr"
+        f"{'y' if agent.retries == 1 else 'ies'}",
         f"- **Fix rounds:** {max(0, len(agent.rounds) - 1)}; stop reason: {agent.stop_reason}",
         f"- **Substitutions:** {len(agent.substitutions)} (fixes applied by code because the "
         "model's integrated plan or report missed them; not credited to the model)",
     ]
+    if agent.model_overridden:
+        lines.append(f"- **Model override:** `{model}` was chosen with --model for this run")
+    for outage in agent.outages:
+        status = "a timeout" if outage.status is None else f"HTTP {outage.status}"
+        lines.append(
+            f"- **Paused** at {outage.at} in node `{outage.node}`: {status} after "
+            f"{outage.retries} retries; resumed later"
+        )
     if agent.previous_run_id:
         lines.append(f"- **Follows run** `{agent.previous_run_id}` (corrected split)")
     if agent.next_run_id:

@@ -396,6 +396,11 @@ def reaudit_run(run_dir: Path) -> AuditReport:
     if not manifest_path.is_file():
         raise HoldoutError(f"no run manifest in {run_dir}")
     raw: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if raw.get("status", "completed") != "completed":
+        raise HoldoutError(
+            f"run {raw.get('run_id')} is {raw.get('status')}, not completed; resume it with "
+            f"{raw.get('resume_command', 'holdout agent --resume <run_id>')}"
+        )
     target = str(raw["target"])
     loaded = load_dataset(Path(raw["data"]["path"]), target)
     if loaded.sha256 != raw["data"]["sha256"]:

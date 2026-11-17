@@ -1,7 +1,8 @@
 """``holdout agent``: the LLM agent (or its offline twin) from the command line.
 
 Exit codes: 0 done; 2 error; 3 unsealing was requested and refused; 4 paused at a question
-with no terminal to ask it on (resume with ``holdout agent --resume RUN_ID``).
+with no terminal to ask it on; 5 paused because the LLM stayed unavailable after every
+retry (reserved for that). Resume either pause with ``holdout agent --resume RUN_ID``.
 """
 
 import sys
@@ -11,15 +12,17 @@ from typing import Annotated, Any
 import typer
 from rich.prompt import Confirm, Prompt
 
-from holdout.agent.driver import AgentOutcome, resume_agent, run_agent
+from holdout.agent.driver import PAUSED_LLM, AgentOutcome, resume_agent, run_agent
 from holdout.agent.graph import AgentOptions
 from holdout.agent.schemas import Decision
 from holdout.agent.tracing import configure_tracing
 from holdout.cli import EXIT_UNSEAL_REFUSED, TaskOption, _print_audit, _print_summary, app, console
 from holdout.core.errors import HoldoutError
 from holdout.core.schemas import DataType, EntityScope
+from holdout.llm.progress import LineProgress
 
 EXIT_PAUSED = 4
+EXIT_LLM_UNAVAILABLE = 5
 
 
 class RichAsker:
@@ -168,15 +171,40 @@ def agent(
     resume: Annotated[
         str | None, typer.Option(help="Resume a paused or interrupted run by its id.")
     ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            help="Gemini model for this run only (must be priced in holdout.llm.config); "
+            "recorded in the manifest. A run never switches models, also not on --resume."
+        ),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", help="Print a timestamped line per graph node, LLM call and retry."
+        ),
+    ] = False,
+    debug: Annotated[
+        bool, typer.Option("--debug", help="Show Python tracebacks for errors.")
+    ] = False,
     out: Annotated[Path, typer.Option(help="Directory for run outputs.")] = Path("runs"),
 ) -> None:
     """Run the agent: the model proposes, Holdout's code validates, audits and decides."""
     configure_tracing(console=trace)
     asker = RichAsker() if sys.stdin.isatty() else None
+    progress = (
+        LineProgress(lambda line: console.print(line, markup=False, highlight=False))
+        if verbose
+        else None
+    )
     try:
         if resume is not None:
             outcome = resume_agent(
-                out / resume, mode="autopilot" if autopilot else None, asker=asker
+                out / resume,
+                mode="autopilot" if autopilot else None,
+                model=model,
+                asker=asker,
+                progress=progress,
             )
         else:
             if csv is None or target is None:
@@ -197,15 +225,22 @@ def agent(
                 offline=offline,
                 eda=eda,
                 use_cache=not no_cache,
+                model=model,
             )
-            outcome = run_agent(options, asker=asker)
+            outcome = run_agent(options, asker=asker, progress=progress)
     except HoldoutError as exc:
-        console.print(f"[red]error:[/red] {exc}")
-        raise typer.Exit(code=2) from exc
+        if debug:
+            raise
+        console.print(f"[red]error:[/red] {exc}", markup=True, highlight=False)
+        raise typer.Exit(code=2) from None
     raise typer.Exit(code=_report(outcome))
 
 
 def _report(outcome: AgentOutcome) -> int:
+    if outcome.status == PAUSED_LLM and outcome.paused is not None:
+        console.print("LLM unavailable - run paused.", style="bold yellow", highlight=False)
+        console.print(outcome.paused.message, markup=False, highlight=False)
+        return EXIT_LLM_UNAVAILABLE
     if outcome.status == "paused":
         kind = (outcome.pending or {}).get("kind", "?")
         console.print(
@@ -223,8 +258,9 @@ def _report(outcome: AgentOutcome) -> int:
     record = manifest.agent
     if record is not None:
         console.print(
-            f"agent: {record.mode}, model {record.model or 'none (offline)'}, "
-            f"Rs {record.total_inr:.2f}, {record.cache_hits} cached, "
+            f"agent: {record.mode}, model {record.model or 'none (offline)'}"
+            f"{' (--model)' if record.model_overridden else ''}, "
+            f"Rs {record.total_inr:.2f}, {record.cache_hits} cached, {record.retries} retries, "
             f"{len(record.substitutions)} substitution(s); stop: {record.stop_reason}"
         )
     code = 0

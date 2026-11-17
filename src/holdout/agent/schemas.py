@@ -93,6 +93,18 @@ class NodeUsage(_Strict):
     output_tokens: int
     thinking_tokens: int
     inr: float
+    #: Transient failures retried (429 / 5xx / timeouts); they cost no tokens.
+    retries: int = 0
+
+
+class LLMOutage(_Strict):
+    """The run paused because the LLM stayed unavailable after every retry."""
+
+    node: str
+    status: int | None = Field(description="last HTTP status; None for a timeout")
+    retries: int
+    at: str = Field(description="UTC ISO time the run paused")
+    message: str
 
 
 class SandboxResult(_Strict):
@@ -109,6 +121,9 @@ class AgentRecord(_Strict):
     offline: bool
     llm_client: str = Field(description="client class, e.g. GeminiClient, FakeLLM, none")
     model: str | None
+    model_overridden: bool = Field(
+        default=False, description="--model replaced the configured model for this run"
+    )
     model_verified: bool
     seed_passed_to_model: bool
     thinking_level: str | None
@@ -117,6 +132,10 @@ class AgentRecord(_Strict):
     usage_by_node: dict[str, NodeUsage]
     total_inr: float
     cache_hits: int
+    retries: int = 0
+    outages: list[LLMOutage] = Field(
+        default_factory=list, description="pauses for LLM unavailability before resuming"
+    )
     run_cap_inr: float
     project_cap_inr: float
     budget_stop: str | None
