@@ -39,10 +39,14 @@ from holdout.agent.planner import (
 )
 from holdout.agent.report import placeholder_values
 from holdout.agent.schemas import (
+    QUALITY_NODES,
     AgentRecord,
     Decision,
+    FirstAttempt,
     LLMOutage,
+    LLMQuality,
     NodeUsage,
+    RejectedAttempt,
     RoundRecord,
     SandboxResult,
     Substitution,
@@ -699,6 +703,8 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
         total_inr=sum(c["inr"] for c in spent_calls),
         cache_hits=sum(bool(c["cache_hit"]) for c in spent_calls),
         retries=sum(int(c.get("retries", 0)) for c in spent_calls),
+        quality=None if session is None else llm_quality(spent_calls, len(substitutions)),
+        rejected_attempts=rejected_attempts(spent_calls),
         outages=[LLMOutage.model_validate(o) for o in deps.outages],
         run_cap_inr=session.budget.run_cap_inr if session is not None else llm_config.RUN_CAP_INR,
         project_cap_inr=(
@@ -768,6 +774,45 @@ def _with_causal_check(report: AuditReport, causal: list[AuditFlag], *, ran: boo
         for r in report.checks_run
     ]
     return report.model_copy(update={"flags": [*report.flags, *causal], "checks_run": runs})
+
+
+def llm_quality(calls: list[dict[str, Any]], substitutions: int) -> LLMQuality:
+    """First-attempt validity per node, repairs and substitutions, from the call records.
+
+    A first attempt is an answer to a fresh request (``attempt == 1``); cache hits replay an
+    earlier answer and failed calls (unavailable, billing) got no answer, so neither is
+    scored. Valid means it passed the schema and every code check of that node.
+    """
+    answered = [c for c in calls if not c.get("cache_hit") and not c.get("failed", False)]
+    first_attempt = {}
+    for node in QUALITY_NODES:
+        firsts = [c for c in answered if c["node"] == node and c["attempt"] == 1]
+        valid = sum(bool(c["valid"]) for c in firsts)
+        first_attempt[node] = FirstAttempt(
+            first_attempts=len(firsts),
+            valid=valid,
+            rate=valid / len(firsts) if firsts else None,
+        )
+    return LLMQuality(
+        first_attempt=first_attempt,
+        repairs=sum(c["attempt"] == 2 for c in answered),
+        substitutions=substitutions,
+    )
+
+
+def rejected_attempts(calls: list[dict[str, Any]]) -> list[RejectedAttempt]:
+    return [
+        RejectedAttempt(
+            node=c["node"],
+            prompt=c["prompt_name"],
+            prompt_version=c["prompt_version"],
+            attempt=c["attempt"],
+            errors=list(c["errors"]),
+            text=c.get("rejected_text"),
+        )
+        for c in calls
+        if not c["valid"] and not c.get("failed", False) and not c.get("cache_hit")
+    ]
 
 
 def usage_by_node(calls: list[dict[str, Any]]) -> dict[str, NodeUsage]:

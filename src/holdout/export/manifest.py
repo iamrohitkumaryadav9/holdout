@@ -339,6 +339,8 @@ def _agent_section(agent: AgentRecord) -> list[str]:
         f"- **Substitutions:** {len(agent.substitutions)} (fixes applied by code because the "
         "model's integrated plan or report missed them; not credited to the model)",
     ]
+    if agent.quality is not None:
+        lines.append(f"- **Answer quality:** {quality_line(agent)}")
     if agent.model_overridden:
         lines.append(f"- **Model override:** `{model}` was chosen with --model for this run")
     for outage in agent.outages:
@@ -373,6 +375,19 @@ def _agent_section(agent: AgentRecord) -> list[str]:
             if items:
                 lines += [f"**{title}**", ""] + [f"- {item}" for item in items] + [""]
     return lines
+
+
+def quality_line(agent: AgentRecord) -> str:
+    """'plan 1/1, explain_and_fix 0/0, report 1/1 valid at first attempt; 0 repairs; ...'"""
+    if agent.quality is None:
+        return "n/a (offline)"
+    q = agent.quality
+    firsts = ", ".join(
+        f"{node} {f.valid}/{f.first_attempts}" for node, f in q.first_attempt.items()
+    )
+    return (
+        f"{firsts} valid at first attempt; {q.repairs} repair(s); {q.substitutions} substitution(s)"
+    )
 
 
 def _cell(text: str) -> str:

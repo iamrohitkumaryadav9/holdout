@@ -112,6 +112,37 @@ class LLMOutage(_Strict):
     message: str
 
 
+#: Nodes whose LLM answers are scored for first-attempt validity.
+QUALITY_NODES = ("plan", "explain_and_fix", "report")
+
+
+class FirstAttempt(_Strict):
+    """How often a node's first answer passed every check (schema and code checks)."""
+
+    first_attempts: int = Field(description="model answers to a fresh request (no cache hits)")
+    valid: int
+    rate: float | None = Field(description="valid / first_attempts; None when no attempts")
+
+
+class RejectedAttempt(_Strict):
+    """A model answer that failed validation, kept for diagnosis (text truncated)."""
+
+    node: str
+    prompt: str
+    prompt_version: str
+    attempt: int
+    errors: list[str]
+    text: str | None
+
+
+class LLMQuality(_Strict):
+    """First-class answer-quality metrics per run (aggregated by the benchmark)."""
+
+    first_attempt: dict[str, FirstAttempt] = Field(description="per node: plan, explain, report")
+    repairs: int = Field(description="repair requests sent (a first answer failed a check)")
+    substitutions: int = Field(description="fixes applied by code instead of the model")
+
+
 class SandboxResult(_Strict):
     purpose: str
     status: Literal["ok", "rejected", "timeout", "memory", "error"]
@@ -138,6 +169,8 @@ class AgentRecord(_Strict):
     total_inr: float
     cache_hits: int
     retries: int = 0
+    quality: LLMQuality | None = Field(default=None, description="None for offline runs")
+    rejected_attempts: list[RejectedAttempt] = Field(default_factory=list)
     outages: list[LLMOutage] = Field(
         default_factory=list, description="pauses for LLM unavailability before resuming"
     )

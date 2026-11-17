@@ -40,6 +40,7 @@ from holdout.core.errors import (
     LLMRequestError,
     LLMUnavailableError,
 )
+from holdout.export.manifest import quality_line
 from holdout.llm import config
 from holdout.llm.client import GeminiClient
 from holdout.llm.progress import LineProgress
@@ -192,6 +193,11 @@ def _print(label: str, outcome: AgentOutcome, seconds: float, leaked: str | None
         f"   total Rs {agent.total_inr:.3f}; cache hits {agent.cache_hits}; "
         f"substitutions {len(agent.substitutions)}"
     )
+    print(f"   quality: {quality_line(agent)}")
+    for rejected in agent.rejected_attempts:
+        print(
+            f"   rejected {rejected.node} attempt {rejected.attempt}: {'; '.join(rejected.errors)}"
+        )
     holdout = (
         manifest.holdout if isinstance(manifest.holdout, str) else f"{manifest.holdout.score:.4f}"
     )
