@@ -1,0 +1,352 @@
+# Benchmark dataset registry (Week 4). Every OpenML dataset the benchmark uses.
+#
+# - md5 is OpenML's checksum of its ARFF file (provenance only); the parquet file the loader
+#   uses is pinned by sha256, verified on every load (bench/data/openml.py).
+# - Files are downloaded once to ~/.holdout/datasets/<id>-v<version>.pq and then used offline.
+# - Pools are disjoint (tests/unit/bench/test_data_registry.py):
+#     dev        - threshold and prompt tuning, the dev suite, the pilot;
+#     final      - bases for the frozen planted-trap suite;
+#     real_world - the real-world suite (external ground truth); never a trap base.
+# - Base screen for dev/final (system-independent, applied before any system ran on them):
+#   binary classification or regression, under 1% exact duplicate feature rows, not known to
+#   be time-ordered. Excluded after screening: spambase (8.6% duplicates), kc1 (43%), pc4
+#   (7.9%), blood-transfusion (33%), wine_quality (18%), ilpd (2.2%), PhishingWebsites (48%),
+#   nomao (7.0%), banknote-authentication (1.8%), ozone-level-8hr (a daily time series).
+# - Dev/final bases drop their remaining exact duplicate feature rows and are shuffled with
+#   a base-specific seed: many OpenML files are sorted by class (lag-1 autocorrelation of
+#   the target in file order: MagicTelescope z=125, spambase 82, wilt 55, qsar-biodeg 29,
+#   credit-approval 21), and the planted trap must be the only structure in a trap base.
+#   Real-world datasets are used exactly as distributed (their order is part of the case).
+# - Large datasets are subsampled to at most 50,000 rows, deterministically (see each entry).
+[[dataset]]
+name = "adult"
+openml_id = 1590
+version = 2
+pool = "dev"
+target = "class"
+task = "classification"
+licence = "Public"
+rows = 48842
+md5 = "bb6510925e5d4b23d136715febb2cdf5"
+sha256 = "01f7570bc4c800d473e9381615e6a5b0eca53900196bbf9f751439545c909263"
+parquet_url = "https://data.openml.org/datasets/0000/1590/dataset_1590.pq"
+deduplicate = true
+shuffle_seed = 1590
+
+[[dataset]]
+name = "credit_approval"
+openml_id = 29
+version = 1
+pool = "dev"
+target = "class"
+task = "classification"
+licence = "Public"
+rows = 690
+md5 = "a948be968270a823fce432227c1aa36e"
+sha256 = "8bff33cb729a53ce1f3f8095b84b79a4a14efea4feb0bca4e17099b460ca12a9"
+parquet_url = "https://data.openml.org/datasets/0000/0029/dataset_29.pq"
+deduplicate = true
+shuffle_seed = 29
+
+[[dataset]]
+name = "kin8nm"
+openml_id = 189
+version = 1
+pool = "dev"
+target = "y"
+task = "regression"
+licence = "Public"
+rows = 8192
+md5 = "b36414070701ab8bc985104c3ebd9b77"
+sha256 = "f5a5a1ac2fba8ff5364671fa2cce2441220840166b81a54fc0bf37eded060a75"
+parquet_url = "https://data.openml.org/datasets/0000/0189/dataset_189.pq"
+deduplicate = true
+shuffle_seed = 189
+
+[[dataset]]
+name = "qsar_biodeg"
+openml_id = 1494
+version = 1
+pool = "final"
+target = "Class"
+task = "classification"
+licence = "Public"
+rows = 1055
+md5 = "a2c189cd65511103fa540d7186155c24"
+sha256 = "f05e986f475346d3142dcac8a22ccbcf0c63666517e9f5ce7cded692ca2df7d3"
+parquet_url = "https://data.openml.org/datasets/0000/1494/dataset_1494.pq"
+deduplicate = true
+shuffle_seed = 1494
+
+[[dataset]]
+name = "wilt"
+openml_id = 40983
+version = 2
+pool = "final"
+target = "class"
+task = "classification"
+licence = "Public"
+rows = 4839
+md5 = "aa7c0aaf3fd671f06bbf6a68be4754f7"
+sha256 = "382052803b0b6c7746231791bea569ba841d4538735f97ac685d3f0dfd410a70"
+parquet_url = "https://data.openml.org/datasets/0004/40983/dataset_40983.pq"
+deduplicate = true
+shuffle_seed = 40983
+
+[[dataset]]
+name = "magic_telescope"
+openml_id = 1120
+version = 1
+pool = "final"
+target = "class:"
+task = "classification"
+licence = "Public"
+rows = 19020
+md5 = "f6dee76810bd7211716fee7b2b0317cb"
+sha256 = "2f697b3e6b4ebd90db3c3f242da1cc434918686999e8e5a705138ecbd68ba5a7"
+parquet_url = "https://data.openml.org/datasets/0000/1120/dataset_1120.pq"
+drop_columns = ["ID"]
+note = "OpenML marks 'ID' as the row-id attribute; it is removed"
+deduplicate = true
+shuffle_seed = 1120
+
+[[dataset]]
+name = "steel_plates_fault"
+openml_id = 1504
+version = 1
+pool = "final"
+target = "Class"
+task = "classification"
+licence = "Public"
+rows = 1941
+md5 = "7917ace4246897272fc35e17131f1b38"
+sha256 = "e38686fee6cb3d21d756dbd68353ea6b4df7eec8de26056186c6886d2fbb078c"
+parquet_url = "https://data.openml.org/datasets/0000/1504/dataset_1504.pq"
+deduplicate = true
+shuffle_seed = 1504
+
+[[dataset]]
+name = "credit_card_default"
+openml_id = 42477
+version = 1
+pool = "final"
+target = "y"
+task = "classification"
+licence = "CC0"
+rows = 30000
+md5 = "4efbcc48d388c8cff428950006198b4e"
+sha256 = "07d788ff41012cdf03d6b9d7471aaf4d446431f3a0aa960f5ddcda97c9fa37c0"
+parquet_url = "https://data.openml.org/datasets/0004/42477/dataset_42477.pq"
+drop_columns = ["id"]
+note = "OpenML marks 'id' as the row-id attribute; it is removed"
+deduplicate = true
+shuffle_seed = 42477
+
+[[dataset]]
+name = "telco_churn"
+openml_id = 40701
+version = 1
+pool = "final"
+target = "class"
+task = "classification"
+licence = "public"
+rows = 5000
+md5 = "607c0c779ce118bcd68b7668b01582c2"
+sha256 = "88e0922fd98825cd4a1fc7acb8a9a7730d9b30aac7c6c3418f77b3c42cbfd89b"
+parquet_url = "https://data.openml.org/datasets/0004/40701/dataset_40701.pq"
+deduplicate = true
+shuffle_seed = 40701
+
+[[dataset]]
+name = "pol"
+openml_id = 722
+version = 2
+pool = "final"
+target = "binaryClass"
+task = "classification"
+licence = "Public"
+rows = 15000
+md5 = "8628cbca40de295c1c091dedf78c0be3"
+sha256 = "febc7f247f03b62e23786e4db9a48a319706b88e0871420b5a7c668fc941afc5"
+parquet_url = "https://data.openml.org/datasets/0000/0722/dataset_722.pq"
+deduplicate = true
+shuffle_seed = 722
+
+[[dataset]]
+name = "cpu_act"
+openml_id = 197
+version = 1
+pool = "final"
+target = "usr"
+task = "regression"
+licence = "Public"
+rows = 8192
+md5 = "c48cbb08c17633f2db3a78633301c81b"
+sha256 = "c5c039e21376bd6745c78f393cda20963e4d01af4f3c7f5a81f00ca6d4b89637"
+parquet_url = "https://data.openml.org/datasets/0000/0197/dataset_197.pq"
+deduplicate = true
+shuffle_seed = 197
+
+[[dataset]]
+name = "house_16h"
+openml_id = 574
+version = 1
+pool = "final"
+target = "price"
+task = "regression"
+licence = "Public"
+rows = 22784
+md5 = "f91f984acadd75e0c1400aaadcb94c35"
+sha256 = "777ed53ab24d5a5d2e0c5a7779207218529f1a24f95a988c53b4423c5c88b9c3"
+parquet_url = "https://data.openml.org/datasets/0000/0574/dataset_574.pq"
+deduplicate = true
+shuffle_seed = 574
+
+[[dataset]]
+name = "puma32h"
+openml_id = 308
+version = 1
+pool = "final"
+target = "thetadd6"
+task = "regression"
+licence = "Public"
+rows = 8192
+md5 = "c87105b84694de8a4e1c6884fc044951"
+sha256 = "cb88713309102fca249d05f6e2b3164bd24a2b0f7a3f39725b9228cc1fc3bc7a"
+parquet_url = "https://data.openml.org/datasets/0000/0308/dataset_308.pq"
+deduplicate = true
+shuffle_seed = 308
+
+[[dataset]]
+name = "bank_marketing_additional"
+openml_id = 42813
+version = 1
+pool = "real_world"
+target = "y"
+task = "classification"
+licence = "CC0"
+rows = 41188
+md5 = "18f702d3f05554cba063f68ceaed542a"
+sha256 = "4cce23f4a1b50f842970cdbf25716869ed97a1fcb54a5766a2ef74774241b812"
+parquet_url = "https://data.openml.org/datasets/0004/42813/dataset_42813.pq"
+note = "UCI bank-additional-full.csv (Moro, Rita and Cortez 2014, doi:10.24432/C5K306, CC BY 4.0); OpenML records no target, so 'y' is set here. Verified identical to the UCI file (values and row order) on 2026-11-18."
+
+[[dataset]]
+name = "titanic"
+openml_id = 40945
+version = 1
+pool = "real_world"
+target = "survived"
+task = "classification"
+licence = "Public"
+rows = 1309
+md5 = "60ac7205eee0ba5045c90b3bba95b1c4"
+sha256 = "4d90e8113109d4cb6e765285f49fa0867006e38e6e848478384291c9036b8bb3"
+parquet_url = "https://data.openml.org/datasets/0004/40945/dataset_40945.pq"
+
+[[dataset]]
+name = "diabetes_130us"
+openml_id = 4541
+version = 1
+pool = "real_world"
+target = "readmitted"
+task = "classification"
+licence = "Public"
+rows = 101766
+md5 = "6608dee4fb68f6bdb8abdf4135d56330"
+sha256 = "683805487812449c42e8f311806e831d39e817d6353da2a3ca71b3770aa693ba"
+parquet_url = "https://data.openml.org/datasets/0000/4541/dataset_4541.pq"
+positive_labels = ["<30"]
+target_note = "readmitted within 30 days = 1; readmitted after 30 days or not readmitted = 0, as in Strack et al. 2014 (doi:10.1155/2014/781670)"
+note = "101,766 encounters of 71,518 patients; subsample keeps whole patients (patient_nbr), seed 0"
+
+[dataset.subsample]
+method = "groups"
+group_column = "patient_nbr"
+max_rows = 50000
+seed = 0
+
+[[dataset]]
+name = "electricity"
+openml_id = 151
+version = 1
+pool = "real_world"
+target = "class"
+task = "classification"
+licence = "Public"
+rows = 45312
+md5 = "8ca97867d960ae029ae3a9ac2c923d34"
+sha256 = "b51cffb5e05c5d0849af5156b4ca3a3cab8d837008f0723f7b136bd162c25c79"
+parquet_url = "https://data.openml.org/datasets/0000/0151/dataset_151.pq"
+
+[[dataset]]
+name = "covertype_moa"
+openml_id = 150
+version = 3
+pool = "real_world"
+target = "class"
+task = "classification"
+licence = "Public"
+rows = 581012
+md5 = "9aed5f745bd2f9bea46e1622e9d5a5f3"
+sha256 = "59f3d8b593c25687acce7f9b0af67603013797047eeae414415f381abd717629"
+parquet_url = "https://data.openml.org/datasets/0000/0150/dataset_150.pq"
+note = "MOA-normalised covertype (OpenML description: 'Normalized version ... Source: MOA, Albert Bifet'); the first 50,000 rows in file order keep the original ordering"
+
+[dataset.subsample]
+method = "contiguous"
+max_rows = 50000
+
+[[dataset]]
+name = "mushroom"
+openml_id = 24
+version = 1
+pool = "real_world"
+target = "class"
+task = "classification"
+licence = "Public"
+rows = 8124
+md5 = "c8e898e453167e76d617eff67d198579"
+sha256 = "fcec88801f0566ce423e12d0d902b559bc8da96ef035b915170b2509cc5b189f"
+parquet_url = "https://data.openml.org/datasets/0000/0024/dataset_24.pq"
+
+[[dataset]]
+name = "credit_g"
+openml_id = 31
+version = 1
+pool = "real_world"
+target = "class"
+task = "classification"
+licence = "Public"
+rows = 1000
+md5 = "9a475053fed0c26ee95cd4525e50074c"
+sha256 = "5855869a10f25163c983e29b48bd11d5c3b2bddebe53cd305573083d23c8078f"
+parquet_url = "https://data.openml.org/datasets/0000/0031/dataset_31.pq"
+
+[[dataset]]
+name = "kr_vs_kp"
+openml_id = 3
+version = 1
+pool = "real_world"
+target = "class"
+task = "classification"
+licence = "Public"
+rows = 3196
+md5 = "ad6eb32b7492524d4382a40e23cdbb8e"
+sha256 = "f1fcae85ccef273e8c7b4c98dd61ef80041a13da865d60a09ba5da3905633d20"
+parquet_url = "https://data.openml.org/datasets/0000/0003/dataset_3.pq"
+
+[[dataset]]
+name = "abalone"
+openml_id = 183
+version = 1
+pool = "real_world"
+target = "Class_number_of_rings"
+task = "regression"
+licence = "Public"
+rows = 4177
+md5 = "a9555b1cfe39eb55df2c520f09172a96"
+sha256 = "ca552c60ef30b8268ddc5220fe8ace613fa8452b371907aafa5f27785ba1ef63"
+parquet_url = "https://data.openml.org/datasets/0000/0183/dataset_183.pq"
+numeric_target = true
+target_note = "OpenML stores the ring count as a 28-level nominal; it is cast to an integer for regression (age = rings + 1.5 years, per the dataset notes)"
