@@ -89,10 +89,10 @@ PRICE_TABLE: Final[dict[str, tuple[Price, ...]]] = {
         Price(date(2026, 1, 1), 0.75, 3.75),
         Price(date(2027, 1, 1), 1.50, 7.50),
     ),
-    # Alternatives for ``--model`` (same pricing page, same day). No price change is
-    # announced for these; add a dated entry here when one is.
+    # Alternative for ``--model`` (same pricing page, same day). No price change is
+    # announced; add a dated entry here when one is. (gemini-3-flash-preview was removed: it
+    # returns 404 for this project's key, so it cannot be pinged or used.)
     "gemini-3.6-flash": (Price(date(2026, 1, 1), 0.75, 3.75),),
-    "gemini-3-flash-preview": (Price(date(2026, 1, 1), 0.50, 3.00),),
 }
 
 
