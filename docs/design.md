@@ -248,6 +248,72 @@ word OK" request per priced model. Each request has a 30 s timeout, exactly one 
 `max_output_tokens=256`, which leaves room for low-level thinking. It goes through the same
 caps and ledger.
 
+**Lessons from the first paid smoke runs (2026-11-17, gemini-3.8-flash).** Both runs
+passed. The leak was caught and removed, and the runs cost Rs 0.75 and Rs 1.51. The
+manifests and checkpoints still showed three problems. They were diagnosed from the saved
+call records before any new API call:
+
+1. **Every plan needed a repair.** The first plans used model tags that do not exist:
+   `"HistGradientBoostingClassifier"` (churn) and `"hist_gradient_boosting"` (trap) instead
+   of `hist_gb`. That was the only validation error recorded for each.
+   - *Cause:* Pydantic writes the tagged model union as `oneOf` + `discriminator`, with each
+     tag as a `const`. Gemini's structured output documents a JSON-Schema subset (`anyOf`,
+     `enum`, `$ref`, bounds, ...), and those three keywords are not in it. So nothing told
+     the model the exact spellings, and it guessed.
+   - *Fix:* the schema sent to the model (`llm_schema`) is rewritten into the documented
+     subset: `oneOf` becomes `anyOf`, `const` becomes a one-value `enum`, and
+     `discriminator` is dropped. These are equivalent, because the tags are disjoint.
+   - Each tag and the union carry descriptions with the exact spellings.
+   - The plan prompt (v2) lists every allowed value and bound and gives one valid example
+     plan. Tests tie the prompt's lists to the enums and validate the example.
+   - Validation is unchanged: answers are still checked against the full Pydantic model.
+2. **The trap's report took three calls.** The first draft was valid, but A11 flagged one
+   sentence: "On the independent holdout set, the model achieved a score of 0.7221,
+   resulting in an optimism gap of -0.0619." The rewrite request said only "remove the
+   causal claims", and both rewrites were rejected. *What was wrong:* mainly A11 itself.
+   - "Resulting in an optimism gap" is arithmetic on the run's own statistics, not a claim
+     that something in the data causes something. A11 now ignores a causal verb (causes,
+     leads to, drives, results in) whose object, up to the end of its clause, names one of
+     the run's evaluation statistics (score, gap, AUC, F1, RMSE, metric, baseline, fold).
+     The object stops at the clause, so "leads to higher conversion, improving the score"
+     is still flagged. "Because of" and "the effect of X on Y" are never exempt. The word
+     list deliberately leaves out outcome words of a domain (churn, conversion, sales).
+     Tests pin both the exemptions and the claims that must still be flagged.
+   - The feedback was also too vague to act on. Causal problems are now part of the
+     report's check, so they go through the one standard repair, and the repair quotes each
+     flagged sentence and the exact trigger words.
+   - The report prompt (v2) asks for neutral verbs even when describing numbers. A report
+     now takes at most two calls.
+   - The deterministic strip still applies when only causal wording survives the repair.
+     A draft with typed numbers or missing flags after the repair still fails the run.
+3. **The substitution was not in explain_and_fix.** The trap's `explain_fix` answer passed
+   every check at the first attempt; its revised plan dropped `refund_issued`, and the
+   round's `plan_source` is `llm`. The one substitution was the report fallback from point
+   2 (`missed_fixes: remove_causal_claim`). The explain_fix prompt (v2) was still tightened
+   as asked: each code-decided fix is stated as an explicit, numbered constraint
+   (`revised_plan.drop_columns MUST contain ...`, `revised_plan.metric MUST be ...`, plus
+   the allowed model tags), and the model is told to check its plan against each one.
+4. **The raw rejected answers had not been kept.** Only valid answers were cached, so the
+   offending JSON had to be reconstructed for the regression fixtures (see
+   `tests/fixtures/smoke_2026_11_17/README.md`). Every rejected answer is now kept in the
+   manifest (`agent.rejected_attempts`: node, prompt version, attempt, errors, first 4,000
+   characters of the text).
+5. **One check per node.** A plan's data-aware validation (`plan_errors`) is now part of
+   the session's check, instead of a second planner-level request. Any problem therefore
+   gets exactly one repair, and "valid at the first attempt" means valid by every check.
+
+**Answer-quality metrics.** Each run's manifest records `agent.quality`:
+
+- first-attempt validity per node (`plan`, `explain_and_fix`, `report`): answers to fresh
+  requests that passed the schema and every code check of the node, out of all such
+  answers;
+- repairs per run;
+- substitutions per run.
+
+Cache hits replay an earlier answer and failed calls (unavailable, billing) got none, so
+neither is scored. `report.md` prints these as "Answer quality", and the Week 4 benchmark
+aggregates them.
+
 **EDA sandbox.** Optional (`--eda`): up to 4 model-written snippets run on a copy of the
 development rows in a fresh `python -I` process in an empty temporary directory, behind an
 AST allowlist (pandas, numpy, scipy.stats, matplotlib), a runtime import guard and pruned
