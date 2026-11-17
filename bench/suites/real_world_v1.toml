@@ -1,0 +1,259 @@
+# Real-world suite v1: external ground truth, frozen BEFORE any benchmark system ran on it.
+#
+# Every scored issue has a citation that was checked against an accessible source on
+# 2026-11-18 (the quoted text is in `summary`). Nothing here is inferred from running a
+# system. Datasets are in bench/datasets.toml (pool "real_world"), used as distributed.
+#
+# Scoring (bench/score.py):
+# - An issue is DETECTED when a system reports one of `categories` at severity >=
+#   `min_severity`. When `columns` is not empty, the report must also name at least one of
+#   them. Row-order issues have no column (`columns = []`).
+# - `min_severity` is "warning" for every real-world issue: no external source grades how
+#   severe these problems are, so detection means "reported as a problem" (warning or
+#   critical). Critical-level detection is reported as a secondary metric.
+# - `remediation` is what the final pipeline must show for the issue to count as fixed:
+#   drop:COL (the column is not used), split:group:COL, split:time:COL, or split:time:<row>
+#   (a forward split over the row order).
+# - `scored = false` marks a documented issue that no Category fits. It is listed in
+#   reports, never scored.
+# - `secondary = true` marks a documented issue reported in its own row, outside the primary
+#   real-world detection rate.
+# - Clean controls: a critical flag (primary) or any flag above info (secondary) is a false
+#   alarm. Their "believed clean" reason is our judgement from the documented nature of
+#   the rows and attributes, not a claim made by the source.
+#
+# Each case also runs in an ANONYMISED variant (bench/suites/real_world_v1_anonymised.json):
+# columns renamed col_1..col_n in file order, the target renamed "target", and the goal
+# replaced by `anonymised_goal`, which keeps the deployment framing without domain words.
+
+schema_version = 1
+frozen_on = "2026-11-18"
+
+# ----------------------------------------------------------------------------- cases
+
+[[case]]
+id = "bank_marketing"
+dataset = "bank_marketing_additional"
+openml_id = 42813
+openml_version = 1
+target = "y"
+task = "classification"
+kind = "issues"
+goal = "Predict whether a client will subscribe to a term deposit, so the bank can decide whom to call before calling them."
+anonymised_goal = "Predict target for a new row before its outcome is known, so the decision can be made in advance."
+
+[[case.issue]]
+id = "duration_post_outcome"
+categories = ["post_outcome_column", "target_leakage"]
+min_severity = "warning"
+columns = ["duration"]
+remediation = "drop:duration"
+scored = true
+citation_url = "https://archive.ics.uci.edu/static/public/222/bank+marketing.zip"
+citation = "Moro, Rita and Cortez (2014), Bank Marketing, UCI, doi:10.24432/C5K306; file bank-additional/bank-additional-names.txt"
+summary = "UCI's names file: 'the duration is not known before a call is performed. Also, after the end of the call y is obviously known. Thus, this input ... should be discarded if the intention is to have a realistic predictive model.'"
+
+[[case.issue]]
+id = "ordered_by_date"
+categories = ["time_leakage"]
+min_severity = "warning"
+columns = []
+remediation = "split:time:<row>"
+scored = true
+secondary = true
+citation_url = "https://archive.ics.uci.edu/static/public/222/bank+marketing.zip"
+citation = "Moro, Rita and Cortez (2014), Bank Marketing, UCI, doi:10.24432/C5K306; file bank-additional/bank-additional-names.txt"
+summary = "UCI's names file: 'bank-additional-full.csv with all examples, ordered by date (from May 2008 to November 2010)'; the file has no year column, so time is only in the row order."
+
+[[case]]
+id = "titanic"
+dataset = "titanic"
+openml_id = 40945
+openml_version = 1
+target = "survived"
+task = "classification"
+kind = "issues"
+goal = "Predict whether a passenger survived from what was known about them at boarding."
+anonymised_goal = "Predict target from what was known about each row before the outcome."
+
+[[case.issue]]
+id = "boat_post_outcome"
+categories = ["post_outcome_column", "target_leakage"]
+min_severity = "warning"
+columns = ["boat"]
+remediation = "drop:boat"
+scored = true
+citation_url = "https://search.r-project.org/CRAN/refmans/PASWR/html/titanic3.html"
+citation = "titanic3 (Harrell; updated by Thomas Cason from Encyclopedia Titanica), documented in R package PASWR and at hbiostat.org/data/repo/ctitanic3"
+summary = "Data dictionary: boat = 'Lifeboat'. A lifeboat place is assigned during the sinking, after boarding; in the data it is filled for 95% of survivors and 1% of non-survivors."
+
+[[case.issue]]
+id = "body_post_outcome"
+categories = ["post_outcome_column", "target_leakage"]
+min_severity = "warning"
+columns = ["body"]
+remediation = "drop:body"
+scored = true
+citation_url = "https://hbiostat.org/data/repo/ctitanic3"
+citation = "titanic3 data dictionary, Vanderbilt Biostatistics (hbiostat.org); also R package PASWR titanic3"
+summary = "Data dictionary: body = 'Body Identification Number' (1,188 of 1,309 missing). A number given to a recovered body exists only after death; in the data it is filled only for non-survivors."
+
+[[case]]
+id = "diabetes_readmission"
+dataset = "diabetes_130us"
+openml_id = 4541
+openml_version = 1
+target = "readmitted"
+task = "classification"
+kind = "issues"
+entity_scope = "new"
+goal = "Predict whether a hospital encounter of a diabetic patient will be followed by a readmission within 30 days; the model will be used for patients not seen before."
+anonymised_goal = "Predict target for rows of new entities that were not seen before."
+target_note = "binarised as in Strack et al. 2014: readmitted within 30 days = 1, otherwise 0"
+
+[[case.issue]]
+id = "repeated_patients"
+categories = ["group_leakage"]
+min_severity = "warning"
+columns = ["patient_nbr"]
+remediation = "split:group:patient_nbr"
+scored = true
+citation_url = "https://pmc.ncbi.nlm.nih.gov/articles/PMC3996476/"
+citation = "Strack et al. (2014), Impact of HbA1c Measurement on Hospital Readmission Rates, BioMed Research International 2014:781670, doi:10.1155/2014/781670"
+summary = "Encounters repeat per patient (UCI: patient_nbr is the 'Unique identifier of a patient'); Strack et al. 'considered only the first encounter for each patient' so that observations are independent. For new patients a random split over encounters lets a model memorise patients."
+
+[[case.issue]]
+id = "encounter_id_identifier"
+categories = ["id_signal"]
+min_severity = "info"
+columns = ["encounter_id"]
+remediation = "drop:encounter_id"
+scored = true
+citation_url = "https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008"
+citation = "Clore, Cios, DeShazo and Strack (2014), Diabetes 130-US Hospitals for Years 1999-2008, UCI, doi:10.24432/C5230J"
+summary = "UCI variable table: encounter_id is the 'Unique identifier of an encounter'. An identifier must not be a feature; detection means recognising it as an identifier (id_signal at any severity), remediation means it is not used."
+
+[[case.issue]]
+id = "death_makes_readmission_impossible"
+categories = []
+min_severity = "info"
+columns = ["discharge_disposition_id"]
+remediation = ""
+scored = false
+citation_url = "https://pmc.ncbi.nlm.nih.gov/articles/PMC3996476/"
+citation = "Strack et al. (2014), doi:10.1155/2014/781670; code meanings from IDS_mapping.csv in the UCI zip (doi:10.24432/C5230J)"
+summary = "IDS_mapping.csv: discharge_disposition_id 11 = 'Expired', 19-21 = 'Expired ... hospice'. Strack et al. 'removed all encounters that resulted in either discharge to a hospice or patient death, to avoid biasing our analysis'. In the data all 1,652 encounters with codes 11, 19 or 20 are 'NO'. A cohort-definition problem, not leakage (the disposition is known at discharge), so no Category fits: documented, not scored."
+
+[[case]]
+id = "electricity"
+dataset = "electricity"
+openml_id = 151
+openml_version = 1
+target = "class"
+task = "classification"
+kind = "issues"
+goal = "Predict whether the New South Wales electricity price will go up or down, relative to its 24-hour moving average, for future half-hour periods."
+anonymised_goal = "Predict target for future rows; the model will be used on rows that come after the training data."
+
+[[case.issue]]
+id = "temporal_dependence"
+categories = ["time_leakage"]
+min_severity = "warning"
+columns = []
+remediation = "split:time:<row>"
+scored = true
+citation_url = "https://arxiv.org/abs/1301.3524"
+citation = "Zliobaite (2013), How good is the Electricity benchmark for evaluating concept drift adaptation, arXiv:1301.3524"
+summary = "Section 'Testing on the Electricity data': 'the labels are not independent', with 'long consecutive periods of UP'; label autocorrelation peaks every 48 instances; predicting the previous label scores 85.3% against a 57.5% majority baseline. A random split lets a model use neighbouring periods from the future."
+
+[[case]]
+id = "covertype_ordered"
+dataset = "covertype_moa"
+openml_id = 150
+openml_version = 3
+target = "class"
+task = "classification"
+kind = "issues"
+goal = "Predict the forest cover type of the next cells in the data stream (new locations) from cartographic variables."
+anonymised_goal = "Predict target for the next rows in the stream; the model will be used on rows that come after the training data."
+note = "The ordering is spatial, not temporal (Souza et al. 2020, Table 1: ordering 'spatial', details 'not provided'). The goal frames deployment as the next cells of the stream, for which a random split leaks neighbouring cells; for an i.i.d. framing it would not be a problem."
+
+[[case.issue]]
+id = "order_dependence"
+categories = ["time_leakage"]
+min_severity = "warning"
+columns = []
+remediation = "split:time:<row>"
+scored = true
+citation_url = "https://arxiv.org/abs/2005.00113"
+citation = "Souza, dos Reis, Maletzke and Batista (2020), Challenges in Benchmarking Stream Learning Algorithms with Real-world Data, arXiv:2005.00113 (Sections 4.2 and 4.6, Table 1)"
+summary = "Section 4.2: Electricity's temporal-dependence problem also affects 'Forest Covertype': 'the data are probably organized according to the geographical location', so 'neighboring regions are of the same class'; a No-Change baseline reaches 95.07% accuracy."
+
+# ----------------------------------------------------------------------------- clean controls
+
+[[case]]
+id = "mushroom"
+dataset = "mushroom"
+openml_id = 24
+openml_version = 1
+target = "class"
+task = "classification"
+kind = "clean"
+goal = "Predict whether a mushroom is edible or poisonous from its physical characteristics."
+anonymised_goal = "Predict target from the characteristics in each row."
+citation_url = "https://archive.ics.uci.edu/static/public/73/mushroom.zip"
+citation = "Mushroom (1981), UCI, doi:10.24432/C5959T; agaricus-lepiota.names (rules by W. Duch)"
+summary = "The known honest near-perfect predictor: 'odor=NOT(almond.OR.anise.OR.none)' alone gives 98.52% accuracy and four simple rules give 100%. Believed clean (our judgement): every attribute is a physical characteristic observable before the label; no identifiers, no time; 0 duplicate feature rows. The file is sorted (target lag-1 z = 44), which is not time."
+
+[[case]]
+id = "credit_g"
+dataset = "credit_g"
+openml_id = 31
+openml_version = 1
+target = "class"
+task = "classification"
+kind = "clean"
+goal = "Predict whether a credit applicant is a good or a bad credit risk from the application."
+anonymised_goal = "Predict target from the information in each row."
+citation_url = "https://archive.ics.uci.edu/dataset/144/statlog+german+credit+data"
+citation = "Hofmann (1994), Statlog (German Credit Data), UCI, doi:10.24432/C5NC77"
+summary = "'This dataset classifies people described by a set of attributes as good or bad credit risks.' Believed clean (our judgement): the attributes describe the applicant and the requested credit; no identifiers, no time order (target lag-1 z = -0.7), 0 duplicate feature rows."
+
+[[case]]
+id = "kr_vs_kp"
+dataset = "kr_vs_kp"
+openml_id = 3
+openml_version = 1
+target = "class"
+task = "classification"
+kind = "clean"
+goal = "Predict whether White can win a King+Rook versus King+Pawn endgame from the board description."
+anonymised_goal = "Predict target from the description in each row."
+citation_url = "https://archive.ics.uci.edu/dataset/22/chess+king+rook+vs+king+pawn"
+citation = "Shapiro (1983), Chess (King-Rook vs. King-Pawn), UCI, doi:10.24432/C5DK5C"
+summary = "Classes 'White-can-win (won) and White-cannot-win (nowin)' for KRKPA7 positions. Believed clean (our judgement): each row describes a distinct board position and the label is a fact about that position; 0 duplicate feature rows. Replaces phoneme (see the note at the end)."
+
+[[case]]
+id = "abalone"
+dataset = "abalone"
+openml_id = 183
+openml_version = 1
+target = "Class_number_of_rings"
+task = "regression"
+kind = "clean"
+goal = "Predict the number of rings (age) of an abalone from its physical measurements."
+anonymised_goal = "Predict target from the measurements in each row."
+citation_url = "https://archive.ics.uci.edu/dataset/1/abalone"
+citation = "Nash, Sellers, Talbot, Cawthorn and Ford (1994), Abalone, UCI, doi:10.24432/C55C7W"
+summary = "'Predict the age of abalone from physical measurements'; rings + 1.5 gives the age in years. Believed clean (our judgement): measurements of each specimen, no identifiers, 0 duplicate feature rows; the file is partly ordered (target lag-1 z = 14), which is not time."
+
+# ----------------------------------------------------------------------------- not included
+
+# - phoneme (OpenML 1489) was proposed as a clean control and dropped: its documentation
+#   says the 5,404 rows are 'vowels coming from 1809 isolated syllables', so several rows
+#   come from one syllable and recording, a dependence no system can test (no syllable id).
+# - Covertype was kept: OpenML 150 is the MOA-normalised version (description: 'Normalized
+#   version ... Source: MOA, Albert Bifet'), and its file order carries the documented
+#   dependence (target lag-1 z = 906 in file order).
+# - Bank Marketing's date ordering is included as a secondary issue: UCI's names file
+#   states it ('ordered by date (from May 2008 to November 2010)').
