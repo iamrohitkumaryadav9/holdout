@@ -1,0 +1,430 @@
+{
+ "name": "dev_v1",
+ "pool": "dev",
+ "schema_version": 1,
+ "seeds": [
+  11,
+  12
+ ],
+ "tasks": [
+  {
+   "base": "adult",
+   "base_sha256": "01f7570bc4c800d473e9381615e6a5b0eca53900196bbf9f751439545c909263",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 16,
+     "rows": 48785,
+     "sha256": "4930a1fe37aac766560a04125dd36c591fa5fe58d618d93450eb654e752705d1"
+    },
+    "12": {
+     "columns": 16,
+     "rows": 48785,
+     "sha256": "69912aba535360361ad56bb8e040a98c3ced9f43de34c837c5896d12036aa4ae"
+    }
+   },
+   "goal": "predict class",
+   "id": "direct_leak@adult",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "direct_leak",
+   "truth": {
+    "affected_columns": [
+     "refund_issued"
+    ],
+    "expected_category": "target_leakage",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "critical",
+    "trap_type": "direct_leak"
+   }
+  },
+  {
+   "base": "adult",
+   "base_sha256": "01f7570bc4c800d473e9381615e6a5b0eca53900196bbf9f751439545c909263",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 19,
+     "rows": 48785,
+     "sha256": "9248e430952bea3848186b01f867482dffb3fb01d1b68e6a7f5106294022867b"
+    },
+    "12": {
+     "columns": 19,
+     "rows": 48785,
+     "sha256": "a90625c9a77eef1e6cc256ecad2649e3307eafb1849de18952ebbd7f4b07a37d"
+    }
+   },
+   "goal": "predict class",
+   "id": "group_leakage@adult",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "group_leakage",
+   "truth": {
+    "affected_columns": [
+     "account"
+    ],
+    "expected_category": "group_leakage",
+    "expected_remediation": "change_split",
+    "min_expected_severity": "critical",
+    "trap_type": "group_leakage"
+   }
+  },
+  {
+   "base": "adult",
+   "base_sha256": "01f7570bc4c800d473e9381615e6a5b0eca53900196bbf9f751439545c909263",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 15,
+     "rows": 38653,
+     "sha256": "638ee1ed6eb7245ff758a8789a6a16d5d70ffbaab9953333437f4f6fe323d43c"
+    },
+    "12": {
+     "columns": 15,
+     "rows": 38653,
+     "sha256": "be4a79af6196a7117942bdd9d46a689069137882d8929a6daad5b4716fe19169"
+    }
+   },
+   "goal": "Maximise accuracy at predicting class.",
+   "id": "imbalance_accuracy@adult",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {
+    "metric": "accuracy"
+   },
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "imbalance_accuracy",
+   "truth": {
+    "affected_columns": [
+     "class"
+    ],
+    "expected_category": "metric_mismatch",
+    "expected_remediation": "change_metric",
+    "min_expected_severity": "critical",
+    "trap_type": "imbalance_accuracy"
+   }
+  },
+  {
+   "base": "adult",
+   "base_sha256": "01f7570bc4c800d473e9381615e6a5b0eca53900196bbf9f751439545c909263",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 15,
+     "rows": 48785,
+     "sha256": "a263cbb039410a66cb65db0cd4555731b6ac0fea940faf1b9d1e22234e1a4eda"
+    },
+    "12": {
+     "columns": 15,
+     "rows": 48785,
+     "sha256": "268f67e10b93e0ecebddc39a107ba55a98bb9ce815819a72156007f67c235d06"
+    }
+   },
+   "goal": "predict class",
+   "id": "time_order@adult",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": true,
+   "target": "class",
+   "task": "classification",
+   "trap": "time_order",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "time_leakage",
+    "expected_remediation": "change_split",
+    "min_expected_severity": "critical",
+    "trap_type": "time_order"
+   }
+  },
+  {
+   "base": "credit_approval",
+   "base_sha256": "8bff33cb729a53ce1f3f8095b84b79a4a14efea4feb0bca4e17099b460ca12a9",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 17,
+     "rows": 690,
+     "sha256": "a8b3b46a6a03ec2fd0f1a3b64426c71f93953b32b9e2aaa1c696801875451d40"
+    },
+    "12": {
+     "columns": 17,
+     "rows": 690,
+     "sha256": "498a967520f7c2cf327cd8c864347dee48ad19b6e6c4cab23c076bdd2d392695"
+    }
+   },
+   "goal": "predict class",
+   "id": "id_with_signal@credit_approval",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "id_with_signal",
+   "truth": {
+    "affected_columns": [
+     "record_number"
+    ],
+    "expected_category": "id_signal",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "critical",
+    "trap_type": "id_with_signal"
+   }
+  },
+  {
+   "base": "credit_approval",
+   "base_sha256": "8bff33cb729a53ce1f3f8095b84b79a4a14efea4feb0bca4e17099b460ca12a9",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 16,
+     "rows": 690,
+     "sha256": "6831ecb14cc8f2810831a118d93fd434cf7dfe61ff140ef32aa56ac3a280407c"
+    },
+    "12": {
+     "columns": 16,
+     "rows": 690,
+     "sha256": "f9109b6599be59309e0acfe69b1eeb86a7cafc0cccaf4347c47b4693110bdfdd"
+    }
+   },
+   "goal": "predict class",
+   "id": "messy_formats@credit_approval",
+   "kind": "trap",
+   "params": {
+    "category_column": "A1",
+    "decimals": 2,
+    "numeric_column": "A2",
+    "sentinel_column": "A15"
+   },
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "messy_formats",
+   "truth": {
+    "affected_columns": [
+     "A2",
+     "A1",
+     "A15"
+    ],
+    "expected_category": "format_issue",
+    "expected_remediation": "clean_formats",
+    "min_expected_severity": "warning",
+    "trap_type": "messy_formats"
+   }
+  },
+  {
+   "base": "credit_approval",
+   "base_sha256": "8bff33cb729a53ce1f3f8095b84b79a4a14efea4feb0bca4e17099b460ca12a9",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 16,
+     "rows": 690,
+     "sha256": "02c14ed8b481d513f60fb93acdd86e8c0491e4e90b25e4bc42d2e245414b4689"
+    },
+    "12": {
+     "columns": 16,
+     "rows": 690,
+     "sha256": "02c14ed8b481d513f60fb93acdd86e8c0491e4e90b25e4bc42d2e245414b4689"
+    }
+   },
+   "goal": "Does A11 cause class?",
+   "id": "causal_question@credit_approval",
+   "kind": "trap",
+   "params": {
+    "goal": "Does A11 cause class?"
+   },
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "causal_question",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "causal_claim",
+    "expected_remediation": "remove_causal_claim",
+    "min_expected_severity": "warning",
+    "trap_type": "causal_question"
+   }
+  },
+  {
+   "base": "kin8nm",
+   "base_sha256": "f5a5a1ac2fba8ff5364671fa2cce2441220840166b81a54fc0bf37eded060a75",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 10,
+     "rows": 8192,
+     "sha256": "39d0842e8ef353b16d352dae3a68ee543fe12915176c6b7cb0e03f98e2ba215c"
+    },
+    "12": {
+     "columns": 10,
+     "rows": 8192,
+     "sha256": "3e5694eea6d0e3f660039e084d20b629f91abed40e7728167f7f05d245a7e817"
+    }
+   },
+   "goal": "predict y",
+   "id": "noisy_proxy@kin8nm",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "y",
+   "task": "regression",
+   "trap": "noisy_proxy",
+   "truth": {
+    "affected_columns": [
+     "signal_strength"
+    ],
+    "expected_category": "target_leakage",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "warning",
+    "trap_type": "noisy_proxy"
+   }
+  },
+  {
+   "base": "kin8nm",
+   "base_sha256": "f5a5a1ac2fba8ff5364671fa2cce2441220840166b81a54fc0bf37eded060a75",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 9,
+     "rows": 9421,
+     "sha256": "261d16ac3b9879c08c59979b7efa8e1dc0ae17a109b038d775174661b33d9697"
+    },
+    "12": {
+     "columns": 9,
+     "rows": 9421,
+     "sha256": "efba0b3115cae0c6556ecc2e56dcc1a8b3bbf2b1b59edc5dc7b65b846d0302c0"
+    }
+   },
+   "goal": "predict y",
+   "id": "cross_split_duplicates@kin8nm",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "y",
+   "task": "regression",
+   "trap": "cross_split_duplicates",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "duplicate_rows",
+    "expected_remediation": "deduplicate",
+    "min_expected_severity": "critical",
+    "trap_type": "cross_split_duplicates"
+   }
+  },
+  {
+   "base": "adult",
+   "base_sha256": "01f7570bc4c800d473e9381615e6a5b0eca53900196bbf9f751439545c909263",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 15,
+     "rows": 48785,
+     "sha256": "d5c604611278713a712e8d56f0048a99daaadc2bc45ac06f808a983f6381f9b5"
+    },
+    "12": {
+     "columns": 15,
+     "rows": 48785,
+     "sha256": "d5c604611278713a712e8d56f0048a99daaadc2bc45ac06f808a983f6381f9b5"
+    }
+   },
+   "goal": "predict class",
+   "id": "direct_leak:clean@adult",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "direct_leak",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "credit_approval",
+   "base_sha256": "8bff33cb729a53ce1f3f8095b84b79a4a14efea4feb0bca4e17099b460ca12a9",
+   "file_order": true,
+   "frames": {
+    "11": {
+     "columns": 16,
+     "rows": 690,
+     "sha256": "0b75a1557bb5a7a8431ea633899bc5be5f8cacc60f2a31e8777868f1deb12b30"
+    },
+    "12": {
+     "columns": 16,
+     "rows": 690,
+     "sha256": "0b75a1557bb5a7a8431ea633899bc5be5f8cacc60f2a31e8777868f1deb12b30"
+    }
+   },
+   "goal": "predict class",
+   "id": "direct_leak:clean@credit_approval:file_order",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "direct_leak",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "kin8nm",
+   "base_sha256": "f5a5a1ac2fba8ff5364671fa2cce2441220840166b81a54fc0bf37eded060a75",
+   "file_order": false,
+   "frames": {
+    "11": {
+     "columns": 9,
+     "rows": 8192,
+     "sha256": "d76dd88dd17766f5e0eeb1813d9554dc5e8b4ecfd0b501b552df3a62fb503c24"
+    },
+    "12": {
+     "columns": 9,
+     "rows": 8192,
+     "sha256": "d76dd88dd17766f5e0eeb1813d9554dc5e8b4ecfd0b501b552df3a62fb503c24"
+    }
+   },
+   "goal": "predict y",
+   "id": "time_order:clean@kin8nm",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": true,
+   "target": "y",
+   "task": "regression",
+   "trap": "time_order",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  }
+ ]
+}

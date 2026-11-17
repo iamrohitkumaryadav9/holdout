@@ -32,6 +32,12 @@ from bench.data.registry import (
 from holdout.core.schemas import Task
 
 
+@pytest.fixture(autouse=True)
+def _private_dataset_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Loader tests write fake files: never into the real dataset cache."""
+    monkeypatch.setenv("HOLDOUT_DATASETS", str(tmp_path / "datasets"))
+
+
 def _parquet(frame: pd.DataFrame) -> bytes:
     buffer = io.BytesIO()
     frame.to_parquet(buffer, index=False)

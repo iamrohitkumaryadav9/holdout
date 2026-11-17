@@ -1,13 +1,14 @@
 """Download OpenML parquet files once, verify their sha256 on every load, prepare frames.
 
 Plain HTTPS and pyarrow only (no ``openml`` package and its compiled dependencies). Files
-live in ``~/.holdout/datasets/<id>-v<version>.pq`` (``HOLDOUT_HOME`` overrides the root).
+live in ``~/.holdout/datasets/<id>-v<version>.pq`` (``HOLDOUT_DATASETS`` overrides it).
 After the first download everything works offline. A file whose sha256 differs from the
 registry is an error and is never silently replaced.
 """
 
 import hashlib
 import io
+import os
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -17,7 +18,6 @@ import pandas as pd
 
 from bench.data.registry import DatasetSpec, Subsample
 from holdout.core.schemas import Task
-from holdout.llm.config import holdout_home
 
 Fetch = Callable[[str], bytes]
 
@@ -31,7 +31,14 @@ class DatasetUnavailableError(RuntimeError):
 
 
 def datasets_dir() -> Path:
-    return holdout_home() / "datasets"
+    """``HOLDOUT_DATASETS`` if set, else ``~/.holdout/datasets``.
+
+    Deliberately independent of ``HOLDOUT_HOME`` (which tests point at a temporary
+    directory to isolate the ledger and response cache): the files are read-only and
+    verified by sha256 on every load, so sharing them is safe.
+    """
+    override = os.environ.get("HOLDOUT_DATASETS")
+    return Path(override) if override else Path.home() / ".holdout" / "datasets"
 
 
 def cached_path(spec: DatasetSpec) -> Path:

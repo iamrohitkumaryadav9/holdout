@@ -1,0 +1,1405 @@
+{
+ "name": "final_v1",
+ "pool": "final",
+ "schema_version": 1,
+ "seeds": [
+  101,
+  202
+ ],
+ "tasks": [
+  {
+   "base": "qsar_biodeg",
+   "base_sha256": "f05e986f475346d3142dcac8a22ccbcf0c63666517e9f5ce7cded692ca2df7d3",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 43,
+     "rows": 1052,
+     "sha256": "013e8c8eec819954e05f35cdfa4a862f0094c0cdcdbd558943b6b06916d4cdb9"
+    },
+    "202": {
+     "columns": 43,
+     "rows": 1052,
+     "sha256": "4bb7b7a391ee68435a3871955f818a93840a66e01ff5586d171ae45fe9005558"
+    }
+   },
+   "goal": "predict Class",
+   "id": "direct_leak@qsar_biodeg",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "Class",
+   "task": "classification",
+   "trap": "direct_leak",
+   "truth": {
+    "affected_columns": [
+     "refund_issued"
+    ],
+    "expected_category": "target_leakage",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "critical",
+    "trap_type": "direct_leak"
+   }
+  },
+  {
+   "base": "telco_churn",
+   "base_sha256": "88e0922fd98825cd4a1fc7acb8a9a7730d9b30aac7c6c3418f77b3c42cbfd89b",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 22,
+     "rows": 5000,
+     "sha256": "2df608bb112ac9aaf5bd6010c1fa6add7100e130818ca27f256c78e72fb97ccd"
+    },
+    "202": {
+     "columns": 22,
+     "rows": 5000,
+     "sha256": "3e691b3c140060c98db46c77f2c4f1520e4772d67d4bc71ba230462dcbfd874f"
+    }
+   },
+   "goal": "predict class",
+   "id": "direct_leak@telco_churn",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "direct_leak",
+   "truth": {
+    "affected_columns": [
+     "refund_issued"
+    ],
+    "expected_category": "target_leakage",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "critical",
+    "trap_type": "direct_leak"
+   }
+  },
+  {
+   "base": "cpu_act",
+   "base_sha256": "c5c039e21376bd6745c78f393cda20963e4d01af4f3c7f5a81f00ca6d4b89637",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 23,
+     "rows": 8192,
+     "sha256": "e21ba7360a98bb9c3ccd373f75ce3ba40601b6984610042fc454b3170a3ace64"
+    },
+    "202": {
+     "columns": 23,
+     "rows": 8192,
+     "sha256": "e5935601dd227aa98ca201d326a16e2e0d3d43e5e5a30c60a8fad935c7bbb874"
+    }
+   },
+   "goal": "predict usr",
+   "id": "direct_leak@cpu_act",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "usr",
+   "task": "regression",
+   "trap": "direct_leak",
+   "truth": {
+    "affected_columns": [
+     "final_settlement"
+    ],
+    "expected_category": "target_leakage",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "critical",
+    "trap_type": "direct_leak"
+   }
+  },
+  {
+   "base": "pol",
+   "base_sha256": "febc7f247f03b62e23786e4db9a48a319706b88e0871420b5a7c668fc941afc5",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 50,
+     "rows": 14958,
+     "sha256": "0268278d09a8cb6b203604bdc0ce736c47811e7c5e40453ed1bae17364763d4d"
+    },
+    "202": {
+     "columns": 50,
+     "rows": 14958,
+     "sha256": "50e6ae416a5590372b0120c5e44cbf2aa179f5520dabbf960dfa059a4852ad30"
+    }
+   },
+   "goal": "predict binaryClass",
+   "id": "direct_leak@pol",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "binaryClass",
+   "task": "classification",
+   "trap": "direct_leak",
+   "truth": {
+    "affected_columns": [
+     "refund_issued"
+    ],
+    "expected_category": "target_leakage",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "critical",
+    "trap_type": "direct_leak"
+   }
+  },
+  {
+   "base": "magic_telescope",
+   "base_sha256": "2f697b3e6b4ebd90db3c3f242da1cc434918686999e8e5a705138ecbd68ba5a7",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 12,
+     "rows": 18905,
+     "sha256": "63c1be0dc90d5db3657ad4f82ed04b6154e6b34b2119b0f8f613fed9c4983605"
+    },
+    "202": {
+     "columns": 12,
+     "rows": 18905,
+     "sha256": "51e9abe9a50abf66ad7cc513ba54e768f28e76289de2e020482ca87eebe2c60d"
+    }
+   },
+   "goal": "predict class:",
+   "id": "noisy_proxy@magic_telescope",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class:",
+   "task": "classification",
+   "trap": "noisy_proxy",
+   "truth": {
+    "affected_columns": [
+     "signal_strength"
+    ],
+    "expected_category": "target_leakage",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "warning",
+    "trap_type": "noisy_proxy"
+   }
+  },
+  {
+   "base": "house_16h",
+   "base_sha256": "777ed53ab24d5a5d2e0c5a7779207218529f1a24f95a988c53b4423c5c88b9c3",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 18,
+     "rows": 22783,
+     "sha256": "2d469f868ea348240ac7f3a8c31f5be16b7d003535cf5ba81f837f564137392c"
+    },
+    "202": {
+     "columns": 18,
+     "rows": 22783,
+     "sha256": "271dc4acc5fe3119d2516599a3b95c5baccc3aa721765a1f411369fb71275a94"
+    }
+   },
+   "goal": "predict price",
+   "id": "noisy_proxy@house_16h",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "price",
+   "task": "regression",
+   "trap": "noisy_proxy",
+   "truth": {
+    "affected_columns": [
+     "signal_strength"
+    ],
+    "expected_category": "target_leakage",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "warning",
+    "trap_type": "noisy_proxy"
+   }
+  },
+  {
+   "base": "steel_plates_fault",
+   "base_sha256": "e38686fee6cb3d21d756dbd68353ea6b4df7eec8de26056186c6886d2fbb078c",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 35,
+     "rows": 1941,
+     "sha256": "798255f5db01c2f05a432fe8abc83202184881b9131e2f27c6dae2327a360f6f"
+    },
+    "202": {
+     "columns": 35,
+     "rows": 1941,
+     "sha256": "9cb3a5799eb336a60ffd5ea795a9a9b93f558409a6f54a8a1c182c4f61a1f4ac"
+    }
+   },
+   "goal": "predict Class",
+   "id": "noisy_proxy@steel_plates_fault",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "Class",
+   "task": "classification",
+   "trap": "noisy_proxy",
+   "truth": {
+    "affected_columns": [
+     "signal_strength"
+    ],
+    "expected_category": "target_leakage",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "warning",
+    "trap_type": "noisy_proxy"
+   }
+  },
+  {
+   "base": "credit_card_default",
+   "base_sha256": "07d788ff41012cdf03d6b9d7471aaf4d446431f3a0aa960f5ddcda97c9fa37c0",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 25,
+     "rows": 29944,
+     "sha256": "fa848c2f0416da52b0e7eb681cab81856437a8e1cb4c6708b7851a4911758fbf"
+    },
+    "202": {
+     "columns": 25,
+     "rows": 29944,
+     "sha256": "a95e1dbd8af5c565b2087bb08cc35e76b01cd38d69cce8ffd346d62f005d3a9e"
+    }
+   },
+   "goal": "predict y",
+   "id": "id_with_signal@credit_card_default",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "y",
+   "task": "classification",
+   "trap": "id_with_signal",
+   "truth": {
+    "affected_columns": [
+     "record_number"
+    ],
+    "expected_category": "id_signal",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "critical",
+    "trap_type": "id_with_signal"
+   }
+  },
+  {
+   "base": "wilt",
+   "base_sha256": "382052803b0b6c7746231791bea569ba841d4538735f97ac685d3f0dfd410a70",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 7,
+     "rows": 4819,
+     "sha256": "ac14ca7cbd73d112a8da629b6f1331e1e645b48bcefffad98e4ce4f37d68081f"
+    },
+    "202": {
+     "columns": 7,
+     "rows": 4819,
+     "sha256": "ab4841e28b0d3267ebd6cda654e9cb045bd1f202f8562059a8cd816de61143df"
+    }
+   },
+   "goal": "predict class",
+   "id": "id_with_signal@wilt",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "id_with_signal",
+   "truth": {
+    "affected_columns": [
+     "record_number"
+    ],
+    "expected_category": "id_signal",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "critical",
+    "trap_type": "id_with_signal"
+   }
+  },
+  {
+   "base": "puma32h",
+   "base_sha256": "cb88713309102fca249d05f6e2b3164bd24a2b0f7a3f39725b9228cc1fc3bc7a",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 34,
+     "rows": 8192,
+     "sha256": "5e4d1467d0c99d81ba9703b8f52adf40c31bbcf9deb2b0cd8defb8754267bb85"
+    },
+    "202": {
+     "columns": 34,
+     "rows": 8192,
+     "sha256": "2f6d8be6e18b174f6d9a1732691d83fe91c8eab3af4c2695b117a948f28259f3"
+    }
+   },
+   "goal": "predict thetadd6",
+   "id": "id_with_signal@puma32h",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "thetadd6",
+   "task": "regression",
+   "trap": "id_with_signal",
+   "truth": {
+    "affected_columns": [
+     "record_number"
+    ],
+    "expected_category": "id_signal",
+    "expected_remediation": "drop_columns",
+    "min_expected_severity": "critical",
+    "trap_type": "id_with_signal"
+   }
+  },
+  {
+   "base": "steel_plates_fault",
+   "base_sha256": "e38686fee6cb3d21d756dbd68353ea6b4df7eec8de26056186c6886d2fbb078c",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 34,
+     "rows": 2232,
+     "sha256": "71da002be4be89690e924f2e9917b67650e4b1850b01b86c6a6012b1d006c36f"
+    },
+    "202": {
+     "columns": 34,
+     "rows": 2232,
+     "sha256": "2174806d460741137e6863b1d68ebb41b2cd2c15eb4ecfee474129fa3aa0e5ce"
+    }
+   },
+   "goal": "predict Class",
+   "id": "cross_split_duplicates@steel_plates_fault",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "Class",
+   "task": "classification",
+   "trap": "cross_split_duplicates",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "duplicate_rows",
+    "expected_remediation": "deduplicate",
+    "min_expected_severity": "critical",
+    "trap_type": "cross_split_duplicates"
+   }
+  },
+  {
+   "base": "cpu_act",
+   "base_sha256": "c5c039e21376bd6745c78f393cda20963e4d01af4f3c7f5a81f00ca6d4b89637",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 22,
+     "rows": 9421,
+     "sha256": "dec7253b8d66938d3b068a886feb728d31da54c06a1e5714e77365fc9bbc7465"
+    },
+    "202": {
+     "columns": 22,
+     "rows": 9421,
+     "sha256": "03f54bd092a366d1d3d32263ab3003fbb325df168d7709c13b9cb124d4b74e18"
+    }
+   },
+   "goal": "predict usr",
+   "id": "cross_split_duplicates@cpu_act",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "usr",
+   "task": "regression",
+   "trap": "cross_split_duplicates",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "duplicate_rows",
+    "expected_remediation": "deduplicate",
+    "min_expected_severity": "critical",
+    "trap_type": "cross_split_duplicates"
+   }
+  },
+  {
+   "base": "magic_telescope",
+   "base_sha256": "2f697b3e6b4ebd90db3c3f242da1cc434918686999e8e5a705138ecbd68ba5a7",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 11,
+     "rows": 21741,
+     "sha256": "d59f4739fa18cf664abad19a484a9146ff6a67cbb9cbfd1791c489edbfab206e"
+    },
+    "202": {
+     "columns": 11,
+     "rows": 21741,
+     "sha256": "a63f5b4cc0cfa5f739fe5c9e9741c35e6b2405bba0015089b4cb430c60250cbd"
+    }
+   },
+   "goal": "predict class:",
+   "id": "cross_split_duplicates@magic_telescope",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class:",
+   "task": "classification",
+   "trap": "cross_split_duplicates",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "duplicate_rows",
+    "expected_remediation": "deduplicate",
+    "min_expected_severity": "critical",
+    "trap_type": "cross_split_duplicates"
+   }
+  },
+  {
+   "base": "telco_churn",
+   "base_sha256": "88e0922fd98825cd4a1fc7acb8a9a7730d9b30aac7c6c3418f77b3c42cbfd89b",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 25,
+     "rows": 5000,
+     "sha256": "98129929bef59952ec11bd3ce86705bb86c9f4976d9b3748048189d3ac3c7365"
+    },
+    "202": {
+     "columns": 25,
+     "rows": 5000,
+     "sha256": "15bc291f58c0e404327766fac615707fc5823e5374623c45f4281be4dd2c18f0"
+    }
+   },
+   "goal": "predict class",
+   "id": "group_leakage@telco_churn",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "group_leakage",
+   "truth": {
+    "affected_columns": [
+     "account"
+    ],
+    "expected_category": "group_leakage",
+    "expected_remediation": "change_split",
+    "min_expected_severity": "critical",
+    "trap_type": "group_leakage"
+   }
+  },
+  {
+   "base": "house_16h",
+   "base_sha256": "777ed53ab24d5a5d2e0c5a7779207218529f1a24f95a988c53b4423c5c88b9c3",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 21,
+     "rows": 22783,
+     "sha256": "8f0ed0f8743366e9400a5f4e6a59d0e46f4189677c1ce93762fc8f7b1fcdd195"
+    },
+    "202": {
+     "columns": 21,
+     "rows": 22783,
+     "sha256": "f6943ad1b88e677421af4b606966fba81a52afbb6fa82d045c1b2cd04342db6d"
+    }
+   },
+   "goal": "predict price",
+   "id": "group_leakage@house_16h",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "price",
+   "task": "regression",
+   "trap": "group_leakage",
+   "truth": {
+    "affected_columns": [
+     "account"
+    ],
+    "expected_category": "group_leakage",
+    "expected_remediation": "change_split",
+    "min_expected_severity": "critical",
+    "trap_type": "group_leakage"
+   }
+  },
+  {
+   "base": "qsar_biodeg",
+   "base_sha256": "f05e986f475346d3142dcac8a22ccbcf0c63666517e9f5ce7cded692ca2df7d3",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 46,
+     "rows": 1052,
+     "sha256": "782f525c4566be59d06d0f4bd935de15df793a2bd41c3c66132f4021ee3d8662"
+    },
+    "202": {
+     "columns": 46,
+     "rows": 1052,
+     "sha256": "5e604bfefb2aa8dbfce238dce4d902d08a35589519f229aee078d16e2b6c5cd8"
+    }
+   },
+   "goal": "predict Class",
+   "id": "group_leakage@qsar_biodeg",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "Class",
+   "task": "classification",
+   "trap": "group_leakage",
+   "truth": {
+    "affected_columns": [
+     "account"
+    ],
+    "expected_category": "group_leakage",
+    "expected_remediation": "change_split",
+    "min_expected_severity": "critical",
+    "trap_type": "group_leakage"
+   }
+  },
+  {
+   "base": "credit_card_default",
+   "base_sha256": "07d788ff41012cdf03d6b9d7471aaf4d446431f3a0aa960f5ddcda97c9fa37c0",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 24,
+     "rows": 29944,
+     "sha256": "9bb3be495cca393e8fb9433cc2ecbd464820d2e7a1e0560090fb6d0a0b2baeff"
+    },
+    "202": {
+     "columns": 24,
+     "rows": 29944,
+     "sha256": "40eb67eb7af913415d1935b5ffb12f61b7400e9a3a9d076054d413f91b9a5c2b"
+    }
+   },
+   "goal": "predict y",
+   "id": "time_order@credit_card_default",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": true,
+   "target": "y",
+   "task": "classification",
+   "trap": "time_order",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "time_leakage",
+    "expected_remediation": "change_split",
+    "min_expected_severity": "critical",
+    "trap_type": "time_order"
+   }
+  },
+  {
+   "base": "puma32h",
+   "base_sha256": "cb88713309102fca249d05f6e2b3164bd24a2b0f7a3f39725b9228cc1fc3bc7a",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 33,
+     "rows": 8192,
+     "sha256": "aed28463697d3c531aee915984972c154fd21e4d84115a0ef292b3f514e31e76"
+    },
+    "202": {
+     "columns": 33,
+     "rows": 8192,
+     "sha256": "fbc69e33445cb32b24bd2d2fd3296e4bc6b3187d906822b249d36fb4f73665a6"
+    }
+   },
+   "goal": "predict thetadd6",
+   "id": "time_order@puma32h",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": true,
+   "target": "thetadd6",
+   "task": "regression",
+   "trap": "time_order",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "time_leakage",
+    "expected_remediation": "change_split",
+    "min_expected_severity": "critical",
+    "trap_type": "time_order"
+   }
+  },
+  {
+   "base": "wilt",
+   "base_sha256": "382052803b0b6c7746231791bea569ba841d4538735f97ac685d3f0dfd410a70",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 6,
+     "rows": 4819,
+     "sha256": "162b06aaaeeb418e676a2d35f3ffd96cac397f1a1ac5a98ab99951aa9cf5cfc2"
+    },
+    "202": {
+     "columns": 6,
+     "rows": 4819,
+     "sha256": "d474b8e81148a8e3c813f215777b631ad5968f4e7b1fa53d056d52935630e1b6"
+    }
+   },
+   "goal": "predict class",
+   "id": "time_order@wilt",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": true,
+   "target": "class",
+   "task": "classification",
+   "trap": "time_order",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "time_leakage",
+    "expected_remediation": "change_split",
+    "min_expected_severity": "critical",
+    "trap_type": "time_order"
+   }
+  },
+  {
+   "base": "magic_telescope",
+   "base_sha256": "2f697b3e6b4ebd90db3c3f242da1cc434918686999e8e5a705138ecbd68ba5a7",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 11,
+     "rows": 12846,
+     "sha256": "7883708e87b08d37d7216ebbb9ae8c98b4971da119f71f18c712dfbb79af8d95"
+    },
+    "202": {
+     "columns": 11,
+     "rows": 12846,
+     "sha256": "a22952dbb8ff78fb8c9bc365f53bcde8e511736fd557ca2bf21714d6fa8eb5a2"
+    }
+   },
+   "goal": "Maximise accuracy at predicting class:.",
+   "id": "imbalance_accuracy@magic_telescope",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {
+    "metric": "accuracy"
+   },
+   "semi_synthetic": false,
+   "target": "class:",
+   "task": "classification",
+   "trap": "imbalance_accuracy",
+   "truth": {
+    "affected_columns": [
+     "class:"
+    ],
+    "expected_category": "metric_mismatch",
+    "expected_remediation": "change_metric",
+    "min_expected_severity": "critical",
+    "trap_type": "imbalance_accuracy"
+   }
+  },
+  {
+   "base": "pol",
+   "base_sha256": "febc7f247f03b62e23786e4db9a48a319706b88e0871420b5a7c668fc941afc5",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 49,
+     "rows": 10356,
+     "sha256": "32d3c5a5c4ab0aacf781aed2dda66dea48b492a5d2dd49eabe64fd25ff7f99fd"
+    },
+    "202": {
+     "columns": 49,
+     "rows": 10356,
+     "sha256": "b33b0706fd1613597663be722e655a38ee7251457b524708cd74916b4fa1f6a4"
+    }
+   },
+   "goal": "Maximise accuracy at predicting binaryClass.",
+   "id": "imbalance_accuracy@pol",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {
+    "metric": "accuracy"
+   },
+   "semi_synthetic": false,
+   "target": "binaryClass",
+   "task": "classification",
+   "trap": "imbalance_accuracy",
+   "truth": {
+    "affected_columns": [
+     "binaryClass"
+    ],
+    "expected_category": "metric_mismatch",
+    "expected_remediation": "change_metric",
+    "min_expected_severity": "critical",
+    "trap_type": "imbalance_accuracy"
+   }
+  },
+  {
+   "base": "steel_plates_fault",
+   "base_sha256": "e38686fee6cb3d21d756dbd68353ea6b4df7eec8de26056186c6886d2fbb078c",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 34,
+     "rows": 1321,
+     "sha256": "4118b1c7c6f3af952d2a3099d32594af0a6c3a2ab306fbcecb6173d54350402c"
+    },
+    "202": {
+     "columns": 34,
+     "rows": 1321,
+     "sha256": "ea61133ac01d4be4b8de2fe724db88bb6825f205e202dffc4a6524bcd2d71d8a"
+    }
+   },
+   "goal": "Maximise accuracy at predicting Class.",
+   "id": "imbalance_accuracy@steel_plates_fault",
+   "kind": "trap",
+   "params": {},
+   "plan_overrides": {
+    "metric": "accuracy"
+   },
+   "semi_synthetic": false,
+   "target": "Class",
+   "task": "classification",
+   "trap": "imbalance_accuracy",
+   "truth": {
+    "affected_columns": [
+     "Class"
+    ],
+    "expected_category": "metric_mismatch",
+    "expected_remediation": "change_metric",
+    "min_expected_severity": "critical",
+    "trap_type": "imbalance_accuracy"
+   }
+  },
+  {
+   "base": "house_16h",
+   "base_sha256": "777ed53ab24d5a5d2e0c5a7779207218529f1a24f95a988c53b4423c5c88b9c3",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 17,
+     "rows": 22783,
+     "sha256": "d6156f549c34092a6e6e2a13f6a1519c088682fa6d35543fa8ca4f3835048d56"
+    },
+    "202": {
+     "columns": 17,
+     "rows": 22783,
+     "sha256": "614d7eb908196fdd7c56aa975f37276158a32e8327ab108652b923c23cc962ad"
+    }
+   },
+   "goal": "predict price",
+   "id": "messy_formats@house_16h",
+   "kind": "trap",
+   "params": {
+    "category_column": null,
+    "decimals": 2,
+    "numeric_column": "P11p4",
+    "sentinel_column": "P15p1"
+   },
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "price",
+   "task": "regression",
+   "trap": "messy_formats",
+   "truth": {
+    "affected_columns": [
+     "P11p4",
+     "P15p1"
+    ],
+    "expected_category": "format_issue",
+    "expected_remediation": "clean_formats",
+    "min_expected_severity": "warning",
+    "trap_type": "messy_formats"
+   }
+  },
+  {
+   "base": "credit_card_default",
+   "base_sha256": "07d788ff41012cdf03d6b9d7471aaf4d446431f3a0aa960f5ddcda97c9fa37c0",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 24,
+     "rows": 29944,
+     "sha256": "7befde7fd8f297d1e523e2919a5b9def5fbb34e82cb7f64e5b6681713237b449"
+    },
+    "202": {
+     "columns": 24,
+     "rows": 29944,
+     "sha256": "e39983dc9df348e6054fb3577099e351be35e7ca205f4b019d89f1ba321a575c"
+    }
+   },
+   "goal": "predict y",
+   "id": "messy_formats@credit_card_default",
+   "kind": "trap",
+   "params": {
+    "category_column": null,
+    "decimals": 0,
+    "numeric_column": "x12",
+    "sentinel_column": "x13"
+   },
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "y",
+   "task": "classification",
+   "trap": "messy_formats",
+   "truth": {
+    "affected_columns": [
+     "x12",
+     "x13"
+    ],
+    "expected_category": "format_issue",
+    "expected_remediation": "clean_formats",
+    "min_expected_severity": "warning",
+    "trap_type": "messy_formats"
+   }
+  },
+  {
+   "base": "cpu_act",
+   "base_sha256": "c5c039e21376bd6745c78f393cda20963e4d01af4f3c7f5a81f00ca6d4b89637",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 22,
+     "rows": 8192,
+     "sha256": "de38da6d95f85f8ebcabe838963756af712a0bb7c486295d0bb88e3595f3e39b"
+    },
+    "202": {
+     "columns": 22,
+     "rows": 8192,
+     "sha256": "ab2f79eaead982de2933c9bdc94531b9cdd01fe472bb6071686808dedff906ce"
+    }
+   },
+   "goal": "predict usr",
+   "id": "messy_formats@cpu_act",
+   "kind": "trap",
+   "params": {
+    "category_column": null,
+    "decimals": 0,
+    "numeric_column": "rchar",
+    "sentinel_column": "wchar"
+   },
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "usr",
+   "task": "regression",
+   "trap": "messy_formats",
+   "truth": {
+    "affected_columns": [
+     "rchar",
+     "wchar"
+    ],
+    "expected_category": "format_issue",
+    "expected_remediation": "clean_formats",
+    "min_expected_severity": "warning",
+    "trap_type": "messy_formats"
+   }
+  },
+  {
+   "base": "wilt",
+   "base_sha256": "382052803b0b6c7746231791bea569ba841d4538735f97ac685d3f0dfd410a70",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 6,
+     "rows": 4819,
+     "sha256": "ae33d7bb5cea342d88b4a7691dbd10d61cf367743a9dea1753c168d17ad1486a"
+    },
+    "202": {
+     "columns": 6,
+     "rows": 4819,
+     "sha256": "ae33d7bb5cea342d88b4a7691dbd10d61cf367743a9dea1753c168d17ad1486a"
+    }
+   },
+   "goal": "Does GLCM_Pan cause class?",
+   "id": "causal_question@wilt",
+   "kind": "trap",
+   "params": {
+    "goal": "Does GLCM_Pan cause class?"
+   },
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "causal_question",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "causal_claim",
+    "expected_remediation": "remove_causal_claim",
+    "min_expected_severity": "warning",
+    "trap_type": "causal_question"
+   }
+  },
+  {
+   "base": "puma32h",
+   "base_sha256": "cb88713309102fca249d05f6e2b3164bd24a2b0f7a3f39725b9228cc1fc3bc7a",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 33,
+     "rows": 8192,
+     "sha256": "7ee97a04ca06ae5697255fa1874afa28055a161be052d4a44ab35d5adb1a3563"
+    },
+    "202": {
+     "columns": 33,
+     "rows": 8192,
+     "sha256": "7ee97a04ca06ae5697255fa1874afa28055a161be052d4a44ab35d5adb1a3563"
+    }
+   },
+   "goal": "Does da1 cause thetadd6?",
+   "id": "causal_question@puma32h",
+   "kind": "trap",
+   "params": {
+    "goal": "Does da1 cause thetadd6?"
+   },
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "thetadd6",
+   "task": "regression",
+   "trap": "causal_question",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "causal_claim",
+    "expected_remediation": "remove_causal_claim",
+    "min_expected_severity": "warning",
+    "trap_type": "causal_question"
+   }
+  },
+  {
+   "base": "telco_churn",
+   "base_sha256": "88e0922fd98825cd4a1fc7acb8a9a7730d9b30aac7c6c3418f77b3c42cbfd89b",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 21,
+     "rows": 5000,
+     "sha256": "fd0fde96b767e75eedd662043786ccc90b26699ee2ac8cc79d7aa65b611c4d57"
+    },
+    "202": {
+     "columns": 21,
+     "rows": 5000,
+     "sha256": "fd0fde96b767e75eedd662043786ccc90b26699ee2ac8cc79d7aa65b611c4d57"
+    }
+   },
+   "goal": "Does account_length cause class?",
+   "id": "causal_question@telco_churn",
+   "kind": "trap",
+   "params": {
+    "goal": "Does account_length cause class?"
+   },
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "causal_question",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": "causal_claim",
+    "expected_remediation": "remove_causal_claim",
+    "min_expected_severity": "warning",
+    "trap_type": "causal_question"
+   }
+  },
+  {
+   "base": "qsar_biodeg",
+   "base_sha256": "f05e986f475346d3142dcac8a22ccbcf0c63666517e9f5ce7cded692ca2df7d3",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 42,
+     "rows": 1052,
+     "sha256": "0fe3d0fe7dd438d0f1eef2ad77ddb5793c7df2d50e86d6da7f8c538cd502572d"
+    },
+    "202": {
+     "columns": 42,
+     "rows": 1052,
+     "sha256": "0fe3d0fe7dd438d0f1eef2ad77ddb5793c7df2d50e86d6da7f8c538cd502572d"
+    }
+   },
+   "goal": "predict Class",
+   "id": "direct_leak:clean@qsar_biodeg",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "Class",
+   "task": "classification",
+   "trap": "direct_leak",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "telco_churn",
+   "base_sha256": "88e0922fd98825cd4a1fc7acb8a9a7730d9b30aac7c6c3418f77b3c42cbfd89b",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 25,
+     "rows": 5000,
+     "sha256": "d0b7e530d53a5c9211cf4828f2f1a3d6bb96683ecfccfa835ab493cc0f4601f5"
+    },
+    "202": {
+     "columns": 25,
+     "rows": 5000,
+     "sha256": "3c80e5eb0249f56b628a5fedf2fae14065511ce14b905b846cf4926d4e6f5e32"
+    }
+   },
+   "goal": "predict class",
+   "id": "group_leakage:clean@telco_churn",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "group_leakage",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "cpu_act",
+   "base_sha256": "c5c039e21376bd6745c78f393cda20963e4d01af4f3c7f5a81f00ca6d4b89637",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 22,
+     "rows": 8192,
+     "sha256": "325fbed9c74466d83a8cbcfeeac2814d90786ddbc293f9c43ef084ce3f8f7160"
+    },
+    "202": {
+     "columns": 22,
+     "rows": 8192,
+     "sha256": "325fbed9c74466d83a8cbcfeeac2814d90786ddbc293f9c43ef084ce3f8f7160"
+    }
+   },
+   "goal": "predict usr",
+   "id": "cross_split_duplicates:clean@cpu_act",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "usr",
+   "task": "regression",
+   "trap": "cross_split_duplicates",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "pol",
+   "base_sha256": "febc7f247f03b62e23786e4db9a48a319706b88e0871420b5a7c668fc941afc5",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 49,
+     "rows": 14958,
+     "sha256": "73fb15cec5222ba90b6cb2e302760187ede9c148dce4ef01f2bbe069d524b7cd"
+    },
+    "202": {
+     "columns": 49,
+     "rows": 14958,
+     "sha256": "73fb15cec5222ba90b6cb2e302760187ede9c148dce4ef01f2bbe069d524b7cd"
+    }
+   },
+   "goal": "Maximise accuracy at predicting binaryClass.",
+   "id": "imbalance_accuracy:clean@pol",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {
+    "metric": "accuracy"
+   },
+   "semi_synthetic": false,
+   "target": "binaryClass",
+   "task": "classification",
+   "trap": "imbalance_accuracy",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "magic_telescope",
+   "base_sha256": "2f697b3e6b4ebd90db3c3f242da1cc434918686999e8e5a705138ecbd68ba5a7",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 11,
+     "rows": 18905,
+     "sha256": "fba3f293a545fcf2fbb5f14f55eef44fca7709a4c82f31da61fd5cc58bb5a4d3"
+    },
+    "202": {
+     "columns": 11,
+     "rows": 18905,
+     "sha256": "fba3f293a545fcf2fbb5f14f55eef44fca7709a4c82f31da61fd5cc58bb5a4d3"
+    }
+   },
+   "goal": "Maximise accuracy at predicting class:.",
+   "id": "imbalance_accuracy:clean@magic_telescope",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {
+    "metric": "accuracy"
+   },
+   "semi_synthetic": false,
+   "target": "class:",
+   "task": "classification",
+   "trap": "imbalance_accuracy",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "house_16h",
+   "base_sha256": "777ed53ab24d5a5d2e0c5a7779207218529f1a24f95a988c53b4423c5c88b9c3",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 21,
+     "rows": 22783,
+     "sha256": "d7af3c748cc44ffb152e303b8c255336c7375a97b7cc6d60886eef027dc006db"
+    },
+    "202": {
+     "columns": 21,
+     "rows": 22783,
+     "sha256": "158fc8ccf0f632072792171a435939a897d8fef9feb020f0800eb3806524ebd8"
+    }
+   },
+   "goal": "predict price",
+   "id": "group_leakage:clean@house_16h",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "price",
+   "task": "regression",
+   "trap": "group_leakage",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "steel_plates_fault",
+   "base_sha256": "e38686fee6cb3d21d756dbd68353ea6b4df7eec8de26056186c6886d2fbb078c",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 34,
+     "rows": 1941,
+     "sha256": "6c644fce2f9a3cf058c3636655576b2f05f82467e4fb3aa6d2798bc8e9b15d6d"
+    },
+    "202": {
+     "columns": 34,
+     "rows": 1941,
+     "sha256": "6c644fce2f9a3cf058c3636655576b2f05f82467e4fb3aa6d2798bc8e9b15d6d"
+    }
+   },
+   "goal": "predict Class",
+   "id": "noisy_proxy:clean@steel_plates_fault",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "Class",
+   "task": "classification",
+   "trap": "noisy_proxy",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "credit_card_default",
+   "base_sha256": "07d788ff41012cdf03d6b9d7471aaf4d446431f3a0aa960f5ddcda97c9fa37c0",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 25,
+     "rows": 29944,
+     "sha256": "5049f554997974dcc26db904a77aef54fc5b5e005660d268847c3bbfe58572da"
+    },
+    "202": {
+     "columns": 25,
+     "rows": 29944,
+     "sha256": "8c9bf65f4122aeeb30a227c476c621bb20ce79938fdd7dbb1fbae8fccabbb198"
+    }
+   },
+   "goal": "predict y",
+   "id": "id_with_signal:clean@credit_card_default",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "y",
+   "task": "classification",
+   "trap": "id_with_signal",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "wilt",
+   "base_sha256": "382052803b0b6c7746231791bea569ba841d4538735f97ac685d3f0dfd410a70",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 6,
+     "rows": 4819,
+     "sha256": "ae33d7bb5cea342d88b4a7691dbd10d61cf367743a9dea1753c168d17ad1486a"
+    },
+    "202": {
+     "columns": 6,
+     "rows": 4819,
+     "sha256": "ae33d7bb5cea342d88b4a7691dbd10d61cf367743a9dea1753c168d17ad1486a"
+    }
+   },
+   "goal": "predict class",
+   "id": "time_order:clean@wilt",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": true,
+   "target": "class",
+   "task": "classification",
+   "trap": "time_order",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "puma32h",
+   "base_sha256": "cb88713309102fca249d05f6e2b3164bd24a2b0f7a3f39725b9228cc1fc3bc7a",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 33,
+     "rows": 8192,
+     "sha256": "7ee97a04ca06ae5697255fa1874afa28055a161be052d4a44ab35d5adb1a3563"
+    },
+    "202": {
+     "columns": 33,
+     "rows": 8192,
+     "sha256": "7ee97a04ca06ae5697255fa1874afa28055a161be052d4a44ab35d5adb1a3563"
+    }
+   },
+   "goal": "predict thetadd6",
+   "id": "time_order:clean@puma32h",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": true,
+   "target": "thetadd6",
+   "task": "regression",
+   "trap": "time_order",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "telco_churn",
+   "base_sha256": "88e0922fd98825cd4a1fc7acb8a9a7730d9b30aac7c6c3418f77b3c42cbfd89b",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 21,
+     "rows": 5000,
+     "sha256": "fd0fde96b767e75eedd662043786ccc90b26699ee2ac8cc79d7aa65b611c4d57"
+    },
+    "202": {
+     "columns": 21,
+     "rows": 5000,
+     "sha256": "fd0fde96b767e75eedd662043786ccc90b26699ee2ac8cc79d7aa65b611c4d57"
+    }
+   },
+   "goal": "predict class",
+   "id": "causal_question:clean@telco_churn",
+   "kind": "clean",
+   "params": {
+    "goal": "Does account_length cause class?"
+   },
+   "plan_overrides": {},
+   "semi_synthetic": false,
+   "target": "class",
+   "task": "classification",
+   "trap": "causal_question",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  },
+  {
+   "base": "credit_card_default",
+   "base_sha256": "07d788ff41012cdf03d6b9d7471aaf4d446431f3a0aa960f5ddcda97c9fa37c0",
+   "file_order": false,
+   "frames": {
+    "101": {
+     "columns": 24,
+     "rows": 29944,
+     "sha256": "6d04e4bd7c7dc3bdb0edbe3cd067c312d4c38bb338e6e55b17faf6ecd326994f"
+    },
+    "202": {
+     "columns": 24,
+     "rows": 29944,
+     "sha256": "6d04e4bd7c7dc3bdb0edbe3cd067c312d4c38bb338e6e55b17faf6ecd326994f"
+    }
+   },
+   "goal": "predict y",
+   "id": "time_order:clean@credit_card_default",
+   "kind": "clean",
+   "params": {},
+   "plan_overrides": {},
+   "semi_synthetic": true,
+   "target": "y",
+   "task": "classification",
+   "trap": "time_order",
+   "truth": {
+    "affected_columns": [],
+    "expected_category": null,
+    "expected_remediation": null,
+    "min_expected_severity": "info",
+    "trap_type": "clean"
+   }
+  }
+ ]
+}
