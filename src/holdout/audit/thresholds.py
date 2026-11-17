@@ -44,7 +44,6 @@ class IdLikeThresholds(_Section):
 
 
 class DuplicateThresholds(_Section):
-    float_significant_digits: int = Field(ge=1, le=15)
     holdout_overlap_invalidate_share: float = Field(gt=0.0, le=1.0)
     cross_fold_critical_share: float = Field(gt=0.0, le=1.0)
 

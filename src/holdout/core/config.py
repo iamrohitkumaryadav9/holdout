@@ -33,6 +33,14 @@ ENTITY_MAX_UNIQUE_RATIO: Final = 0.5
 #: every categorical column looks "mostly unique".
 MIN_VALUES_FOR_RATIO_RULES: Final = 50
 
+#: Pre-seal structural entity detection (profile): a column with at least this many
+#: distinct values, this many rows per value on average, and at least one other column
+#: constant within each value is reported as a likely entity key. The audit (A5) uses its
+#: own, provisional thresholds from holdout/audit/thresholds.toml.
+STRUCTURAL_ENTITY_MIN_GROUPS: Final = 20
+STRUCTURAL_ENTITY_MIN_MEAN_ROWS: Final = 2.0
+STRUCTURAL_ENTITY_MAX_CANDIDATES: Final = 3
+
 #: A string column is free text when values are long on average and mostly distinct.
 TEXT_MIN_MEAN_LENGTH: Final = 30.0
 TEXT_MIN_UNIQUE_RATIO: Final = 0.5
@@ -53,6 +61,11 @@ ONEHOT_MAX_CARDINALITY: Final = 30
 
 #: A class with fewer rows than this makes stratified 5-fold CV unreliable.
 MIN_ROWS_PER_CLASS: Final = 2 * N_FOLDS
+
+#: Floats are rounded to this many significant digits before feature rows are hashed for
+#: duplicate detection. Fixed here (not in the audit thresholds) because the holdout's row
+#: digests are computed at seal time, before any audit runs; each seal records the value.
+ROW_HASH_SIGNIFICANT_DIGITS: Final = 6
 
 #: Threads for estimators that support them; small on purpose (laptop, shared CI runners).
 N_JOBS: Final = 2

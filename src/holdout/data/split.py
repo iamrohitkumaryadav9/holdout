@@ -20,7 +20,7 @@ from holdout.core.errors import SplitError
 from holdout.core.portable import SplitConfig, split_frame, time_order_key
 from holdout.core.schemas import DataType, EntityScope, SplitStrategy, Task
 from holdout.core.seeds import derive_seed
-from holdout.data.profile import DatasetProfile
+from holdout.data.profile import DatasetProfile, StructuralEntity
 
 #: Exact warning shown when time-ordered data is about to be split at random.
 TIME_ORDER_WARNING: Final = (
@@ -149,26 +149,60 @@ class SplitProposal(BaseModel):
     alternatives: list[SplitSpec]
 
 
+def entity_question(entity: StructuralEntity) -> str:
+    """The pre-seal question asked when a column looks like an entity key."""
+    return (
+        f"{entity.column!r} looks like an entity identifier ({entity.n_groups} values, "
+        f"~{entity.mean_rows_per_group:.1f} rows each, "
+        f"{entity.constant_feature_share:.0%} of other columns constant within it). "
+        "Will predictions be made for new entities (--entities new) or for entities already "
+        "in the data (--entities known)? Unanswered is treated as new."
+    )
+
+
 def propose_split(
-    profile: DatasetProfile, task: Task, user_data_type: DataType, *, seed: int
+    profile: DatasetProfile,
+    task: Task,
+    user_data_type: DataType,
+    *,
+    seed: int,
+    entity_scope: EntityScope | None = None,
 ) -> SplitProposal:
     """Propose a split strategy from the target-blind profile.
 
     Rules, in priority order:
       1. The user says ``timeseries`` and a time column exists: time split.
-      2. A likely entity column exists: group split (rows of one entity stay together).
+      2. An entity column exists (by name, or by structure when the user declared
+         ``--entities new``) and predictions are not for known entities: group split.
       3. Classification: stratified split (preserves class balance in the holdout).
       4. Otherwise: random split.
     If the data looks time-ordered but the proposal is not a time split, the exact
-    :data:`TIME_ORDER_WARNING` is raised and a time-based alternative is offered.
+    :data:`TIME_ORDER_WARNING` is raised and a time-based alternative is offered. A
+    structural entity column without a declaration raises :func:`entity_question`.
     """
     reasons: list[str] = []
     warnings: list[str] = []
     alternatives: list[SplitSpec] = []
     time_col = _best_time_column(profile)
+    known = entity_scope is EntityScope.KNOWN
+    structural = [e.column for e in profile.structural_entities]
+    group_candidates = profile.entity_candidates + (
+        structural if entity_scope is EntityScope.NEW else []
+    )
+
+    def make(
+        strategy: SplitStrategy, group_col: str | None = None, time_col: str | None = None
+    ) -> SplitSpec:
+        return SplitSpec(
+            strategy=strategy,
+            seed=seed,
+            entity_scope=entity_scope,
+            group_col=group_col,
+            time_col=time_col,
+        )
 
     if user_data_type is DataType.TIMESERIES and time_col is not None:
-        spec = SplitSpec(strategy=SplitStrategy.TIME, time_col=time_col, seed=seed)
+        spec = make(SplitStrategy.TIME, time_col=time_col)
         reasons.append(
             f"data declared as time series; the latest rows by {time_col!r} are held out"
         )
@@ -178,9 +212,9 @@ def propose_split(
                 "data declared as time series, but no parseable datetime or monotonic index "
                 "column was found; pass --split time:COLUMN to choose the time column"
             )
-        if profile.entity_candidates:
-            group_col = profile.entity_candidates[0]
-            spec = SplitSpec(strategy=SplitStrategy.GROUP, group_col=group_col, seed=seed)
+        if group_candidates and not known:
+            group_col = group_candidates[0]
+            spec = make(SplitStrategy.GROUP, group_col=group_col)
             entity = profile.column(group_col)
             reasons.append(
                 f"{group_col!r} looks like an entity id ({entity.n_unique} distinct values "
@@ -190,19 +224,28 @@ def propose_split(
             if task is Task.CLASSIFICATION:
                 reasons.append("group split takes precedence over stratification")
         elif task is Task.CLASSIFICATION:
-            spec = SplitSpec(strategy=SplitStrategy.STRATIFIED, seed=seed)
+            spec = make(SplitStrategy.STRATIFIED)
             reasons.append("classification target: stratify so the holdout keeps class balance")
         else:
-            spec = SplitSpec(strategy=SplitStrategy.RANDOM, seed=seed)
+            spec = make(SplitStrategy.RANDOM)
             reasons.append("regression target with no entity or time structure: random split")
+        if known and (profile.entity_candidates or structural):
+            reasons.append(
+                "entities declared known (--entities known): predictions are for entities "
+                "already in the data, so a row-level split is legitimate"
+            )
+
+    if entity_scope is None:
+        for structural_entity in profile.structural_entities:
+            warnings.append(entity_question(structural_entity))
+            if spec.strategy is not SplitStrategy.GROUP:
+                alternatives.append(make(SplitStrategy.GROUP, group_col=structural_entity.column))
 
     if profile.looks_time_ordered and spec.strategy is not SplitStrategy.TIME:
         if user_data_type is DataType.TABULAR:
             warnings.append(TIME_ORDER_WARNING)
         if time_col is not None:
-            alternatives.append(
-                SplitSpec(strategy=SplitStrategy.TIME, time_col=time_col, seed=seed)
-            )
+            alternatives.append(make(SplitStrategy.TIME, time_col=time_col))
         reasons.append("time-order signals: " + "; ".join(profile.time_order_signals))
 
     counts = profile.target_class_counts

@@ -21,6 +21,7 @@ from holdout.core import config
 from holdout.core.errors import DataValidationError
 from holdout.core.portable import time_order_key
 from holdout.core.schemas import ColumnKind, Task
+from holdout.data.structure import entity_candidates as entity_structure_candidates
 
 _ID_NAME = re.compile(r"(^id$|[_\-\s.]id$|^id[_\-\s.]|uuid|guid)", re.IGNORECASE)
 _CAMEL_ID = re.compile(r"[a-z](ID|Id)$")
@@ -42,6 +43,17 @@ class ColumnProfile(BaseModel):
     examples: list[str] = Field(description="Most frequent values, ties broken by text order")
 
 
+class StructuralEntity(BaseModel):
+    """A column whose shape suggests it identifies repeated entities."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    column: str
+    n_groups: int
+    mean_rows_per_group: float
+    constant_feature_share: float
+
+
 class DatasetProfile(BaseModel):
     """Dataset-level facts used to propose a split and validate a plan."""
 
@@ -59,6 +71,9 @@ class DatasetProfile(BaseModel):
     datetime_candidates: list[str]
     monotonic_candidates: list[str]
     entity_candidates: list[str]
+    structural_entities: list[StructuralEntity] = Field(
+        description="entity-like columns found from structure alone (repeats + constant features)"
+    )
     looks_time_ordered: bool
     time_order_signals: list[str]
 
@@ -131,6 +146,27 @@ def profile_schema(frame: pd.DataFrame, target: str, task: Task | None = None) -
         and c.unique_ratio <= config.ENTITY_MAX_UNIQUE_RATIO
         and c.n_unique >= 2 * config.N_FOLDS
     ]
+    structural = [
+        StructuralEntity(
+            column=c.column,
+            n_groups=c.n_groups,
+            mean_rows_per_group=c.mean_rows_per_group,
+            constant_feature_share=c.constant_feature_share,
+        )
+        for c in entity_structure_candidates(
+            frame,
+            exclude=[target],
+            min_mean_rows_per_value=config.STRUCTURAL_ENTITY_MIN_MEAN_ROWS,
+            min_groups=config.STRUCTURAL_ENTITY_MIN_GROUPS,
+            max_unique_ratio=config.ENTITY_MAX_UNIQUE_RATIO,
+            max_candidates=config.STRUCTURAL_ENTITY_MAX_CANDIDATES,
+        )
+        # Datetime columns repeat too (several rows per day) but are time keys, handled by
+        # the time-order logic; name-detected entity ids are already proposed for grouping.
+        if c.constant_feature_share > 0.0
+        and c.column not in entity_candidates
+        and c.column not in datetime_candidates
+    ]
     signals = [f"{name!r} parses as datetime" for name in datetime_candidates] + [
         f"{name!r} is a monotonic, near-unique numeric index" for name in monotonic_candidates
     ]
@@ -145,6 +181,7 @@ def profile_schema(frame: pd.DataFrame, target: str, task: Task | None = None) -
         datetime_candidates=datetime_candidates,
         monotonic_candidates=monotonic_candidates,
         entity_candidates=entity_candidates,
+        structural_entities=structural,
         looks_time_ordered=bool(signals),
         time_order_signals=signals,
     )

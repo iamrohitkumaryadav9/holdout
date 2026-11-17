@@ -67,6 +67,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+markers = ["slow: long-running performance tests (run on Ubuntu CI; deselect with -m 'not slow')"]
 filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
 
 [tool.coverage.run]

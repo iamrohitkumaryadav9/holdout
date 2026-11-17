@@ -55,6 +55,14 @@ class RunState:
         return self.run_dir / "holdout_seal.json"
 
     @property
+    def holdout_digests_path(self) -> Path:
+        return self.run_dir / "holdout_row_digests.json"
+
+    @property
+    def audit_path(self) -> Path:
+        return self.run_dir / "audit.json"
+
+    @property
     def access_log_path(self) -> Path:
         return self.run_dir / "holdout_access.jsonl"
 

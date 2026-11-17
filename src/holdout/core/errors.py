@@ -29,6 +29,11 @@ class HoldoutTamperedError(SealError):
     """The sealed holdout file no longer matches the sha256 recorded at sealing time."""
 
 
+class HoldoutInvalidError(SealError):
+    """The holdout was found contaminated (shares rows, groups or time with development
+    data); it can never be evaluated, not even with ``force`` or an accepted risk."""
+
+
 class PlanValidationError(HoldoutError):
     """A model plan failed data-aware validation; ``issues`` holds the typed reasons."""
 

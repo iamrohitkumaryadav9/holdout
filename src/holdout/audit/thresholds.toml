@@ -52,9 +52,8 @@ signal_min_relative_lift = 0.1
 signal_min_normalized_score = 0.05
 
 [a04_duplicates]
-# Floats are rounded to this many significant digits before hashing (near-duplicates
-# that differ only below this precision count as duplicates).
-float_significant_digits = 6
+# (Float rounding before hashing - 6 significant digits - is fixed in holdout.core.config
+# and recorded in each seal, because the holdout's row digests are computed at seal time.)
 # Share of holdout rows that have an identical feature row in development data at or
 # above which the holdout is contaminated: critical, and the holdout is invalid.
 # A smaller positive overlap is a warning (real data has natural duplicates).
