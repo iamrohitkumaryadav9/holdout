@@ -80,15 +80,19 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+RowMethod = Literal["none", "stratified", "grouped", "systematic", "random"]
+FeatureMethod = Literal["all", "top_univariate"]
+
+
 class SamplingInfo(_Frozen):
     """How much of the development data an expensive check actually used."""
 
     n_rows_total: int
     n_rows_used: int
-    row_method: Literal["none", "stratified", "grouped", "systematic", "random"]
+    row_method: RowMethod
     n_features_total: int
     n_features_used: int
-    feature_method: Literal["all", "top_univariate"]
+    feature_method: FeatureMethod
 
 
 # ----------------------------------------------------------------------------- evidence
