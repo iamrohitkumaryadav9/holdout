@@ -154,6 +154,12 @@ class SplitComparison(_Frozen):
     dummy_score: float
     absolute_drop: float = Field(description="how much better the reference looks")
     relative_drop: float | None = Field(description="absolute_drop / reference lift")
+    reference_repeat_score: float | None = Field(
+        description="the reference splitter re-run with another shuffle (noise estimate)"
+    )
+    relative_noise: float | None = Field(
+        description="|reference - repeat| / reference lift: the drop expected from noise alone"
+    )
     n_usable_folds: int
     sampling: SamplingInfo
 

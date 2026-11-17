@@ -54,6 +54,7 @@ class GroupThresholds(_Section):
     deep_max_candidates: int = Field(ge=1)
     warn_relative_drop: float = Field(gt=0.0)
     critical_relative_drop: float = Field(gt=0.0)
+    min_drop_to_noise: float = Field(ge=0.0)
 
 
 class TimeThresholds(_Section):
@@ -66,6 +67,7 @@ class TimeThresholds(_Section):
     deep_max_candidates: int = Field(ge=1)
     warn_relative_drop: float = Field(gt=0.0)
     critical_relative_drop: float = Field(gt=0.0)
+    min_drop_to_noise: float = Field(ge=0.0)
 
 
 class MetricThresholds(_Section):

@@ -97,7 +97,9 @@ def run(ctx: AuditContext) -> CheckOutcome:
                 notes.append(f"row order explained by sorting on {sorted_by!r}")
                 continue
         comparison = _compare(ctx, pipeline, ordered, column)
-        severity = drop_severity(comparison, t.warn_relative_drop, t.critical_relative_drop)
+        severity = drop_severity(
+            comparison, t.warn_relative_drop, t.critical_relative_drop, t.min_drop_to_noise
+        )
         label = column if column is not None else "row order"
         drop = (
             "n/a"
@@ -209,7 +211,8 @@ def _compare(
 ) -> SplitComparison | None:
     X = ordered.drop(columns=[ctx.target]).reset_index(drop=True)
     y = ordered[ctx.target].reset_index(drop=True)
-    shuffle = np.random.default_rng(ctx.seed("a06/control")).permutation(len(X))
+    rng = np.random.default_rng(ctx.seed("a06/control"))
+    shuffle, repeat = rng.permutation(len(X)), rng.permutation(len(X))
     folds = TimeSeriesSplit(n_splits=config.N_FOLDS)
     info = sampling_info(
         ctx,
@@ -223,6 +226,7 @@ def _compare(
         ctx,
         "TimeSeriesSplit(shuffled order)",
         plan_cv(ctx, pipeline, X.iloc[shuffle], y.iloc[shuffle], None, folds),
+        plan_cv(ctx, pipeline, X.iloc[repeat], y.iloc[repeat], None, folds),
         f"TimeSeriesSplit({label})",
         plan_cv(ctx, pipeline, X, y, None, folds),
         info,

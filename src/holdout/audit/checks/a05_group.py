@@ -75,6 +75,10 @@ def run(ctx: AuditContext) -> CheckOutcome:
         sample, row_method = sample_rows(ctx, f"a05/{candidate.column}", group_col=candidate.column)
         X, y, groups = portable.cv_inputs(sample, ctx.target, ctx.spec.to_config())
         reference_splitter = cv_from_split(ctx.spec)
+        # Same splitter, different shuffle: how much the reference moves by chance alone.
+        repeat_splitter = portable.make_cv(
+            ctx.spec.strategy.value, config.N_FOLDS, ctx.seed("a05/reference_repeat")
+        )
         alternative_splitter = GroupKFold(
             n_splits=config.N_FOLDS, shuffle=True, random_state=ctx.seed("a05/group_kfold")
         )
@@ -82,11 +86,14 @@ def run(ctx: AuditContext) -> CheckOutcome:
             ctx,
             type(reference_splitter).__name__,
             plan_cv(ctx, pipeline, X, y, groups, reference_splitter),
+            plan_cv(ctx, pipeline, X, y, groups, repeat_splitter),
             f"GroupKFold({candidate.column})",
             plan_cv(ctx, pipeline, X, y, X[candidate.column], alternative_splitter),
             sampling_info(ctx, sample, row_method, len(ctx.features), "all"),
         )
-        severity = drop_severity(comparison, t.warn_relative_drop, t.critical_relative_drop)
+        severity = drop_severity(
+            comparison, t.warn_relative_drop, t.critical_relative_drop, t.min_drop_to_noise
+        )
         drop = (
             "n/a"
             if comparison is None or comparison.relative_drop is None

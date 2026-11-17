@@ -77,9 +77,13 @@ max_unique_ratio = 0.5
 max_candidates = 3
 deep_max_candidates = 6
 # Drop of the plan's CV score under GroupKFold, relative to the plan's lift over the
-# dummy: warning / critical.
-warn_relative_drop = 0.2
-critical_relative_drop = 0.35
+# dummy: warning / critical ...
+warn_relative_drop = 0.15
+critical_relative_drop = 0.2
+# ... and only when the drop is at least this multiple of the noise, measured by re-running
+# the reference splitter with another shuffle (relative drops on small data with a weak
+# model are noisy: on clean classification twins, sd ~0.16 with a true drop of zero).
+min_drop_to_noise = 3.0
 
 [a06_time]
 # Row-order autocorrelation of the target is significant when it exceeds the shuffled
@@ -101,9 +105,12 @@ max_candidates = 2
 deep_max_candidates = 4
 # Drop of the plan's CV score under forward-chaining folds along the inferred order,
 # against the same folds on a shuffled order, relative to the plan's lift: warning /
-# critical.
-warn_relative_drop = 0.2
-critical_relative_drop = 0.35
+# critical ...
+warn_relative_drop = 0.15
+critical_relative_drop = 0.2
+# ... and only when the drop is at least this multiple of the noise (the shuffled control
+# re-run on a second shuffle).
+min_drop_to_noise = 3.0
 
 [a07_metric]
 # Regression targets are heavy-tailed when (p99 - p50) / (p75 - p25) reaches this; R2 is

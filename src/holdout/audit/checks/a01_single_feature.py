@@ -128,7 +128,8 @@ def flags(
         )
         if severity is Severity.CRITICAL:
             names = " and ".join(c.value for c in corroborators)
-            message += f" {names} also point to leakage, so treat it as a leak."
+            verb = "points" if len(corroborators) == 1 else "point"
+            message += f" {names} also {verb} to leakage, so treat it as a leak."
         elif severity is Severity.WARNING:
             message += (
                 " This can be an honest, very strong feature;"
