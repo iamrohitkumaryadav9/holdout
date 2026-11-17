@@ -1,0 +1,47 @@
+# requirements.lock: exact environment captured on Windows 11 with Python 3.12.15 (uv-managed CPython).
+# For local reproducibility only. CI installs from pyproject.toml, not from this file.
+# Regenerate: python -m pip freeze --exclude-editable > requirements.lock (then restore this header).
+
+annotated-doc==0.0.6
+annotated-types==0.8.0
+ast_serialize==0.13.1
+attrs==26.1.0
+cloudpickle==3.1.2
+colorama==0.4.6
+coverage==7.17.3
+hypothesis==6.135.26
+iniconfig==2.3.1
+joblib==1.6.0
+librt==0.16.0
+lightgbm==4.6.0
+markdown-it-py==4.3.0
+mdurl==0.1.2
+mypy==2.4.1
+mypy_extensions==1.2.0
+narwhals==2.28.0
+numpy==2.3.5
+packaging==26.3
+pandas==2.3.3
+pandas-stubs==2.3.3.251219
+pathspec==1.1.1
+pluggy==1.7.0
+pyarrow==21.0.0
+pydantic==2.14.3
+pydantic_core==2.50.4
+Pygments==2.21.0
+pytest==9.2.0
+pytest-cov==7.1.0
+python-dateutil==4.0.0
+pytz==2026.6
+rich==15.0.0
+ruff==0.17.5
+scikit-learn==1.7.2
+scipy==1.16.3
+shellingham==1.5.4
+sortedcontainers==2.4.0
+threadpoolctl==3.8.0
+typer==0.29.1
+types-pytz==2026.6.0.20261031
+typing-inspection==0.4.5
+typing_extensions==4.16.0
+tzdata==2026.6
