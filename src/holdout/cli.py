@@ -256,7 +256,7 @@ def _print_summary(manifest: RunManifest, run_dir: Path) -> None:
 
 # The agent command lives in its own module and registers itself on `app`; imported last
 # because it uses the helpers above.
-from holdout import cli_agent  # noqa: E402, F401
+from holdout import cli_agent, cli_spend  # noqa: E402, F401
 
 if __name__ == "__main__":
     app()
