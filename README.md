@@ -33,7 +33,8 @@ holdout run --csv examples\churn_classification.csv --target churned --unseal
 # Time-ordered data declared as tabular: prints the time-order warning and a time-split alternative
 holdout run --csv examples\store_sales_timeseries.csv --target units_sold
 
-# The same data split by time
+# The same data with --data-type timeseries: time-ordered tabular data
+# (time-based split; forecasting is not supported yet)
 holdout run --csv examples\store_sales_timeseries.csv --target units_sold --data-type timeseries --unseal
 
 # Your own plan (see examples\plan_churn_lightgbm.json for the contract)

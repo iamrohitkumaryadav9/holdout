@@ -59,7 +59,13 @@ def run(
         TaskOption, typer.Option(help="Task; auto infers it from the target.")
     ] = TaskOption.AUTO,
     data_type: Annotated[
-        DataType, typer.Option(help="What the data is, as you see it.")
+        DataType,
+        typer.Option(
+            help=(
+                "tabular, or timeseries: time-ordered tabular data (time-based split; "
+                "forecasting is not supported yet)."
+            )
+        ),
     ] = DataType.TABULAR,
     split: Annotated[
         str, typer.Option(help="auto | random | stratified | group:COL | time:COL")
