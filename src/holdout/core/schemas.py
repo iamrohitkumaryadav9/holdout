@@ -6,7 +6,9 @@ the report and the CLI all consume them; keeping them in ``core`` avoids upward 
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any, Protocol
 
+import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -62,6 +64,15 @@ class Direction(StrEnum):
 
     HIGHER = "higher"
     LOWER = "lower"
+
+
+class Scorer(Protocol):
+    """What the seal needs from a metric. Defined here so ``data`` never imports ``plan``."""
+
+    @property
+    def name(self) -> MetricName: ...
+
+    def score(self, estimator: Any, X: pd.DataFrame, y: pd.Series) -> float: ...
 
 
 class _Record(BaseModel):

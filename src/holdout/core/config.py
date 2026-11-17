@@ -29,6 +29,10 @@ ID_UNIQUE_RATIO: Final = 0.95
 #: unique ratio is at most this; such a column suggests a group split.
 ENTITY_MAX_UNIQUE_RATIO: Final = 0.5
 
+#: Ratio-based identifier detection needs this many non-missing values; on tiny samples
+#: every categorical column looks "mostly unique".
+MIN_VALUES_FOR_RATIO_RULES: Final = 50
+
 #: A string column is free text when values are long on average and mostly distinct.
 TEXT_MIN_MEAN_LENGTH: Final = 30.0
 TEXT_MIN_UNIQUE_RATIO: Final = 0.5
