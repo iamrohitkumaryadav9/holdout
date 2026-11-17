@@ -108,6 +108,9 @@ def write_examples(out_dir: Path, seed: int = 0) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     classification_path = out_dir / CLASSIFICATION_FILENAME
     timeseries_path = out_dir / TIMESERIES_FILENAME
-    make_classification_example(seed=seed).to_csv(classification_path, index=False)
-    make_timeseries_example(seed=seed).to_csv(timeseries_path, index=False)
+    # LF line endings: identical bytes (and sha256) on every platform.
+    make_classification_example(seed=seed).to_csv(
+        classification_path, index=False, lineterminator="\n"
+    )
+    make_timeseries_example(seed=seed).to_csv(timeseries_path, index=False, lineterminator="\n")
     return classification_path, timeseries_path
