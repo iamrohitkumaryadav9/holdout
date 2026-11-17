@@ -9,7 +9,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from bench.traps.types import TrapCase, TrapTruth, clean_case, default_goal, trap_rng
+from bench.traps.types import (
+    TrapCase,
+    TrapTruth,
+    clean_case,
+    default_goal,
+    positive_indicator,
+    trap_rng,
+)
 from holdout.audit.types import Category, CheckId, Severity
 from holdout.core.schemas import Task
 
@@ -20,12 +27,13 @@ def direct_leak(
     """Add a column derived from the target, named like something recorded afterwards."""
     rng = trap_rng(seed, "direct_leak")
     noise = float(params.get("noise", 0.03))
-    y = df[target].to_numpy()
     if task is Task.CLASSIFICATION:
         column = str(params.get("column", "refund_issued"))
+        y = positive_indicator(df[target])
         flips = rng.random(len(df)) < noise
         leaked = np.where(flips, 1 - y, y)
     else:
+        y = df[target].to_numpy()
         column = str(params.get("column", "final_settlement"))
         leaked = np.round(y * 1.05 + rng.normal(0, noise * np.std(y), len(df)), 2)
     out = df.copy()
@@ -53,7 +61,11 @@ def noisy_proxy(
     """Add target-plus-noise under a neutral name: only statistics (A1) can see it."""
     rng = trap_rng(seed, "noisy_proxy")
     column = str(params.get("column", "signal_strength"))
-    y = df[target].to_numpy(dtype="float64")
+    y = (
+        positive_indicator(df[target]).astype("float64")
+        if task is Task.CLASSIFICATION
+        else df[target].to_numpy(dtype="float64")
+    )
     scale = float(params.get("noise_sd", 0.35)) * (
         1.0 if task is Task.CLASSIFICATION else np.std(y)
     )

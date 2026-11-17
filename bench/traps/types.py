@@ -81,6 +81,17 @@ def clean_case(
     )
 
 
+def positive_indicator(y: pd.Series) -> np.ndarray:
+    """1 for the positive class of a binary target, else 0. The positive class is the larger
+    label in sort order (as text), so 0/1 targets map to themselves and string labels
+    ("g"/"h", "N"/"P") work too."""
+    labels = sorted(pd.unique(y), key=str)
+    if len(labels) != 2:
+        raise ValueError(f"binary planting needs two classes, got {len(labels)}")
+    indicator: np.ndarray = (y.astype(str).to_numpy() == str(labels[-1])).astype("int64")
+    return indicator
+
+
 def trap_rng(seed: int, name: str) -> np.random.Generator:
     return np.random.default_rng(derive_seed(seed, f"bench/trap/{name}"))
 

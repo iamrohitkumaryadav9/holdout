@@ -66,16 +66,20 @@ def messy_formats(
     rng = trap_rng(seed, "messy_formats")
     out = df.copy()
     numeric_col = str(params.get("numeric_column", "income"))
-    category_col = str(params.get("category_column", "segment"))
+    # Real bases without a text column skip the spelling variants (None).
+    category_col: str | None = params.get("category_column", "segment")
     sentinel_col = str(params.get("sentinel_column", "age"))
+    decimals = int(params.get("decimals", 0))
 
     def money(value: float) -> str:
-        text = f"{value:,.0f}"
+        text = f"{value:,.{decimals}f}"
         return f"Rs {text}" if rng.random() < 0.5 else text
 
     out[numeric_col] = [money(v) for v in out[numeric_col]]
 
-    def variant(value: str) -> str:
+    def variant(value: object) -> object:
+        if not isinstance(value, str):
+            return value  # missing values stay missing
         draw = rng.random()
         if draw < 0.2:
             return value.upper()
@@ -83,7 +87,10 @@ def messy_formats(
             return f"  {value.title()} "
         return value
 
-    out[category_col] = [variant(v) for v in out[category_col]]
+    if category_col is not None:
+        out[category_col] = pd.Series(
+            [variant(v) for v in out[category_col].astype(object)], index=out.index, dtype=object
+        )
     sentinel_rows = rng.random(len(out)) < float(params.get("sentinel_share", 0.03))
     out[sentinel_col] = np.where(sentinel_rows, -999, out[sentinel_col])
     return TrapCase(
@@ -97,7 +104,9 @@ def messy_formats(
             expected_checks=[CheckId.A8],
             expected_category=Category.FORMAT_ISSUE,
             min_expected_severity=Severity.WARNING,
-            affected_columns=[numeric_col, category_col, sentinel_col],
+            affected_columns=[
+                c for c in (numeric_col, category_col, sentinel_col) if c is not None
+            ],
             expected_remediation="clean_formats",
         ),
     )

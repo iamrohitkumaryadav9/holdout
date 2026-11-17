@@ -6,8 +6,9 @@
 # base and any listed seed, so tuned thresholds are never evaluated on data they were tuned
 # on. Add an entry whenever a new base or seed is used during development, *before* using it.
 
-# Seeds used by tests, the audit harness, benchmarks and threshold tuning (Weeks 1-2).
-seeds = [0, 1, 2, 3, 4]
+# Seeds used by tests, the audit harness, benchmarks and threshold tuning (Weeks 1-2), and
+# the Week 4 dev suite, pilot and one-time tuning (11, 12).
+seeds = [0, 1, 2, 3, 4, 11, 12]
 
 [[base]]
 name = "classification"
@@ -38,3 +39,20 @@ purpose = "Week 1 examples, CLI tests and the 50k benchmark"
 name = "holdout_examples_sales"
 source = "holdout.data.examples.make_timeseries_example"
 purpose = "Week 1 examples, CLI tests and the 50k benchmark"
+
+# Week 4 dev pool (bench/datasets.toml, pool "dev"): the dev suite, the pilot and the
+# one-time tuning of thresholds and the A11 lexicon. Registered before first use.
+[[base]]
+name = "adult"
+source = "OpenML 1590 v2 (bench/datasets.toml)"
+purpose = "Week 4 dev suite, pilot and tuning"
+
+[[base]]
+name = "credit_approval"
+source = "OpenML 29 v1 (bench/datasets.toml)"
+purpose = "Week 4 dev suite, pilot and tuning (also as a class-sorted file-order control)"
+
+[[base]]
+name = "kin8nm"
+source = "OpenML 189 v1 (bench/datasets.toml)"
+purpose = "Week 4 dev suite, pilot and tuning"

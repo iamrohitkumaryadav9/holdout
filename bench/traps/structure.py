@@ -5,7 +5,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from bench.traps.types import TrapCase, TrapTruth, clean_case, default_goal, trap_rng
+from bench.traps.types import (
+    TrapCase,
+    TrapTruth,
+    clean_case,
+    default_goal,
+    positive_indicator,
+    trap_rng,
+)
 from holdout.audit.types import Category, CheckId, Severity
 from holdout.core.schemas import Task
 
@@ -76,9 +83,16 @@ def group_leakage(
     n_entities = int(entity.max()) + 1
     y = out[target].to_numpy()
     if task is Task.CLASSIFICATION:
-        entity_label = (rng.random(n_entities) < y.mean()).astype(y.dtype)
+        # Works for 0/1 and for string labels: each entity draws one of the two labels with
+        # the base's positive rate (identical draws to the 0/1 version).
+        positive = positive_indicator(out[target])
+        labels = sorted(pd.unique(out[target]), key=str)
+        entity_positive = rng.random(n_entities) < positive.mean()
+        entity_label = np.where(entity_positive, labels[-1], labels[0])
         take = rng.random(len(out)) < strength
         out[target] = np.where(take, entity_label[entity], y)
+        if pd.api.types.is_integer_dtype(y.dtype):
+            out[target] = out[target].astype(y.dtype)
     else:
         effect = rng.normal(0, 2.0 * strength * np.std(y), n_entities)
         out[target] = np.round(y + effect[entity], 2)
