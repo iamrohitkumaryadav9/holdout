@@ -7,6 +7,27 @@ import pandas as pd
 
 from holdout.core.schemas import MetricName
 
+RATIONALE: dict[str, str] = {
+    "metric": "chosen for the test",
+    "drop_columns": "chosen for the test",
+    "preprocessing": "chosen for the test",
+    "feature_selection": "chosen for the test",
+    "model": "chosen for the test",
+    "class_weight": "chosen for the test",
+}
+
+
+def plan_dict(**overrides: Any) -> dict[str, Any]:
+    """A minimal valid plan as a dict; override any field to test one change."""
+    base: dict[str, Any] = {
+        "task": "classification",
+        "metric": "roc_auc",
+        "model": {"name": "hist_gb"},
+        "rationale": RATIONALE,
+    }
+    base.update(overrides)
+    return base
+
 
 def make_grouped_df(
     n_customers: int = 40, rows_per_customer: int = 6, seed: int = 0
