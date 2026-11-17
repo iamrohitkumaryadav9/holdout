@@ -298,6 +298,14 @@ call records before any new API call:
    `tests/fixtures/smoke_2026_11_17/README.md`). Every rejected answer is now kept in the
    manifest (`agent.rejected_attempts`: node, prompt version, attempt, errors, first 4,000
    characters of the text).
+   The verification run (Rs 0.67 + Rs 0.90) confirmed points 1 to 3, but showed one more
+   A11 false positive in the churn report: "...cannot confirm whether specific factors
+   cause churn". It is a correct disclaimer, but "cannot" sat outside the 4-word negation
+   window. The rejected text was kept in `agent.rejected_attempts`, so the cause was
+   immediate. A causal verb inside an indirect question or a condition in the same clause
+   ("whether ...", "if ...") is now not treated as an assertion. "We checked whether the
+   data was clean, and discounts cause higher sales" is still flagged, because the clause
+   ends at the comma.
 5. **One check per node.** A plan's data-aware validation (`plan_errors`) is now part of
    the session's check, instead of a second planner-level request. Any problem therefore
    gets exactly one repair, and "valid at the first attempt" means valid by every check.
