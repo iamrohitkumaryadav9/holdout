@@ -1,0 +1,34 @@
+# Private build spec: never commit.
+Holdout — Self-Auditing Data Science Agent Build Spec.pdf
+*.pdf
+
+# Environments
+.venv/
+venv/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Run outputs (each run writes a sealed holdout; never commit those)
+runs/
+bench_runs/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

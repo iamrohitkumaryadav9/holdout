@@ -1,0 +1,80 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "holdout"
+version = "0.1.0"
+description = "A self-auditing data-science agent for tabular CSVs: the holdout is sealed before anything sees it."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "rohit" }]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# The numeric stack is pinned to the minor versions this code is tested against, so CI
+# and local runs exercise the same behaviour (split shuffling, encoder output order).
+# These are deliberately mature releases: see docs/design.md, "Environment".
+dependencies = [
+    "pandas>=2.3,<2.4",
+    "numpy>=2.3,<2.4",
+    "scikit-learn>=1.7,<1.8",
+    "lightgbm>=4.6,<4.7",
+    "pydantic>=2.14,<3",
+    "typer>=0.29,<1",
+    "rich>=15,<16",
+    "pyarrow>=21,<22",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.2,<10",
+    "pytest-cov>=7.1,<8",
+    "hypothesis>=6.135,<7",
+    "ruff==0.17.5",
+    "mypy==2.4.1",
+    "pandas-stubs>=2.3,<2.4",
+]
+
+[project.scripts]
+holdout = "holdout.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/holdout"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "N", "C4", "PTH", "PT"]
+# N803/N806: `X` and `y` are the scikit-learn naming convention for features and target.
+ignore = ["N803", "N806"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "lightgbm.*", "pyarrow.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+
+[tool.coverage.run]
+branch = true
+source = ["holdout.core", "holdout.data", "holdout.plan", "holdout.export"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = false
+exclude_also = ["if __name__ == .__main__.:", "raise AssertionError", "\\.\\.\\."]
