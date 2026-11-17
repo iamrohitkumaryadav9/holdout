@@ -189,9 +189,12 @@ class MetricEvidence(_Frozen):
     tail_ratio: float | None
 
 
+FormatIssue = Literal["numeric_strings", "category_variants", "sentinel"]
+
+
 class FormatEvidence(_Frozen):
     kind: Literal["format"] = "format"
-    issue: Literal["numeric_strings", "category_variants", "sentinel"]
+    issue: FormatIssue
     n_affected_rows: int
     share: float
     examples: list[str]
