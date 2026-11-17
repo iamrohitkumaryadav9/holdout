@@ -10,7 +10,8 @@ from bench.traps import build_case
 from holdout.audit.checks import a04_duplicates as a4
 from holdout.audit.types import Severity
 from holdout.data.seal import HoldoutOverlap
-from tests.audit_harness import SEEDS, context_for, trap_context, twin_context
+from tests.audit_harness import context_for, trap_context, twin_context
+from tests.tiers import SEEDS
 
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -25,7 +26,7 @@ def test_planted_exact_duplicates_are_critical_and_invalidate(seed: int) -> None
     assert flag.fix.kind == "deduplicate"
 
 
-@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("seed", SEEDS[:2])
 def test_near_duplicates_below_six_significant_digits_are_caught(seed: int) -> None:
     case = build_case("cross_split_duplicates", seed, params={"variant": "near"})
     assert not case.df.duplicated().any()  # no exact duplicates: only float noise differs

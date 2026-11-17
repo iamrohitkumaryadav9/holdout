@@ -7,7 +7,8 @@ import pytest
 from holdout.audit.checks import a01_single_feature as a1
 from holdout.audit.types import CheckId, Severity
 from holdout.plan.schema import DropColumn
-from tests.audit_harness import SEEDS, trap_context, twin_context
+from tests.audit_harness import trap_context, twin_context
+from tests.tiers import SEEDS
 
 
 @pytest.mark.parametrize("seed", SEEDS)

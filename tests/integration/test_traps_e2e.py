@@ -19,6 +19,17 @@ from holdout.plan.schema import ModelPlan
 
 runner = CliRunner()
 
+#: Traps run in the fast tier; the rest run in the full tier only.
+FAST_TRAPS = {"direct_leak", "cross_split_duplicates"}
+
+
+def _tiered(names: set[str]) -> list[Any]:
+    return [
+        n if n in FAST_TRAPS else pytest.param(n, marks=pytest.mark.full_only)
+        for n in sorted(names)
+    ]
+
+
 #: Traps whose detection needs a generated report (A11, wired in Week 3).
 REPORT_LEVEL = {"causal_question"}
 
@@ -52,7 +63,7 @@ def _detected(manifest: dict[str, Any], category: Category, minimum: Severity) -
     )
 
 
-@pytest.mark.parametrize("name", sorted(set(TRAPS) - REPORT_LEVEL))
+@pytest.mark.parametrize("name", _tiered(set(TRAPS) - REPORT_LEVEL))
 def test_trap_is_detected_end_to_end(name: str, tmp_path: Path) -> None:
     case = build_case(name, 0)
     manifest = _run_case(case, tmp_path)
@@ -65,7 +76,7 @@ def test_trap_is_detected_end_to_end(name: str, tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("name", sorted(TRAPS))
+@pytest.mark.parametrize("name", _tiered(set(TRAPS)))
 def test_clean_twin_has_no_critical_flag_end_to_end(name: str, tmp_path: Path) -> None:
     manifest = _run_case(clean_twin(build_case(name, 0)), tmp_path)
     criticals = [f for f in manifest["audit"]["flags"] if f["severity"] == "critical"]
@@ -73,6 +84,7 @@ def test_clean_twin_has_no_critical_flag_end_to_end(name: str, tmp_path: Path) -
     assert manifest["holdout_invalid"] is False
 
 
+@pytest.mark.full_only
 def test_causal_question_is_report_level_in_week_2(tmp_path: Path) -> None:
     case = build_case("causal_question", 0)
     manifest = _run_case(case, tmp_path)

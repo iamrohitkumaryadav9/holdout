@@ -16,6 +16,7 @@ from hypothesis import strategies as st
 from holdout.data.examples import make_classification_example, make_timeseries_example
 from holdout.data.profile import profile_schema
 from tests.helpers import make_grouped_df
+from tests.tiers import examples
 
 DATASETS = {
     "churn": (make_classification_example(n_rows=300, seed=1), "churned"),
@@ -41,7 +42,7 @@ def _comparable(profile_dump: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@settings(max_examples=25, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@settings(max_examples=examples(25, 8), deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(name=st.sampled_from(sorted(DATASETS)), seed=st.integers(0, 2**32 - 1))
 def test_profile_is_invariant_to_shuffling_the_target(name: str, seed: int) -> None:
     frame, target = DATASETS[name]

@@ -6,7 +6,8 @@ from holdout.audit.checks import a01_single_feature as a1
 from holdout.audit.checks import a02_post_outcome as a2
 from holdout.audit.hints import ColumnSample, HintRequest, LexiconHintProvider, tokens
 from holdout.audit.types import Severity
-from tests.audit_harness import SEEDS, trap_context, twin_context
+from tests.audit_harness import trap_context, twin_context
+from tests.tiers import SEEDS
 
 
 def test_tokens_split_every_naming_style() -> None:

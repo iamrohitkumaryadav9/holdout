@@ -8,7 +8,8 @@ import pytest
 from holdout.audit.checks import a07_metric as a7
 from holdout.audit.types import Severity
 from holdout.core.schemas import MetricName
-from tests.audit_harness import SEEDS, trap_context, twin_context
+from tests.audit_harness import trap_context, twin_context
+from tests.tiers import SEEDS
 
 
 @pytest.mark.parametrize("seed", SEEDS)

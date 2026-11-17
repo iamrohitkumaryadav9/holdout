@@ -50,8 +50,13 @@ holdout audit --run runs\<run_id>
 # Reproduce a run's CV score without Holdout
 python runs\<run_id>\pipeline.py --csv examples\churn_classification.csv
 
-# Tests, lint, types (the 50k-row performance tests are marked slow)
-pytest -m "not slow" --cov
+# Tests: the fast tier (default, under 4 minutes: 1 seed, no 50k-row tests) ...
+pytest
+# ... and the full tier (every test and seed, as CI runs it; add -m "not slow" to skip
+# the 50k-row performance tests)
+pytest --tier full --cov
+
+# Lint and types
 ruff check src tests scripts bench
 mypy src/holdout bench
 ```

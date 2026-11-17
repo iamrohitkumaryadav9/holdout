@@ -8,7 +8,8 @@ import pytest
 
 from holdout.audit.checks import a08_formats as a8
 from holdout.audit.types import Severity
-from tests.audit_harness import SEEDS, trap_context, twin_context
+from tests.audit_harness import trap_context, twin_context
+from tests.tiers import SEEDS
 
 
 @pytest.mark.parametrize("seed", SEEDS)

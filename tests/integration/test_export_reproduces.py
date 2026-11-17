@@ -59,7 +59,13 @@ CASES = {
 }
 
 
-@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize(
+    "case",
+    [
+        c if c != "stratified_default" else pytest.param(c, marks=pytest.mark.full_only)
+        for c in sorted(CASES)
+    ],
+)
 def test_exported_script_reproduces_the_cv_score(tmp_path: Path, case: str) -> None:
     make_frame, target, spec, plan_override = CASES[case]
     csv = tmp_path / "data.csv"

@@ -78,6 +78,7 @@ def test_classification_example_end_to_end_with_unseal(examples: Path, tmp_path:
     assert "# Holdout run" in (run_dir / "report.md").read_text(encoding="utf-8")
 
 
+@pytest.mark.full_only
 def test_timeseries_example_warns_when_declared_tabular(examples: Path, tmp_path: Path) -> None:
     out = tmp_path / "runs"
     result = runner.invoke(
@@ -135,6 +136,7 @@ def test_timeseries_example_with_time_split(examples: Path, tmp_path: Path) -> N
     assert manifest["plans"][1]["cv"]["splitter"] == "TimeSeriesSplit"  # type: ignore[index]
 
 
+@pytest.mark.full_only
 def test_explicit_plan_and_split(examples: Path, tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(
@@ -169,6 +171,7 @@ def test_explicit_plan_and_split(examples: Path, tmp_path: Path) -> None:
     assert manifest["run_seed"] == 7
 
 
+@pytest.mark.full_only
 def test_ledger_warns_on_a_second_unsealed_run(examples: Path, tmp_path: Path) -> None:
     out = tmp_path / "runs"
     args = [

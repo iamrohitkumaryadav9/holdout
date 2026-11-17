@@ -11,7 +11,7 @@ from bench.suite import (
 )
 from bench.traps.synthetic import BUILDERS, classification
 from holdout.core.schemas import Task
-from tests.audit_harness import SEEDS
+from tests.tiers import FULL_SEEDS
 
 HELD_OUT_SEED = 1001
 
@@ -27,7 +27,7 @@ def _loader(calls: list[tuple[str, int]]):  # type: ignore[no-untyped-def]
 def test_every_development_base_and_seed_is_registered() -> None:
     usage = load_dev_usage()
     assert set(BUILDERS) <= usage.bases
-    assert set(SEEDS) <= usage.seeds  # the audit harness seeds
+    assert set(FULL_SEEDS) <= usage.seeds  # the audit harness seeds (full tier)
     assert {0, 1, 2, 3, 4} <= usage.seeds  # bench script, perf tests, generator tests
 
 

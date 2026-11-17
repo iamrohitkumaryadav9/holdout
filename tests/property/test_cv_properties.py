@@ -16,6 +16,7 @@ from holdout.data.split import SplitSpec, apply_split
 from holdout.plan.compiler import cv_from_split, evaluate_cv
 from holdout.plan.schema import ModelPlan
 from tests.helpers import plan_dict
+from tests.tiers import examples
 
 
 def _frame(seed: int, n_rows: int) -> pd.DataFrame:
@@ -54,7 +55,7 @@ PLAN = ModelPlan.model_validate(
 
 
 @settings(
-    max_examples=40,
+    max_examples=examples(40, 10),
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -90,7 +91,7 @@ def test_no_holdout_row_ever_appears_in_a_cv_fold(
     assert seen <= set(dev.index)
 
 
-@settings(max_examples=8, deadline=None)
+@settings(max_examples=examples(8, 3), deadline=None)
 @given(
     data_seed=st.integers(0, 2**32 - 1),
     run_seed=st.integers(0, 2**31 - 1),

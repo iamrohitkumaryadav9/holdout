@@ -9,7 +9,8 @@ from holdout.audit.checks import a10_too_good as a10
 from holdout.audit.checks import a11_causal as a11
 from holdout.audit.checks import a12_stability as a12
 from holdout.audit.types import CheckId, Severity
-from tests.audit_harness import SEEDS, context_for, twin_context
+from tests.audit_harness import context_for, twin_context
+from tests.tiers import SEEDS
 
 # ------------------------------------------------------------------ A10
 

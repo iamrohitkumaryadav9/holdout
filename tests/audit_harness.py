@@ -22,8 +22,6 @@ from holdout.plan.compiler import evaluate_cv
 from holdout.plan.defaults import baseline_plan, default_plan
 from holdout.plan.schema import ModelPlan
 
-SEEDS = (0, 1, 2, 3, 4)
-
 _WORKDIR = Path(tempfile.mkdtemp(prefix="holdout-audit-tests-"))
 
 

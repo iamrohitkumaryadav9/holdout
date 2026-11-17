@@ -13,7 +13,8 @@ from holdout.audit.checks import a06_time as a6
 from holdout.audit.types import Severity
 from holdout.core.schemas import SplitStrategy, Task
 from holdout.data.split import SplitSpec
-from tests.audit_harness import SEEDS, context_for, trap_context, twin_context
+from tests.audit_harness import context_for, trap_context, twin_context
+from tests.tiers import SEEDS
 
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -30,7 +31,7 @@ def test_hidden_row_order_with_drift_is_critical(seed: int) -> None:
     assert "--split time:row_number" in flag.fix.instruction  # type: ignore[union-attr]
 
 
-@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("seed", SEEDS[:2])
 def test_renamed_date_column_is_found_by_parsing_not_by_name(seed: int) -> None:
     ctx = context_for(build_case("time_order", seed, params={"mode": "rename"}), seed)
     flags = a6.run(ctx).flags
@@ -66,7 +67,7 @@ def test_clean_data_sorted_by_a_category_is_never_a_time_critical(seed: int) -> 
     assert "appears sorted by 'odor'" in flags[0].message
 
 
-@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("seed", SEEDS[:2])
 def test_clean_data_sorted_by_a_continuous_feature_is_a_sort_warning(seed: int) -> None:
     frame, target, task = regression(seed=seed)  # score_a dominates the target
     frame = frame.sort_values("score_a", kind="stable").reset_index(drop=True)
@@ -75,7 +76,7 @@ def test_clean_data_sorted_by_a_continuous_feature_is_a_sort_warning(seed: int) 
     assert [f.evidence.sorted_by for f in flags] == ["score_a"]  # type: ignore[union-attr]
 
 
-@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("seed", SEEDS[:2])
 def test_weak_sorting_feature_produces_no_flag_at_all(seed: int) -> None:
     case = clean_twin(build_case("noisy_proxy", seed))
     frame = case.df.sort_values("score_a", kind="stable").reset_index(drop=True)

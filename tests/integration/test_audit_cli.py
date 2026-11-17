@@ -25,7 +25,8 @@ def csvs(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     paths = {}
     for name in ("group_leakage", "direct_leak"):
         path = out / f"{name}.csv"
-        build_case(name, 0).df.to_csv(path, index=False)
+        # 600 rows keep these CLI tests fast; the guarantees hold at this size.
+        build_case(name, 0, n_rows=600).df.to_csv(path, index=False)
         paths[name] = path
     return paths
 
@@ -70,6 +71,7 @@ def test_group_leakage_invalidates_and_accept_risk_cannot_override(
     assert [json.loads(line)["outcome"] for line in log] == ["marked_invalid", "refused_invalid"]
 
 
+@pytest.mark.full_only
 def test_the_corrected_run_carries_the_redrawn_caveat(
     csvs: dict[str, Path], tmp_path: Path
 ) -> None:
@@ -87,6 +89,7 @@ def test_the_corrected_run_carries_the_redrawn_caveat(
     assert "- **Entities:** new" in report
 
 
+@pytest.mark.full_only
 def test_known_entities_never_invalidate(csvs: dict[str, Path], tmp_path: Path) -> None:
     out = tmp_path / "runs"
     result = _run(csvs["group_leakage"], out, "--entities", "known", "--unseal", "--ack-warnings")
@@ -119,6 +122,7 @@ def test_direct_leak_critical_is_refused_then_unsealed_with_accepted_risk(
     assert report.splitlines()[2].startswith("> **RISK ACCEPTED.**")
 
 
+@pytest.mark.full_only
 def test_warnings_need_acknowledgement(csvs: dict[str, Path], tmp_path: Path) -> None:
     result = _run(csvs["direct_leak"], tmp_path, "--unseal", "--accept-risk", RISK)
     assert result.exit_code == EXIT_UNSEAL_REFUSED
@@ -160,6 +164,7 @@ def test_reaudit_an_existing_run(csvs: dict[str, Path], tmp_path: Path) -> None:
     assert _manifest(run_dir)["holdout"] == "not unsealed"  # re-audit never unseals
 
 
+@pytest.mark.full_only
 def test_reaudit_refuses_a_changed_csv(csvs: dict[str, Path], tmp_path: Path) -> None:
     csv = tmp_path / "data.csv"
     csv.write_bytes(csvs["direct_leak"].read_bytes())

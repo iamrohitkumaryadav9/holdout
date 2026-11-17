@@ -12,7 +12,8 @@ from holdout.audit.context import AuditContext
 from holdout.audit.thresholds import load_thresholds
 from holdout.audit.types import AuditReport, Category, CheckId, Severity
 from holdout.core.state import RunState
-from tests.audit_harness import SEEDS, context_for, trap_context
+from tests.audit_harness import context_for, trap_context
+from tests.tiers import SEEDS
 
 
 def audit(ctx: AuditContext, run_state: RunState | None = None) -> AuditReport:

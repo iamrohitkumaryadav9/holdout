@@ -8,7 +8,8 @@ from holdout.audit.checks import a05_group as a5
 from holdout.audit.types import Severity
 from holdout.core.schemas import EntityScope, SplitStrategy
 from holdout.data.split import SplitSpec
-from tests.audit_harness import SEEDS, context_for, trap_context, twin_context
+from tests.audit_harness import context_for, trap_context, twin_context
+from tests.tiers import SEEDS
 
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -38,7 +39,7 @@ def test_quiet_on_clean_twins(trap: str, seed: int) -> None:
     ] == []
 
 
-@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("seed", SEEDS[:2])
 def test_known_entities_record_info_and_never_invalidate(seed: int) -> None:
     ctx = context_for(build_case("group_leakage", seed), seed, entity_scope=EntityScope.KNOWN)
     assert ctx.spec.entity_scope is EntityScope.KNOWN

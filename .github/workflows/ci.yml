@@ -42,12 +42,12 @@ jobs:
         run: mypy src/holdout bench
 
       # Coverage sources and the 85% overall floor are configured in pyproject.toml.
-      # The 50k-row performance tests (marked slow) run on Ubuntu only.
-      - name: Pytest with coverage
+      # Full test tier everywhere; the 50k-row performance tests (marked slow) on Ubuntu only.
+      - name: Pytest with coverage (full tier)
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then MARKERS=""; else MARKERS="not slow"; fi
-          pytest -m "$MARKERS" --cov --cov-report=term-missing --cov-report=xml
+          pytest --tier full -m "$MARKERS" --cov --cov-report=term-missing --cov-report=xml
 
       - name: Audit coverage (>= 90% on holdout/audit)
         run: coverage report --include="*/holdout/audit/*" --fail-under=90

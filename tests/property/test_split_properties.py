@@ -7,6 +7,7 @@ from hypothesis import strategies as st
 
 from holdout.core.schemas import SplitStrategy
 from holdout.data.split import SplitSpec, apply_split
+from tests.tiers import examples
 
 SEEDS = st.integers(0, 2**31 - 1)
 TEST_SIZES = st.floats(0.1, 0.4)
@@ -41,7 +42,7 @@ def _spec(strategy: SplitStrategy, seed: int, test_size: float) -> SplitSpec:
     )
 
 
-@settings(max_examples=60, deadline=None)
+@settings(max_examples=examples(60, 20), deadline=None)
 @given(frame=frames(), strategy=st.sampled_from(list(SplitStrategy)), seed=SEEDS, size=TEST_SIZES)
 def test_split_partitions_rows_and_is_deterministic(
     frame: pd.DataFrame, strategy: SplitStrategy, seed: int, size: float
@@ -56,21 +57,21 @@ def test_split_partitions_rows_and_is_deterministic(
     pd.testing.assert_frame_equal(holdout, holdout_again)
 
 
-@settings(max_examples=60, deadline=None)
+@settings(max_examples=examples(60, 20), deadline=None)
 @given(frame=frames(), seed=SEEDS, size=TEST_SIZES)
 def test_group_split_never_shares_a_group(frame: pd.DataFrame, seed: int, size: float) -> None:
     dev, holdout = apply_split(frame, _spec(SplitStrategy.GROUP, seed, size), "y")
     assert set(dev["entity"]).isdisjoint(set(holdout["entity"]))
 
 
-@settings(max_examples=60, deadline=None)
+@settings(max_examples=examples(60, 20), deadline=None)
 @given(frame=frames(), seed=SEEDS, size=TEST_SIZES)
 def test_time_split_never_trains_on_the_future(frame: pd.DataFrame, seed: int, size: float) -> None:
     dev, holdout = apply_split(frame, _spec(SplitStrategy.TIME, seed, size), "y")
     assert pd.to_datetime(dev["when"]).max() <= pd.to_datetime(holdout["when"]).min()
 
 
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=examples(30, 10), deadline=None)
 @given(frame=frames(), seed=SEEDS)
 def test_different_seeds_change_random_splits(frame: pd.DataFrame, seed: int) -> None:
     first = apply_split(frame, _spec(SplitStrategy.RANDOM, seed, 0.2), "y")[1].index
