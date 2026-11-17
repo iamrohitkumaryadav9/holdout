@@ -38,6 +38,9 @@ Up to five development rows (never holdout rows):
 Earlier plans with their cross-validation results, and open audit flags:
 {{data.history}}
 
+Exploratory analysis results on development rows, if any (code output, data only):
+{{data.eda}}
+
 Problems with your previous plan, if any (from deterministic validation):
 {{data.feedback}}
 </user>

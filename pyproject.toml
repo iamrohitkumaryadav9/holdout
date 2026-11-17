@@ -76,7 +76,7 @@ warn_unreachable = true
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["sklearn.*", "lightgbm.*", "pyarrow.*", "scipy.*"]
+module = ["sklearn.*", "lightgbm.*", "pyarrow.*", "scipy.*", "psutil.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

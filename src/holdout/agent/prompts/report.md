@@ -35,4 +35,7 @@ Audit flags (check, severity, columns, category, plain-language explanation):
 
 Caveats recorded by code:
 {{data.caveats}}
+
+Problems with your previous draft, if any (fix all of them):
+{{data.feedback}}
 </user>
