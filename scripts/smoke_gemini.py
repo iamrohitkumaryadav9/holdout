@@ -5,10 +5,13 @@ prints, per run: the model, calls per node, prompt/output/thinking tokens, rupee
 Flash pricing (even on the free tier), cache hits, wall time, and whether the leak was
 caught. Requires GEMINI_API_KEY in the environment.
 
-A timestamped progress line is printed for every graph node, every Gemini call and every
-retry wait. If Gemini stays unavailable (429 / 5xx / timeouts after every retry), the run
-pauses with a checkpoint, the remaining runs are skipped, and the script still prints what
-completed plus the resume command; it exits with 5.
+A timestamped progress line is printed for every graph node, every Gemini call (with the
+running totals: this call, run, project, balance left) and every retry wait. Project spend
+and the prepaid balance left are printed before and after. The runs obey the per-run and
+project caps and are charged to the same ledger as everything else. If a run pauses
+(Gemini unavailable: exit 5; a spend cap refused a call: exit 6; billing / quota: exit 7),
+its checkpoint is kept, the remaining runs are skipped, and the script still prints what
+completed plus the resume command.
 
     python -m scripts.smoke_gemini                            # fresh calls (no cache)
     python -m scripts.smoke_gemini --cache                    # allow cached responses
@@ -23,14 +26,34 @@ from datetime import date
 from pathlib import Path
 
 from bench.traps import build_case
-from holdout.agent.driver import PAUSED_LLM, AgentOutcome, run_agent
+from holdout.agent.driver import (
+    PAUSED_BILLING,
+    PAUSED_BUDGET,
+    PAUSED_LLM,
+    AgentOutcome,
+    run_agent,
+)
 from holdout.agent.graph import AgentOptions
-from holdout.core.errors import LLMConfigError, LLMRequestError, LLMUnavailableError
+from holdout.core.errors import (
+    LLMBillingError,
+    LLMConfigError,
+    LLMRequestError,
+    LLMUnavailableError,
+)
 from holdout.llm import config
 from holdout.llm.client import GeminiClient
 from holdout.llm.progress import LineProgress
+from holdout.llm.spend import build_report, headline
 
 EXIT_LLM_UNAVAILABLE = 5
+EXIT_BUDGET_CAP = 6
+EXIT_BILLING = 7
+#: Paused statuses -> (why the remaining runs were skipped, exit code).
+PAUSES = {
+    PAUSED_LLM: ("Gemini unavailable", EXIT_LLM_UNAVAILABLE),
+    PAUSED_BUDGET: ("budget cap reached", EXIT_BUDGET_CAP),
+    PAUSED_BILLING: ("Gemini billing / quota problem", EXIT_BILLING),
+}
 
 
 def main() -> int:
@@ -52,6 +75,10 @@ def main() -> int:
 
     try:
         config.require_priced(model, date.today())
+        before = build_report()
+        print(f"before: {headline(before)}")
+        if before.balance is not None and before.balance.warning is not None:
+            progress.warning(before.balance.warning)
         client = GeminiClient(model=model)
         progress.node_started("verify_model")
         started = time.perf_counter()
@@ -62,6 +89,9 @@ def main() -> int:
     except LLMUnavailableError as exc:
         print(f"\nGemini is unavailable: {exc}. No run was started; try again later.")
         return EXIT_LLM_UNAVAILABLE
+    except LLMBillingError as exc:
+        print(f"\nGemini refused for billing or quota reasons: {exc}. No run was started; top up.")
+        return EXIT_BILLING
     except (LLMConfigError, LLMRequestError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -74,6 +104,16 @@ def main() -> int:
         f"(as of {config.EXCHANGE_RATE_AS_OF}); {config.PRICE_NOTE}"
     )
 
+    try:
+        return _runs(args, progress)
+    finally:
+        after = build_report()
+        print(f"\nafter:  {headline(after)}")
+        if after.balance is not None and after.balance.warning is not None:
+            progress.warning(after.balance.warning)
+
+
+def _runs(args: argparse.Namespace, progress: LineProgress) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     leak_csv = args.out / "direct_leak.csv"
     leak = build_case("direct_leak", 0)
@@ -100,21 +140,22 @@ def main() -> int:
             progress=progress,
         )
         finished.append((label, outcome, time.perf_counter() - started, leaked))
-        if outcome.status == PAUSED_LLM:
+        if outcome.status in PAUSES:
             paused = outcome
             break
 
     failures = 0
     for label, outcome, seconds, leaked in finished:
-        if outcome.status == PAUSED_LLM:
+        if outcome.status in PAUSES:
             _print_paused(label, outcome, seconds)
         else:
             failures += _print(label, outcome, seconds, leaked)
     if paused is not None:
+        reason, code = PAUSES[paused.status]
         skipped = [label for label, *_ in runs[len(finished) :]]
         if skipped:
-            print(f"\n   skipped (Gemini unavailable): {', '.join(skipped)}")
-        return EXIT_LLM_UNAVAILABLE
+            print(f"\n   skipped ({reason}): {', '.join(skipped)}")
+        return code
     return 1 if failures else 0
 
 

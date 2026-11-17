@@ -164,7 +164,7 @@ cycle indefinitely. Holdout's graph has: at most 3 fix rounds;
 one plan retry with validation feedback, then a typed failure; a stop when a revised plan
 repeats an earlier one (plans are compared by hash); and a per-node wall-clock limit. The
 limit is checked when a node returns, because Python cannot safely kill a running thread;
-LLM calls are additionally bounded by the SDK request timeout (120 s) and the retry policy
+LLM calls are additionally bounded by the SDK request timeout (90 s) and the retry policy
 (below), and sandbox snippets by their own 20 s timeout.
 
 **Crash safety.** State holds only JSON-serialisable values; development rows are rebuilt
@@ -189,11 +189,64 @@ the thinking level, prompt versions and hashes, and tokens, rupees and cache hit
 
 **Budget.** Real token counts from each response's usage metadata are priced from the dated
 table. Before each call, a worst-case estimate (the prompt plus every allowed output token)
-must fit both caps, Rs 15 per run and Rs 1,200 per project, so a single call can never
+must fit both caps, Rs 15 per run and Rs 750 per project, so a single call can never
 overshoot. The project ledger lives outside the repository (`~/.holdout/spend_ledger.jsonl`)
 and persists across runs and processes. The API key is read from `GEMINI_API_KEY` only and is
 never logged, cached, checkpointed or written to a manifest; a test plants a sentinel key
 and scans every artifact, the checkpoint database, the cache and the ledger for it.
+
+**Spend control on a prepaid key.** The project runs on prepaid Gemini credit (about Rs 747
+at the switch), so the whole project must never spend more than Rs 750:
+
+- **Caps.** The project cap is Rs 750 (`PROJECT_CAP_INR`). Only `HOLDOUT_PROJECT_CAP_INR`
+  overrides it; a malformed value is refused before a run starts. Every Gemini caller goes
+  through the same `Budget` and ledger: agent runs, the smoke script and the ping script.
+- **What a refusal does.** A call whose worst-case estimate could cross a cap is never
+  sent. It raises `BudgetExceededError`, which pauses the run like an outage: the
+  checkpoint is kept, the manifest status is `paused_budget_cap`, and the CLI exits with
+  **6**. The message gives spend so far (run and project), the cap and how to raise it:
+  the env var for the project cap, `RUN_CAP_INR` for the per-run cap.
+- **Resuming.** A resume rebuilds run spend from the checkpoint and the carried calls. It is
+  refused again unless the cap was raised.
+- **Ledger entries.** The ledger records four kinds of entry:
+  - `call`: tokens, cost and retries;
+  - `cache_hit`: free;
+  - `failed`: free, with its retries;
+  - `balance`: the prepaid balance Google showed.
+  Older entries without a kind are calls.
+- **`holdout spend`** reports from the ledger alone.
+- **Balance left** is the recorded balance minus ledger spend since the **start of the
+  recorded day**. This errs low: Google's figure may already include part of that day's
+  spend, but over-estimating the money left is the dangerous direction for a spend guard.
+  `--as-of` sets the day.
+- **Warnings** are printed by the call that crosses each level, so each appears once:
+  - project spend passing 50%, 75% and 90% of the cap;
+  - the balance left dropping below Rs 150 ("top up soon") and below Rs 50 ("top up now;
+    calls may start failing").
+
+  An agent run also shows a standing low-balance warning when it starts. `holdout agent`
+  always prints warnings; `--verbose` adds the running totals on every call line.
+
+**Billing errors are not outages.** Gemini has no dedicated error code for "prepaid credit
+used up", so `holdout/llm/retry.py` classifies by status and text:
+
+- HTTP 402 is a billing error;
+- so is a 400, 403 or 429 whose text names billing, prepaid credit, payment, a balance or a
+  quota.
+
+Gemini's ordinary rate-limit 429 also says "exceeded your current quota ... check your plan
+and billing details". So a 429 with rate-limit markers (a per-minute quota, a `retryDelay`,
+"retry in N s") is treated as a rate limit and retried. Its `retryDelay` is used as the wait.
+A billing error is never retried. The run pauses with status `paused_billing` and **exit
+code 7** (a code of its own, not 5, because the fix is a top-up rather than waiting). The
+message says to top up, record the balance and resume. If this heuristic misfires on a new
+error wording, it errs towards pausing. A pause loses nothing.
+
+**Ping.** `scripts/ping_gemini.py` is the cheapest liveness check: one "Reply with the single
+word OK" request per priced model. Each request has a 30 s timeout, exactly one attempt
+(`RetryPolicy(max_attempts=1)`), no cache and a plain-text response with
+`max_output_tokens=256`, which leaves room for low-level thinking. It goes through the same
+caps and ledger.
 
 **EDA sandbox.** Optional (`--eda`): up to 4 model-written snippets run on a copy of the
 development rows in a fresh `python -I` process in an empty temporary directory, behind an

@@ -173,6 +173,8 @@ def test_the_smoke_script_reports_what_completed_when_gemini_is_down(
     monkeypatch.setattr("sys.argv", ["smoke_gemini", "--out", str(tmp_path / "smoke")])
     assert smoke_gemini.main() == 5
     printed = capsys.readouterr().out
+    assert printed.startswith("before: project spend Rs")
+    assert "\nafter:  project spend Rs" in printed
     assert "node verify_model: done in" in printed
     assert "HTTP 503 on attempt 5; retrying in" in printed  # progress shown by default
     assert "== churn example: paused_llm_unavailable" in printed

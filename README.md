@@ -97,8 +97,8 @@ the failing node, the status code and the exact resume command. Other API errors
 `holdout run` stays the deterministic, LLM-free path. In agent runs Gemini proposes the
 plan, explains audit flags and writes the report's prose; code validates every answer,
 applies every audit fix, re-audits, decides whether the holdout may be unsealed, and fills
-every number in the report. Spend is capped at Rs 15 per run and Rs 1,200 per project
-(ledger in `~/.holdout/spend_ledger.jsonl`); responses are cached in `~/.holdout/cache`.
+every number in the report. Spend is capped at Rs 15 per run and Rs 750 for the whole
+project (see "Spending and caps" below); responses are cached in `~/.holdout/cache`.
 
 **Privacy.** Only the schema, summary statistics and at most 5 sample rows (development rows,
 never holdout rows) are sent to Gemini; never the full dataset. Under Gemini's free tier,
@@ -110,16 +110,87 @@ development rows in an isolated process with an import allowlist, a 20 s timeout
 memory limit and a 64 KB output cap. It limits damage from mistakes; it is not a security
 boundary.
 
-**Live smoke test** (manual, uses your key, never run in CI):
+**Live checks** (manual, use your key, never run in CI):
 
 ```powershell
 $env:GEMINI_API_KEY = "..."
-python -m scripts.smoke_gemini
-python -m scripts.smoke_gemini --model gemini-3.6-flash   # another priced model
+python -m scripts.ping_gemini                              # one "OK" request per priced model
+python -m scripts.smoke_gemini                             # two autopilot agent runs
+python -m scripts.smoke_gemini --model gemini-3.6-flash    # another priced model
 ```
 
-It prints progress lines as it goes. If Gemini stays unavailable, it still prints what
-completed, plus the resume command, and exits with 5.
+The ping sends "Reply with the single word OK" once per model. Each request has a 30 s
+timeout, one attempt and no cache, and the script prints the status, latency, tokens and
+cost. The smoke test prints progress lines as it goes. If a run pauses, it still prints what
+completed plus the resume command. Both scripts obey the caps, write to the same ledger, and
+print project spend and balance left before and after.
+
+## Spending and caps
+
+Holdout never spends more than it is allowed to on Gemini:
+
+- **Project cap: Rs 750** in total, across every agent run, smoke test and ping. It is the
+  default in `holdout/llm/config.py`; only the environment variable
+  `HOLDOUT_PROJECT_CAP_INR` overrides it (e.g. `$env:HOLDOUT_PROJECT_CAP_INR = "900"`).
+- **Per-run cap: Rs 15** (`RUN_CAP_INR` in the same file).
+- **Before every call**, Holdout estimates the call's maximum cost: the prompt plus every
+  allowed output token, at the output price. If that could cross either cap, the call is
+  not sent.
+- **After every call**, it charges the real cost from the response's usage metadata (prompt,
+  output and thinking tokens).
+- **When a cap refuses a call**, the run stops cleanly and stays checkpointed and resumable.
+  It exits with code 6 ("budget cap reached") and prints one paragraph: spend so far, the
+  cap, and how to raise it.
+- **Billing errors:** if Gemini refuses a call for billing, payment or exhausted-quota
+  reasons, the run pauses the same way with exit code 7. Top up, record the new balance,
+  then resume.
+
+Check spend at any time:
+
+```powershell
+holdout spend          # today, last 7 days, all time; per run (top 10) and per model;
+                       # calls, retries, cache hits; cap, remaining, balance left; prices
+holdout spend --json
+```
+
+After a top-up (or whenever you check Google AI Studio), record the prepaid balance Google
+shows:
+
+```powershell
+holdout spend --set-balance 747                     # as of today
+holdout spend --set-balance 747 --as-of 2026-11-18  # the day Google showed it
+```
+
+The estimated balance left is the recorded balance minus ledger spend since the start of that
+day. Holdout warns:
+
+- when the balance left drops below Rs 150 ("top up soon");
+- when it drops below Rs 50 ("top up now; calls may start failing");
+- once each, when project spend passes 50%, 75% and 90% of the cap (Rs 375, 562.50, 675).
+
+Every progress line that ends a Gemini call shows `this call Rs X | run Rs Y of 15 |
+project Rs Z of 750 | balance left about Rs B`. `holdout agent` shows these lines with
+`--verbose`. Its warnings always show.
+
+**Reconcile with Google.** Holdout's ledger (`~/.holdout/spend_ledger.jsonl`) is computed
+live from token counts and the dated price table. Google's billing page updates with a delay
+and is the authority. Compare the two after the first paid runs and after each top-up, and
+record Google's balance with `--set-balance` when they differ.
+
+Agent exit codes:
+
+| code | meaning |
+|---|---|
+| 0 | done |
+| 2 | error (bad input, unknown or unpriced model, request rejected) |
+| 3 | unsealing requested and refused |
+| 4 | paused at a question with no terminal |
+| 5 | paused: Gemini unavailable after every retry |
+| 6 | paused: budget cap reached (the call was not sent) |
+| 7 | paused: billing / quota problem (top up) |
+
+Every pause resumes with `holdout agent --resume <run_id>`.
+
 ## The audit
 
 Every run audits the cross-validated pipeline on development rows only. The twelve checks
