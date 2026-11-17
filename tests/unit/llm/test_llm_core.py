@@ -84,7 +84,7 @@ def test_run_cap_stops_before_the_call(tmp_path: Path) -> None:
 
 def test_project_cap_reads_the_ledger(tmp_path: Path) -> None:
     ledger = SpendLedger(tmp_path / "ledger.jsonl")
-    ledger.append({"inr": 1199.9})
+    ledger.append({"inr": 749.99})
     budget = Budget(run_id="r", model=config.DEFAULT_MODEL, ledger=ledger)
     request = LLMRequest("t", "1", "s", "u", {}, seed=1)
     with pytest.raises(BudgetExceededError, match="project cap"):

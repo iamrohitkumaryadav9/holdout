@@ -93,6 +93,7 @@ class GeminiClient:
         sleep: Callable[[float], None] = time.sleep,
         policy: RetryPolicy | None = None,
         rng: random.Random | None = None,
+        timeout_seconds: float = config.REQUEST_TIMEOUT_SECONDS,
     ) -> None:
         self._model = model
         self._sleep = sleep
@@ -114,7 +115,7 @@ class GeminiClient:
             self._client = genai.Client(
                 api_key=key,
                 http_options=types.HttpOptions(
-                    timeout=config.REQUEST_TIMEOUT_SECONDS * 1000,
+                    timeout=int(timeout_seconds * 1000),
                     retry_options=types.HttpRetryOptions(attempts=1),
                 ),
             )
@@ -154,10 +155,11 @@ class GeminiClient:
     ) -> LLMResponse:
         from google.genai import types
 
+        structured = bool(request.response_schema)  # an empty schema asks for plain text
         generation = types.GenerateContentConfig(
-            system_instruction=request.system,
-            response_mime_type="application/json",
-            response_json_schema=dict(request.response_schema),
+            system_instruction=request.system or None,
+            response_mime_type="application/json" if structured else None,
+            response_json_schema=dict(request.response_schema) if structured else None,
             temperature=request.temperature,
             max_output_tokens=request.max_output_tokens,
             seed=request.seed,

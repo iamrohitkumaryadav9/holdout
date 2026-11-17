@@ -62,11 +62,9 @@ class LLMRequestError(LLMError):
         self.status = status
 
 
-class LLMUnavailableError(LLMError):
-    """The service stayed unavailable (429, 5xx, timeouts) after every retry.
-
-    The agent run is checkpointed and can be resumed; ``node`` is filled in by the graph.
-    """
+class RunPausingError(LLMError):
+    """An LLM failure that pauses an agent run (checkpointed, resumable) instead of failing
+    it. ``node`` is filled in by the LLM session or the graph."""
 
     def __init__(self, message: str, *, status: int | None = None, retries: int = 0) -> None:
         super().__init__(message)
@@ -75,12 +73,38 @@ class LLMUnavailableError(LLMError):
         self.node: str | None = None
 
 
+class LLMUnavailableError(RunPausingError):
+    """The service stayed unavailable (429, 5xx, timeouts) after every retry."""
+
+
+class LLMBillingError(RunPausingError):
+    """Gemini refused a call for billing reasons: prepaid credit used up, a payment problem,
+    or an exhausted (non-per-minute) quota. Never retried; top up and resume."""
+
+
 class LLMOutputError(LLMError):
     """The model's answer failed schema validation even after one repair attempt."""
 
 
-class BudgetExceededError(LLMError):
-    """A call would exceed the per-run or project spend cap."""
+class BudgetExceededError(RunPausingError):
+    """A call could take spend past the per-run or project cap; it was not sent."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        scope: str,
+        cap_inr: float,
+        run_spent_inr: float,
+        project_spent_inr: float,
+        estimate_inr: float,
+    ) -> None:
+        super().__init__(message)
+        self.scope = scope  # "run" or "project"
+        self.cap_inr = cap_inr
+        self.run_spent_inr = run_spent_inr
+        self.project_spent_inr = project_spent_inr
+        self.estimate_inr = estimate_inr
 
 
 class AgentError(HoldoutError):

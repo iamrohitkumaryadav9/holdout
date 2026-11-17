@@ -6,9 +6,12 @@
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from holdout.llm.retry import RetryEvent
+
+if TYPE_CHECKING:
+    from holdout.llm.budget import SpendSnapshot
 
 
 class Progress(Protocol):
@@ -28,12 +31,17 @@ class Progress(Protocol):
         tokens: int,
         inr: float,
         retries: int,
+        spend: "SpendSnapshot | None" = None,
     ) -> None: ...
 
     def retry_waiting(self, node: str, purpose: str, event: RetryEvent) -> None: ...
 
+    def warning(self, text: str) -> None: ...
+
 
 class NullProgress:
+    """Prints nothing (spend warnings still go to the ``holdout.llm`` logger)."""
+
     def node_started(self, node: str) -> None:
         del node
 
@@ -53,21 +61,42 @@ class NullProgress:
         tokens: int,
         inr: float,
         retries: int,
+        spend: "SpendSnapshot | None" = None,
     ) -> None:
-        del node, purpose, seconds, cache_hit, tokens, inr, retries
+        del node, purpose, seconds, cache_hit, tokens, inr, retries, spend
 
     def retry_waiting(self, node: str, purpose: str, event: RetryEvent) -> None:
         del node, purpose, event
 
+    def warning(self, text: str) -> None:
+        del text
+
+
+class WarningsOnly(NullProgress):
+    """Silent except for spend and balance warnings (``holdout agent`` without --verbose)."""
+
+    def __init__(self, warn: Callable[[str], None]) -> None:
+        self._warn = warn
+
+    def warning(self, text: str) -> None:
+        self._warn(f"[{datetime.now():%H:%M:%S}] WARNING: {text}")
+
 
 class LineProgress:
-    """Writes one timestamped line per event through ``write`` (e.g. ``print``)."""
+    """Writes one timestamped line per event through ``write`` (e.g. ``print``); warnings
+    go through ``warn`` (default: ``write``) so a terminal can make them stand out."""
 
-    def __init__(self, write: Callable[[str], None]) -> None:
+    def __init__(
+        self, write: Callable[[str], None], *, warn: Callable[[str], None] | None = None
+    ) -> None:
         self._write = write
+        self._warn = warn if warn is not None else write
 
     def _line(self, text: str) -> None:
         self._write(f"[{datetime.now():%H:%M:%S}] {text}")
+
+    def warning(self, text: str) -> None:
+        self._warn(f"[{datetime.now():%H:%M:%S}] !!! WARNING: {text}")
 
     def node_started(self, node: str) -> None:
         self._line(f"node {node}: start")
@@ -89,14 +118,16 @@ class LineProgress:
         tokens: int,
         inr: float,
         retries: int,
+        spend: "SpendSnapshot | None" = None,
     ) -> None:
+        totals = f" | {spend.line()}" if spend is not None else f", Rs {inr:.3f}"
         if cache_hit:
-            self._line(f"  gemini {purpose} [{node}]: cached response, {seconds:.1f} s, Rs 0.00")
+            self._line(f"  gemini {purpose} [{node}]: cached response, {seconds:.1f} s{totals}")
             return
         retried = f", {retries} retr{'y' if retries == 1 else 'ies'}" if retries else ""
         self._line(
-            f"  gemini {purpose} [{node}]: done in {seconds:.1f} s, {tokens} tokens, "
-            f"Rs {inr:.3f}{retried}"
+            f"  gemini {purpose} [{node}]: done in {seconds:.1f} s, {tokens} tokens"
+            f"{retried}{totals}"
         )
 
     def retry_waiting(self, node: str, purpose: str, event: RetryEvent) -> None:

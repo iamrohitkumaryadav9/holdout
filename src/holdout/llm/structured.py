@@ -22,7 +22,12 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from holdout.core.errors import LLMOutputError, LLMUnavailableError
+from holdout.core.errors import (
+    BudgetExceededError,
+    LLMBillingError,
+    LLMOutputError,
+    LLMUnavailableError,
+)
 from holdout.llm.budget import Budget
 from holdout.llm.cache import ResponseCache, cache_key
 from holdout.llm.client import LLMClient, LLMRequest, LLMResponse
@@ -125,11 +130,17 @@ class LLMSession:
         key = cache_key(self.client.model, request)
         cached = self.cache.get(key)
         inr = 0.0
+        warnings: list[str] = []
         started = time.perf_counter()
         if cached is not None:
             response: LLMResponse = cached
+            self.budget.record_free("cache_hit", node=node, prompt_name=prompt.name)
         else:
-            self.budget.check(request, node)
+            try:
+                self.budget.check(request, node)  # refused calls are never sent
+            except BudgetExceededError as exc:
+                exc.node = node
+                raise
             self.progress.call_started(node, prompt.name, attempt)
 
             def waiting(event: RetryEvent) -> None:
@@ -138,8 +149,12 @@ class LLMSession:
 
             try:
                 response = self.client.generate(request, on_retry=waiting)
-            except LLMUnavailableError as exc:
+            except (LLMUnavailableError, LLMBillingError) as exc:
                 exc.node = node
+                self.budget.record_free(
+                    "failed", node=node, prompt_name=prompt.name, retries=exc.retries
+                )
+                reason = "billing" if isinstance(exc, LLMBillingError) else "LLM unavailable"
                 self.records.append(
                     CallRecord(
                         node=node,
@@ -153,12 +168,14 @@ class LLMSession:
                         thinking_tokens=0,
                         inr=0.0,
                         valid=False,
-                        errors=(f"LLM unavailable: {exc}",),
+                        errors=(f"{reason}: {exc}",),
                         retries=exc.retries,
                     )
                 )
                 raise
-            inr = self.budget.charge(response.usage, node=node, prompt_name=prompt.name)
+            inr, warnings = self.budget.charge(
+                response.usage, node=node, prompt_name=prompt.name, retries=response.retries
+            )
         self.progress.call_finished(
             node,
             prompt.name,
@@ -167,7 +184,10 @@ class LLMSession:
             tokens=0 if cached else response.usage.total,
             inr=inr,
             retries=0 if cached else response.retries,
+            spend=self.budget.snapshot(inr),
         )
+        for text in warnings:
+            self.progress.warning(text)
         answer, errors = _parse(response.text, schema, check)
         if cached is None and answer is not None:
             self.cache.put(key, response)  # only valid answers are worth replaying

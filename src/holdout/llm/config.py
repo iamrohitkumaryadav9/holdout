@@ -30,12 +30,41 @@ THINKING_LEVEL: Final = "low"
 MAX_OUTPUT_TOKENS: Final = 4096
 
 TEMPERATURE: Final = 0.0
-REQUEST_TIMEOUT_SECONDS: Final = 120
+#: Per-request timeout; a timeout is transient and retried by holdout.llm.retry.
+REQUEST_TIMEOUT_SECONDS: Final = 90
 # Retries for 429 / 5xx / timeouts: see holdout.llm.retry.RetryPolicy (the single owner).
 
-#: Spend caps in rupees.
+#: Spend caps in rupees. The project cap covers every Gemini call Holdout ever makes (agent
+#: runs, the smoke and ping scripts); only ``HOLDOUT_PROJECT_CAP_INR`` overrides it.
 RUN_CAP_INR: Final = 15.0
-PROJECT_CAP_INR: Final = 1200.0
+PROJECT_CAP_INR: Final = 750.0
+PROJECT_CAP_ENV: Final = "HOLDOUT_PROJECT_CAP_INR"
+#: Fractions of the project cap at which a one-time warning is printed.
+PROJECT_WARN_FRACTIONS: Final = (0.50, 0.75, 0.90)
+#: Remaining prepaid balance (rupees) below which Holdout warns.
+BALANCE_TOP_UP_SOON_INR: Final = 150.0
+BALANCE_TOP_UP_NOW_INR: Final = 50.0
+
+
+def project_cap_inr() -> float:
+    """The project cap: ``HOLDOUT_PROJECT_CAP_INR`` if set, else ``PROJECT_CAP_INR``.
+
+    Raises:
+        LLMConfigError: if the variable is set but is not a positive number.
+    """
+    raw = os.environ.get(PROJECT_CAP_ENV)
+    if raw is None or not raw.strip():
+        return PROJECT_CAP_INR
+    from holdout.core.errors import LLMConfigError
+
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise LLMConfigError(f"{PROJECT_CAP_ENV}={raw!r} is not a number of rupees") from exc
+    if not value > 0 or value != value or value == float("inf"):
+        raise LLMConfigError(f"{PROJECT_CAP_ENV} must be a positive finite amount, got {raw!r}")
+    return value
+
 
 USD_TO_INR: Final = 94.1
 EXCHANGE_RATE_AS_OF: Final = date(2026, 11, 13)

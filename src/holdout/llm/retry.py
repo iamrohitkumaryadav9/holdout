@@ -16,13 +16,14 @@ so the two can never multiply. Retries cost no tokens but are counted in the man
 
 import logging
 import random
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Final, Literal
 
-from holdout.core.errors import LLMRequestError, LLMUnavailableError
+from holdout.core.errors import LLMBillingError, LLMRequestError, LLMUnavailableError
 
 TRANSIENT_STATUS: Final = frozenset({429, 500, 503, 504})
 
@@ -56,22 +57,59 @@ class TransientLLMError(Exception):
         self.retry_after = retry_after
 
 
+class BillingLLMError(Exception):
+    """A billing / quota-exhausted refusal (used by test doubles)."""
+
+    def __init__(self, status: int | None = 429, message: str = "prepaid credits depleted"):
+        super().__init__(f"{status} {message}")
+        self.status = status
+        self.code = status
+
+
+#: Words in an API error that mean money or an exhausted quota, not a passing overload.
+_BILLING = re.compile(
+    r"billing|prepa(?:y|id)|credits?\b|payment|insufficient (?:funds|balance)|"
+    r"account balance|quota",
+    re.IGNORECASE,
+)
+#: Markers of a short-window rate limit: Gemini's ordinary 429 also says "exceeded your
+#: current quota ... check your plan and billing details", so these win over _BILLING.
+_RATE_LIMIT = re.compile(r"per[ _-]?minute|retryDelay|retry in \d", re.IGNORECASE)
+_RETRY_DELAY = re.compile(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+(?:\.\d+)?)s")
+
+
 @dataclass(frozen=True)
 class Failure:
     transient: bool
     status: int | None
-    kind: Literal["http", "timeout"]
+    kind: Literal["http", "timeout", "billing"]
     retry_after: float | None
 
 
 def classify(exc: BaseException) -> Failure:
-    """Decide whether ``exc`` is worth retrying, and read any Retry-After header."""
+    """Decide whether ``exc`` is worth retrying, and read any Retry-After header.
+
+    Billing failures are recognised from the status and the error text, because the API
+    has no dedicated code for them: HTTP 402, or a 400 / 403 / 429 whose text names
+    billing, prepaid credit, payment, a balance or a quota. A 429 that carries rate-limit
+    markers (a per-minute quota, a ``retryDelay``, "retry in N s") is an ordinary rate limit
+    and is retried, even though Gemini's rate-limit text also mentions quota and billing.
+    Billing failures are never retried.
+    """
+    if isinstance(exc, BillingLLMError):
+        return Failure(False, exc.status, "billing", None)
     if isinstance(exc, TransientLLMError):
         return Failure(True, exc.status, "http", exc.retry_after)
     if _is_timeout(exc):
         return Failure(True, None, "timeout", None)
     status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
     status = status if isinstance(status, int) else None
+    text = str(exc)
+    rate_limited = status == 429 and _RATE_LIMIT.search(text) is not None
+    if status == 402 or (
+        status in {400, 403, 429} and not rate_limited and _BILLING.search(text) is not None
+    ):
+        return Failure(False, status, "billing", None)
     return Failure(status in TRANSIENT_STATUS, status, "http", _retry_after(exc))
 
 
@@ -84,13 +122,14 @@ def _is_timeout(exc: BaseException) -> bool:
 
 
 def _retry_after(exc: BaseException) -> float | None:
+    """Seconds the server asked us to wait: the Retry-After header, else the RetryInfo
+    ``retryDelay`` in a Google API error body."""
     response = getattr(exc, "response", None)
     headers = getattr(response, "headers", None)
-    if headers is None:
-        return None
-    value = headers.get("Retry-After") or headers.get("retry-after")
+    value = None if headers is None else headers.get("Retry-After") or headers.get("retry-after")
     if value is None:
-        return None
+        delay = _RETRY_DELAY.search(str(exc))
+        return float(delay.group(1)) if delay else None
     try:
         return max(0.0, float(value))
     except ValueError:
@@ -122,6 +161,12 @@ def call_with_retries[T](
         except Exception as exc:
             failure = classify(exc)
             label = "a timeout" if failure.kind == "timeout" else f"HTTP {failure.status}"
+            if failure.kind == "billing":
+                raise LLMBillingError(
+                    f"{what} was refused for billing or quota reasons ({label}); not retried",
+                    status=failure.status,
+                    retries=attempt - 1,
+                ) from exc
             if not failure.transient:
                 raise LLMRequestError(
                     f"{what} failed with {label} ({type(exc).__name__}); not retried",

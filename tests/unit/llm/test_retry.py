@@ -14,6 +14,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from holdout.core.errors import LLMRequestError, LLMUnavailableError
+from holdout.llm import config
 from holdout.llm.budget import Budget, SpendLedger
 from holdout.llm.cache import ResponseCache
 from holdout.llm.client import FakeLLM, GeminiClient
@@ -165,6 +166,8 @@ def test_gemini_client_disables_the_sdk_retries(monkeypatch: pytest.MonkeyPatch)
     options = client._client._api_client._http_options
     assert options.retry_options is not None
     assert options.retry_options.attempts == 1  # Holdout's policy is the only retry loop
+    assert config.REQUEST_TIMEOUT_SECONDS == 90
+    assert options.timeout == 90_000  # milliseconds; a timeout is retried (see above)
 
 
 # ------------------------------------------------------------------ session and progress
