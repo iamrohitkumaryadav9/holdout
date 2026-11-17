@@ -91,6 +91,12 @@ suggest a post-outcome column) or A3 (the column is ID-like). A train/validation
 deliberately not a corroborator: a genuine leak generalises within development CV, so it
 shows no gap; a gap signals memorisation, which is A3's job.
 
+**Benchmark contamination guard.** Thresholds were tuned on synthetic trap cases. Every
+base dataset and seed used during development or tuning is listed in
+`bench/dev_usage.toml`, and the final-suite builder (`bench.suite.build_final_suite`) refuses
+any listed base or seed before loading data. The Week 4 benchmark uses held-out OpenML bases and
+seeds never seen during tuning.
+
 **Provisional thresholds.** Every threshold lives in `holdout/audit/thresholds.toml` with a
 comment, loads into strict typed models (a typo fails), and the file's sha256 is recorded in
 every manifest. The values are provisional: they will be tuned in Week 4 on development trap

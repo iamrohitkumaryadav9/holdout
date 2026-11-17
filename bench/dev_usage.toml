@@ -1,0 +1,40 @@
+# Development usage registry (benchmark contamination guard).
+#
+# Every base dataset and seed used while developing Holdout or tuning its audit thresholds
+# is listed here. The final benchmark (Week 4) must be built only from held-out OpenML bases
+# and seeds that never appear in this file: bench.suite.build_final_suite refuses any listed
+# base and any listed seed, so tuned thresholds are never evaluated on data they were tuned
+# on. Add an entry whenever a new base or seed is used during development, *before* using it.
+
+# Seeds used by tests, the audit harness, benchmarks and threshold tuning (Weeks 1-2).
+seeds = [0, 1, 2, 3, 4]
+
+[[base]]
+name = "classification"
+source = "bench.traps.synthetic.classification"
+purpose = "trap development and threshold tuning (Week 2)"
+
+[[base]]
+name = "regression"
+source = "bench.traps.synthetic.regression"
+purpose = "trap development (Week 2)"
+
+[[base]]
+name = "time_ordered"
+source = "bench.traps.synthetic.time_ordered"
+purpose = "time-order trap development and A6 threshold tuning (Week 2)"
+
+[[base]]
+name = "easy_clean"
+source = "bench.traps.synthetic.easy_clean"
+purpose = "false-alarm checks on near-separable clean data (Week 2)"
+
+[[base]]
+name = "holdout_examples_churn"
+source = "holdout.data.examples.make_classification_example"
+purpose = "Week 1 examples, CLI tests and the 50k benchmark"
+
+[[base]]
+name = "holdout_examples_sales"
+source = "holdout.data.examples.make_timeseries_example"
+purpose = "Week 1 examples, CLI tests and the 50k benchmark"

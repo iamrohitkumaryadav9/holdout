@@ -41,5 +41,11 @@ it in random order; `group_leakage` keeps the entities and entity-constant featu
 entity-level effect; `time_order` uses the drift-free base; `imbalance_accuracy` keeps the
 accuracy metric on the original, reasonably balanced data.
 
-These are synthetic bases for development. Real OpenML bases arrive in Week 4, and
-thresholds are tuned there on development traps only.
+## Contamination guard
+
+The audit thresholds were tuned on these synthetic bases with seeds 0-4. Every base and
+seed used during development or tuning is registered in `bench/dev_usage.toml`. The final
+benchmark (Week 4) is built with `bench.suite.build_final_suite`, which **refuses** any entry
+whose base or seed is registered there, before loading anything; `tests/unit/test_suite_guard.py`
+proves it. The final benchmark therefore uses held-out OpenML bases and seeds never seen during
+tuning. Register a new base or seed in `dev_usage.toml` *before* using it in development.
