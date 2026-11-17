@@ -14,7 +14,8 @@ from holdout.core.errors import HoldoutError
 from holdout.core.schemas import DataType, Direction, EntityScope, Task
 from holdout.data.examples import write_examples
 from holdout.data.split import SplitProposal, SplitSpec
-from holdout.runner import RunOptions, RunOutcome, execute_run, reaudit_run
+from holdout.export.manifest import RunManifest
+from holdout.runner import RunOptions, execute_run, reaudit_run
 
 #: Exit code when --unseal was requested and the audit refused it.
 EXIT_UNSEAL_REFUSED = 3
@@ -137,7 +138,7 @@ def run(
         console.print(f"[red]error:[/red] {exc}")
         raise typer.Exit(code=2) from exc
     _print_audit(outcome.audit)
-    _print_summary(outcome)
+    _print_summary(outcome.manifest, outcome.state.run_dir)
     if outcome.unseal.requested and not outcome.unseal.allowed:
         raise typer.Exit(code=EXIT_UNSEAL_REFUSED)
 
@@ -211,26 +212,23 @@ def make_example(
     console.print(f"wrote {timeseries}  (target: units_sold, time-ordered regression)")
 
 
-def _print_summary(outcome: RunOutcome) -> None:
-    manifest = outcome.manifest
+def _print_summary(manifest: RunManifest, run_dir: Path) -> None:
     for warning in manifest.split.reuse_warnings:
         console.print(f"[yellow]ledger warning:[/yellow] {warning}")
-    for issue in outcome.plan_issues:
+    for issue in manifest.plans[-1].issues:
         console.print(f"[yellow]plan {issue.severity.value}:[/yellow] {issue.message}")
+    baseline, result = manifest.plans[0].cv, manifest.plans[-1].cv
+    holdout = None if isinstance(manifest.holdout, str) else manifest.holdout
     metric = f"{manifest.metric.value} ({manifest.direction.value} is better)"
     table = Table(title=f"Run {manifest.run_id}: {metric}")
     table.add_column("")
     table.add_column("score", justify="right")
+    table.add_row("Dummy baseline (CV)", f"{baseline.mean:.4f} +/- {baseline.std:.4f}")
     table.add_row(
-        "Dummy baseline (CV)", f"{outcome.baseline.mean:.4f} +/- {outcome.baseline.std:.4f}"
+        f"Validation: {result.plan_label} (CV)", f"{result.mean:.4f} +/- {result.std:.4f}"
     )
     table.add_row(
-        f"Validation: {outcome.result.plan_label} (CV)",
-        f"{outcome.result.mean:.4f} +/- {outcome.result.std:.4f}",
-    )
-    table.add_row(
-        "Holdout (single evaluation)",
-        "not unsealed" if outcome.holdout is None else f"{outcome.holdout.score:.4f}",
+        "Holdout (single evaluation)", "not unsealed" if holdout is None else f"{holdout.score:.4f}"
     )
     gap = manifest.optimism_gap
     table.add_row("Optimism gap (validation - holdout)", "n/a" if gap is None else f"{gap:+.4f}")
@@ -239,7 +237,7 @@ def _print_summary(outcome: RunOutcome) -> None:
         console.print("[dim]lower is better: a negative gap means validation was optimistic[/dim]")
     for caveat in manifest.caveats:
         console.print(f"[yellow]caveat:[/yellow] {caveat}")
-    decision = outcome.unseal
+    decision = manifest.unseal
     if decision.requested and not decision.allowed:
         console.print("[bold red]Unseal refused:[/bold red]")
         for reason in decision.blocked_by:
@@ -249,12 +247,16 @@ def _print_summary(outcome: RunOutcome) -> None:
             f"[bold red]RISK ACCEPTED[/bold red] for {', '.join(decision.overridden_criticals)}: "
             f"{decision.accepted_risk}"
         )
-    elif outcome.holdout is None and not manifest.holdout_invalid:
+    elif holdout is None and not manifest.holdout_invalid:
         console.print("[dim]holdout still sealed; re-run with --unseal to evaluate it once[/dim]")
-    console.print(f"artifacts: {outcome.state.run_dir}")
+    console.print(f"artifacts: {run_dir}")
     for name in ("pipeline.py", "run_manifest.json", "report.md"):
-        console.print(f"  {outcome.state.run_dir / name}")
+        console.print(f"  {run_dir / name}")
 
+
+# The agent command lives in its own module and registers itself on `app`; imported last
+# because it uses the helpers above.
+from holdout import cli_agent  # noqa: E402, F401
 
 if __name__ == "__main__":
     app()

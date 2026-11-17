@@ -186,6 +186,32 @@ class SealedHoldout:
     def holdout_invalid(self) -> bool:
         return self.record.holdout_invalid
 
+    def last_result(self) -> HoldoutResult | None:
+        """The most recent successful evaluation, rebuilt from the access log.
+
+        Lets a resumed process (after a crash between evaluating and recording) report the
+        result instead of evaluating again; it never reads the holdout.
+        """
+        path = self._state.access_log_path
+        if not path.exists():
+            return None
+        record = self.record
+        entries = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        done = [e for e in entries if e["outcome"] in ("evaluated", "forced")]
+        if not done:
+            return None
+        last = done[-1]
+        return HoldoutResult(
+            metric=last["metric"],
+            score=last["score"],
+            n_rows=record.n_rows,
+            holdout_sha256=last["expected_sha256"],
+            evaluation_index=last["evaluations_after"],
+            forced=last["outcome"] == "forced",
+            caller=last["caller"],
+            evaluated_at=datetime.fromisoformat(last["timestamp"]),
+        )
+
     def holdout_overlap(self, dev_features: pd.DataFrame) -> HoldoutOverlap | None:
         """Count development rows whose normalised features equal a holdout feature row.
 

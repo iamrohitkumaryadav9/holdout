@@ -59,6 +59,14 @@ class RunState:
         return self.run_dir / "holdout_row_digests.json"
 
     @property
+    def checkpoint_path(self) -> Path:
+        return self.run_dir / "checkpoints.sqlite"
+
+    @property
+    def agent_options_path(self) -> Path:
+        return self.run_dir / "agent_options.json"
+
+    @property
     def audit_path(self) -> Path:
         return self.run_dir / "audit.json"
 

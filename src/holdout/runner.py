@@ -16,6 +16,7 @@ from typing import Any, Protocol
 
 from pydantic import ValidationError
 
+from holdout.agent.schemas import AgentRecord
 from holdout.audit.gate import UnsealDecision, decide_unseal, validate_risk_reason
 from holdout.audit.runner import run_audits
 from holdout.audit.thresholds import load_thresholds
@@ -30,7 +31,7 @@ from holdout.core.schemas import (
     Task,
 )
 from holdout.core.state import RunState
-from holdout.data.load import load_dataset
+from holdout.data.load import LoadedData, load_dataset
 from holdout.data.profile import DatasetProfile, profile_schema
 from holdout.data.seal import SealedHoldout, dev_index_sha256
 from holdout.data.split import SplitProposal, SplitSpec, apply_split, propose_split
@@ -231,70 +232,30 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
         fitted = fit_final(plan, dev, options.target, spec, profile)
         holdout = seal.evaluate(fitted, get_metric(plan.metric), caller=UNSEAL_CALLER)
 
-    write_pipeline_script(
-        state.pipeline_path, plan=plan, profile=profile, spec=spec, data_sha256=loaded.sha256
-    )
-    artifacts = [
-        p.name
-        for p in (
-            state.holdout_path,
-            state.seal_state_path,
-            state.holdout_digests_path,
-            state.access_log_path,
-            state.audit_path,
-            state.pipeline_path,
-            state.manifest_path,
-            state.report_path,
-        )
-        if p.exists() or p in (state.manifest_path, state.report_path)
-    ]
-    metric = get_metric(plan.metric)
-    manifest = RunManifest(
-        run_id=state.run_id,
-        started_at=started_at,
-        finished_at=datetime.now(UTC),
-        data=DataRecord(
-            path=str(options.csv),
-            sha256=loaded.sha256,
-            n_rows=len(frame),
-            n_cols=frame.shape[1],
-            n_dropped_missing_target=loaded.n_dropped_missing_target,
-        ),
-        target=options.target,
-        task=task,
-        goal_text=goal,
-        entity_scope=options.entities,
-        metric=metric.name,
-        direction=metric.direction,
-        profile=ProfileSummary.from_profile(profile),
-        split=SplitRecord.build(
-            spec,
-            proposal,
+    manifest = finalize_run(
+        RunFacts(
+            state=state,
+            started_at=started_at,
+            loaded=loaded,
+            target=options.target,
+            task=task,
+            goal=goal,
+            entity_scope=options.entities,
+            profile=profile,
+            proposal=proposal,
+            spec=spec,
             n_dev_rows=len(dev),
-            n_holdout_rows=seal.n_rows,
-            holdout_sha256=seal.holdout_sha256,
-            reuse_warnings=seal.reuse_warnings,
-        ),
-        run_seed=options.seed,
-        derived_seeds=state.seeds,
-        plans=[
-            PlanRecord(label=baseline.plan_label, plan=baseline_plan(plan), issues=[], cv=baseline),
-            PlanRecord(label=result.plan_label, plan=plan, issues=issues, cv=result),
-        ],
-        selected_plan=result.plan_label,
-        validation_score=result.mean,
-        thresholds_hash=thresholds[1],
-        audit=audit,
-        unseal=decision,
-        holdout_invalid=audit.holdout_invalid,
-        caveats=seal.caveats,
-        holdout=holdout if holdout is not None else NOT_UNSEALED,
-        optimism_gap=None if holdout is None else result.mean - holdout.score,
-        artifacts=artifacts,
-        environment=capture_environment(),
+            seal=seal,
+            plan=plan,
+            issues=issues,
+            baseline=baseline,
+            result=result,
+            thresholds_hash=thresholds[1],
+            audit=audit,
+            unseal=decision,
+            holdout=holdout,
+        )
     )
-    write_manifest(state.manifest_path, manifest)
-    write_report(state.report_path, manifest)
     return RunOutcome(
         state=state,
         manifest=manifest,
@@ -307,6 +268,116 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
         unseal=decision,
         holdout=holdout,
     )
+
+
+@dataclass(frozen=True)
+class RunFacts:
+    """Everything a run's artifacts are written from (shared by holdout run and the agent)."""
+
+    state: RunState
+    started_at: datetime
+    loaded: LoadedData
+    target: str
+    task: Task
+    goal: str
+    entity_scope: EntityScope | None
+    profile: DatasetProfile
+    proposal: SplitProposal
+    spec: SplitSpec
+    n_dev_rows: int
+    seal: SealedHoldout
+    plan: ModelPlan
+    issues: list[PlanIssue]
+    baseline: CVResult
+    result: CVResult
+    thresholds_hash: str
+    audit: AuditReport
+    unseal: UnsealDecision
+    holdout: HoldoutResult | None
+    agent: AgentRecord | None = None
+
+
+def finalize_run(facts: RunFacts) -> RunManifest:
+    """Write pipeline.py, run_manifest.json and report.md; return the manifest."""
+    state = facts.state
+    write_pipeline_script(
+        state.pipeline_path,
+        plan=facts.plan,
+        profile=facts.profile,
+        spec=facts.spec,
+        data_sha256=facts.loaded.sha256,
+    )
+    artifacts = [
+        p.name
+        for p in (
+            state.holdout_path,
+            state.seal_state_path,
+            state.holdout_digests_path,
+            state.access_log_path,
+            state.audit_path,
+            state.checkpoint_path,
+            state.pipeline_path,
+            state.manifest_path,
+            state.report_path,
+        )
+        if p.exists() or p in (state.manifest_path, state.report_path)
+    ]
+    metric = get_metric(facts.plan.metric)
+    frame = facts.loaded.frame
+    result, holdout = facts.result, facts.holdout
+    manifest = RunManifest(
+        run_id=state.run_id,
+        started_at=facts.started_at,
+        finished_at=datetime.now(UTC),
+        data=DataRecord(
+            path=str(facts.loaded.path),
+            sha256=facts.loaded.sha256,
+            n_rows=len(frame),
+            n_cols=frame.shape[1],
+            n_dropped_missing_target=facts.loaded.n_dropped_missing_target,
+        ),
+        target=facts.target,
+        task=facts.task,
+        goal_text=facts.goal,
+        entity_scope=facts.entity_scope,
+        metric=metric.name,
+        direction=metric.direction,
+        profile=ProfileSummary.from_profile(facts.profile),
+        split=SplitRecord.build(
+            facts.spec,
+            facts.proposal,
+            n_dev_rows=facts.n_dev_rows,
+            n_holdout_rows=facts.seal.n_rows,
+            holdout_sha256=facts.seal.holdout_sha256,
+            reuse_warnings=facts.seal.reuse_warnings,
+        ),
+        run_seed=state.run_seed,
+        derived_seeds=state.seeds,
+        plans=[
+            PlanRecord(
+                label=facts.baseline.plan_label,
+                plan=baseline_plan(facts.plan),
+                issues=[],
+                cv=facts.baseline,
+            ),
+            PlanRecord(label=result.plan_label, plan=facts.plan, issues=facts.issues, cv=result),
+        ],
+        selected_plan=result.plan_label,
+        validation_score=result.mean,
+        thresholds_hash=facts.thresholds_hash,
+        audit=facts.audit,
+        unseal=facts.unseal,
+        holdout_invalid=facts.audit.holdout_invalid,
+        caveats=facts.seal.caveats,
+        holdout=holdout if holdout is not None else NOT_UNSEALED,
+        optimism_gap=None if holdout is None else result.mean - holdout.score,
+        artifacts=artifacts,
+        environment=capture_environment(),
+        agent=facts.agent,
+    )
+    write_manifest(state.manifest_path, manifest)
+    write_report(state.report_path, manifest)
+    return manifest
 
 
 def reaudit_run(run_dir: Path) -> AuditReport:

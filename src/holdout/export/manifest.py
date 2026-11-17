@@ -16,6 +16,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from holdout.agent.schemas import AgentRecord
 from holdout.audit.gate import UnsealDecision
 from holdout.audit.render import fix_text
 from holdout.audit.types import AuditReport
@@ -135,7 +136,7 @@ class EnvironmentRecord(_Record):
 
 
 class RunManifest(_Record):
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     run_id: str
     started_at: datetime
     finished_at: datetime
@@ -162,6 +163,9 @@ class RunManifest(_Record):
     optimism_gap: float | None = Field(description="validation_score - holdout score")
     artifacts: list[str]
     environment: EnvironmentRecord
+    agent: AgentRecord | None = Field(
+        default=None, description="present for agent runs (holdout agent), absent for holdout run"
+    )
 
 
 def capture_environment() -> EnvironmentRecord:
@@ -249,6 +253,8 @@ def render_report(manifest: RunManifest) -> str:
         lines += [""] + [f"- plan: {i.message}" for i in plan_warnings]
     lines += ["", "## Plan rationale", ""]
     lines += [f"- **{k}:** {v}" for k, v in selected.plan.rationale.model_dump().items()]
+    if manifest.agent is not None:
+        lines += _agent_section(manifest.agent)
     lines += ["", "## Artifacts", ""] + [f"- `{a}`" for a in manifest.artifacts]
     return "\n".join(lines) + "\n"
 
@@ -279,6 +285,46 @@ def _audit_section(manifest: RunManifest) -> list[str]:
     if unseal.requested:
         verdict = "allowed" if unseal.allowed else "refused"
         lines += [f"**Unseal {verdict}.**"] + [f"- {b}" for b in unseal.blocked_by] + [""]
+    return lines
+
+
+def _agent_section(agent: AgentRecord) -> list[str]:
+    model = agent.model or "none (offline)"
+    lines = [
+        "",
+        "## Agent",
+        "",
+        f"- **Mode:** {agent.mode}{' (offline: no API calls)' if agent.offline else ''}; "
+        f"model `{model}` via {agent.llm_client}",
+        f"- **Spend:** Rs {agent.total_inr:.2f} of a Rs {agent.run_cap_inr:.2f} run cap; "
+        f"{agent.cache_hits} cached response(s)",
+        f"- **Fix rounds:** {max(0, len(agent.rounds) - 1)}; stop reason: {agent.stop_reason}",
+        f"- **Substitutions:** {len(agent.substitutions)} (fixes applied by code because the "
+        "model's integrated plan or report missed them; not credited to the model)",
+    ]
+    if agent.previous_run_id:
+        lines.append(f"- **Follows run** `{agent.previous_run_id}` (corrected split)")
+    if agent.next_run_id:
+        lines.append(f"- **Continued in run** `{agent.next_run_id}` (corrected split)")
+    if agent.decisions:
+        lines += ["", "| decision | mode | accepted | reason |", "|---|---|---|---|"]
+        lines += [
+            f"| {d.kind} | {d.mode} | {'yes' if d.accepted else 'no'} | {_cell(d.reason)} |"
+            for d in agent.decisions
+        ]
+    if agent.explanations:
+        lines += ["", "### Flag explanations", ""]
+        lines += [f"- **{k}:** {_cell(v)}" for k, v in sorted(agent.explanations.items())]
+    report = agent.report
+    if report is not None:
+        lines += ["", "### Report", "", report.summary, ""]
+        for title, items in (
+            ("Findings", report.findings),
+            ("Caveats", report.caveats),
+            ("Recommendations", report.recommendations),
+        ):
+            if items:
+                lines += [f"**{title}**", ""] + [f"- {item}" for item in items] + [""]
     return lines
 
 

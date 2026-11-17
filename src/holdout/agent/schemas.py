@@ -100,3 +100,32 @@ class SandboxResult(_Strict):
     status: Literal["ok", "rejected", "timeout", "memory", "error"]
     output: str
     detail: str | None = None
+
+
+class AgentRecord(_Strict):
+    """The agent part of a run manifest."""
+
+    mode: DecisionMode
+    offline: bool
+    llm_client: str = Field(description="client class, e.g. GeminiClient, FakeLLM, none")
+    model: str | None
+    model_verified: bool
+    seed_passed_to_model: bool
+    thinking_level: str | None
+    max_output_tokens: int | None
+    prompts: dict[str, dict[str, str]] = Field(description="prompt name -> version, sha256")
+    usage_by_node: dict[str, NodeUsage]
+    total_inr: float
+    cache_hits: int
+    run_cap_inr: float
+    project_cap_inr: float
+    budget_stop: str | None
+    decisions: list[Decision]
+    rounds: list[RoundRecord]
+    substitutions: list[Substitution]
+    explanations: dict[str, str]
+    eda: list[SandboxResult]
+    report: ReportDraft | None
+    stop_reason: str
+    previous_run_id: str | None
+    next_run_id: str | None
