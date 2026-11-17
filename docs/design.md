@@ -164,8 +164,8 @@ cycle indefinitely. Holdout's graph has: at most 3 fix rounds;
 one plan retry with validation feedback, then a typed failure; a stop when a revised plan
 repeats an earlier one (plans are compared by hash); and a per-node wall-clock limit. The
 limit is checked when a node returns, because Python cannot safely kill a running thread;
-LLM calls are additionally bounded by the SDK request timeout (120 s), and sandbox snippets
-by their own 20 s timeout.
+LLM calls are additionally bounded by the SDK request timeout (120 s) and the retry policy
+(below), and sandbox snippets by their own 20 s timeout.
 
 **Crash safety.** State holds only JSON-serialisable values; development rows are rebuilt
 from the hashed CSV and the split spec in each node, so a checkpoint never contains data.
@@ -202,8 +202,67 @@ builtins, a 20 s timeout, a 1 GB memory limit (psutil watchdog on Windows; `RLIM
 `RLIMIT_CPU` plus the watchdog on Linux) and a 64 KB output cap. It is a damage limiter, not
 a security boundary.
 
-**Tracing.** OpenTelemetry spans per node carry call counts, tokens and rupees; the console
-exporter is off by default (`--trace` turns it on). Spans never carry prompts or data.
+**Tracing.** OpenTelemetry spans per node carry call counts, tokens, rupees and retries; the
+console exporter is off by default (`--trace` turns it on). Spans never carry prompts or data.
+
+**Transient failures: one retry loop, owned by Holdout.** The first live smoke run met a 503
+from Gemini on its first plan call. Retries now follow `holdout/llm/retry.py`:
+
+- Transient means HTTP 429, 500, 503, 504 and request timeouts. Everything else (400, 401,
+  403, 404, schema errors) fails at once with `LLMRequestError` and is never retried.
+- The policy is exponential backoff with full jitter: base 2 s, cap 60 s, at most 6 attempts.
+  The wait before retry *n* is uniform on [0, min(60, 2·2^(n-1))] s.
+- A `Retry-After` header (seconds or an HTTP date) replaces the jittered wait, capped at
+  60 s. One call can therefore wait at most 62 s of jittered backoff, or 5 minutes when the
+  server asks for the longest waits.
+- The google-genai SDK's own tenacity retries are **disabled** explicitly
+  (`HttpRetryOptions(attempts=1)`). Setting any retry options also turns off the SDK's
+  implicit async retries. So the two loops can never multiply: 6 attempts means 6 requests.
+  A test asserts the setting on a real `genai.Client`.
+- Every retry is logged on `holdout.llm` with the status, attempt and wait, and reported
+  through the progress interface.
+- Retries cost no tokens and are counted in `CallRecord.retries`, in `retries` per node and
+  per run in the manifest, and in `report.md`.
+- Time spent sleeping between retries does not count against the per-node wall-clock limit.
+  Each call's waits are bounded by the policy instead.
+
+**When retries run out, the run pauses; it never crashes.** `LLMUnavailableError` carries
+the status, the retry count and the node. The driver catches it and does three things:
+
+- It writes `run_manifest.json` with `status: "paused_llm_unavailable"`. The file records
+  the node, status, retries, completed nodes, decisions, rounds and spend so far (including
+  calls of the node that did not finish), a one-paragraph message and the exact
+  `holdout agent --resume <run_id> --out <dir>` command.
+- It leaves the SQLite checkpoint holding every completed node. LangGraph does not commit
+  a failed node's writes, so the resume re-runs exactly that node. The seal and unseal nodes
+  are idempotent, so the holdout is never touched twice.
+- It returns a paused outcome. The CLI prints the paragraph and exits with **code 5**, which
+  is reserved for "LLM unavailable". No traceback is shown unless `--debug` is given.
+
+An outage while verifying the model (before the first node) pauses the same way, and the
+resume starts the graph from the top. On resume, the earlier outage and the spend of the
+unfinished node are carried into the final manifest. `holdout reaudit` refuses a paused run.
+
+**No silent model fallback.** A run is pinned to one model when it starts:
+
+- the model is `--model` if given, otherwise the configured default;
+- it must have a dated price in `PRICE_TABLE` (an unpriced model is refused before a run
+  directory is created, so spend is never computed as zero);
+- it is stored in the run's `agent_options.json`.
+
+A resume uses the stored model. `--resume` with a different `--model`, or a client serving
+another model, is refused with "a run never switches models". The follow-up run after a leaky
+split inherits the same model. Holdout never falls back to another model to get past an
+outage: waiting and resuming is the only remedy, because a mid-run switch would make the
+manifest's per-node usage, prompt hashes and cache keys describe two models at once. The
+manifest records the model and `model_overridden` when `--model` was used.
+
+**Progress output.** `holdout/llm/progress.py` prints one timestamped line at the start and
+end of every graph node and every Gemini call. A call's end line has the elapsed seconds,
+tokens, rupees and retries, or "cached". A line is also printed whenever a retry is waiting
+(status, attempt, wait). `holdout agent --verbose` turns the lines on; the smoke script
+always shows them. Lines never contain prompts, data or the key.
+
 ## Why the agent fills a typed plan instead of writing code
 
 Free-form modelling code can fit a scaler on all rows, tune on the test fold, or read the

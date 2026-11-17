@@ -77,11 +77,22 @@ holdout agent --csv examples\churn_classification.csv --target churned --goal "p
 # Unattended: every question answered by the logged autopilot policy
 holdout agent --csv examples\churn_classification.csv --target churned --autopilot
 
-# A run paused at a question (exit code 4) or interrupted continues from its checkpoint
+# A run paused at a question (exit code 4), paused because Gemini stayed unavailable
+# (exit code 5) or interrupted continues from its checkpoint, on the same model
 holdout agent --resume <run_id>
 
-# Options: --eda (sandboxed analysis snippets), --no-cache, --trace (OpenTelemetry spans)
+# Another priced model for this run only (recorded in the manifest; never switched mid-run)
+holdout agent --csv examples\churn_classification.csv --target churned --model gemini-3.6-flash
+
+# Options: --eda (sandboxed analysis snippets), --no-cache, --trace (OpenTelemetry spans),
+# --verbose (a timestamped line per node, Gemini call and retry), --debug (tracebacks)
 ```
+
+Transient Gemini errors (429, 500, 503, 504, timeouts) are retried up to 6 attempts with
+jittered exponential backoff (2 s base, 60 s cap, `Retry-After` honoured). If they never
+clear, the run pauses with a checkpoint instead of crashing. It exits with code 5 and prints
+the failing node, the status code and the exact resume command. Other API errors (400, 401,
+403) fail at once with exit code 2.
 
 `holdout run` stays the deterministic, LLM-free path. In agent runs Gemini proposes the
 plan, explains audit flags and writes the report's prose; code validates every answer,
@@ -104,7 +115,11 @@ boundary.
 ```powershell
 $env:GEMINI_API_KEY = "..."
 python -m scripts.smoke_gemini
+python -m scripts.smoke_gemini --model gemini-3.6-flash   # another priced model
 ```
+
+It prints progress lines as it goes. If Gemini stays unavailable, it still prints what
+completed, plus the resume command, and exits with 5.
 ## The audit
 
 Every run audits the cross-validated pipeline on development rows only. The twelve checks
