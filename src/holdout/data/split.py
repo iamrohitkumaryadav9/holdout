@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from holdout.core import config
 from holdout.core.errors import SplitError
 from holdout.core.portable import SplitConfig, split_frame, time_order_key
-from holdout.core.schemas import DataType, SplitStrategy, Task
+from holdout.core.schemas import DataType, EntityScope, SplitStrategy, Task
 from holdout.core.seeds import derive_seed
 from holdout.data.profile import DatasetProfile
 
@@ -40,6 +40,13 @@ class SplitSpec(BaseModel):
     group_col: str | None = None
     time_col: str | None = None
     seed: int
+    entity_scope: EntityScope | None = Field(
+        default=None,
+        description=(
+            "Whether predictions target new entities or entities already in the data; "
+            "None means unanswered and is treated as 'new' (the rigorous default)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _columns_match_strategy(self) -> "SplitSpec":
@@ -68,8 +75,12 @@ class SplitSpec(BaseModel):
         )
 
     def fingerprint(self) -> str:
-        """Stable hash of the spec, used to recognise the same holdout across runs."""
-        payload = json.dumps(self.model_dump(mode="json"), sort_keys=True)
+        """Stable hash of the spec, used to recognise the same holdout across runs.
+
+        ``entity_scope`` is excluded: it is a declaration about deployment, not about which
+        rows are held out, so the same rows must keep the same fingerprint.
+        """
+        payload = json.dumps(self.model_dump(mode="json", exclude={"entity_scope"}), sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()
 
     def validate_against(self, frame: pd.DataFrame, target: str) -> None:

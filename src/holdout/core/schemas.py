@@ -26,6 +26,17 @@ class DataType(StrEnum):
     TIMESERIES = "timeseries"
 
 
+class EntityScope(StrEnum):
+    """Who the model will predict for, when rows belong to repeated entities.
+
+    ``new``: unseen entities (customers, patients) - rows of one entity must not straddle
+    the split. ``known``: entities already in the data - a row-level split is legitimate.
+    """
+
+    NEW = "new"
+    KNOWN = "known"
+
+
 class ColumnKind(StrEnum):
     """Semantic kind of a column, inferred without looking at the target."""
 
