@@ -11,14 +11,16 @@ real token usage. Validation, repair, caching and budget live in
 
 import json
 import os
+import random
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from holdout.core.errors import LLMUnavailableError
+from holdout.core.errors import LLMConfigError
 from holdout.llm import config
+from holdout.llm.retry import RetryEvent, RetryPolicy, call_with_retries
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,7 @@ class Usage:
 class LLMResponse:
     text: str
     usage: Usage
+    retries: int = 0
 
 
 class LLMClient(Protocol):
@@ -68,13 +71,12 @@ class LLMClient(Protocol):
     @property
     def supports_seed(self) -> bool: ...
 
-    def generate(self, request: LLMRequest) -> LLMResponse: ...
+    def generate(
+        self, request: LLMRequest, on_retry: Callable[[RetryEvent], None] | None = None
+    ) -> LLMResponse: ...
 
 
 # --------------------------------------------------------------------------- Gemini
-
-
-_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
 
 class GeminiClient:
@@ -89,23 +91,32 @@ class GeminiClient:
         *,
         sdk_client: Any | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        policy: RetryPolicy | None = None,
+        rng: random.Random | None = None,
     ) -> None:
         self._model = model
         self._sleep = sleep
+        self._policy = policy if policy is not None else RetryPolicy()
+        self._rng = rng if rng is not None else random.Random()
         if sdk_client is not None:
             self._client = sdk_client
         else:
             key = os.environ.get(config.API_KEY_ENV)
             if not key:
-                raise LLMUnavailableError(
+                raise LLMConfigError(
                     f"{config.API_KEY_ENV} is not set; set it, or run with --offline"
                 )
             from google import genai
             from google.genai import types
 
+            # attempts=1 disables the SDK's own (tenacity) retries, and setting retry options
+            # also turns off its implicit async retries: Holdout's policy owns every retry.
             self._client = genai.Client(
                 api_key=key,
-                http_options=types.HttpOptions(timeout=config.REQUEST_TIMEOUT_SECONDS * 1000),
+                http_options=types.HttpOptions(
+                    timeout=config.REQUEST_TIMEOUT_SECONDS * 1000,
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                ),
             )
         self.model_verified = False
 
@@ -119,20 +130,28 @@ class GeminiClient:
         # effort (same seed and parameters "make a best effort" to repeat a response).
         return True
 
-    def verify_model(self) -> list[str]:
-        """List available models; raise unless the configured model is among them."""
-        names = sorted(
-            str(getattr(m, "name", "")).removeprefix("models/") for m in self._client.models.list()
+    def verify_model(self, on_retry: Callable[[RetryEvent], None] | None = None) -> list[str]:
+        """List available models (with retries); raise unless the model is among them."""
+        listed, _ = call_with_retries(
+            lambda: list(self._client.models.list()),
+            policy=self._policy,
+            sleep=self._sleep,
+            rng=self._rng,
+            on_retry=on_retry,
+            what="listing Gemini models",
         )
+        names = sorted(str(getattr(m, "name", "")).removeprefix("models/") for m in listed)
         if self._model not in names:
             flash = [n for n in names if "flash" in n]
-            raise LLMUnavailableError(
+            raise LLMConfigError(
                 f"model {self._model!r} is not available to this key; Flash models seen: {flash}"
             )
         self.model_verified = True
         return names
 
-    def generate(self, request: LLMRequest) -> LLMResponse:
+    def generate(
+        self, request: LLMRequest, on_retry: Callable[[RetryEvent], None] | None = None
+    ) -> LLMResponse:
         from google.genai import types
 
         generation = types.GenerateContentConfig(
@@ -146,25 +165,20 @@ class GeminiClient:
                 thinking_level=types.ThinkingLevel(request.thinking_level.upper())
             ),
         )
-        attempt = 0
-        while True:
-            try:
-                response = self._client.models.generate_content(
-                    model=self._model, contents=request.user, config=generation
-                )
-                break
-            except Exception as exc:
-                status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-                if status in _TRANSIENT_STATUS and attempt < config.MAX_TRANSIENT_RETRIES:
-                    self._sleep(2.0**attempt)
-                    attempt += 1
-                    continue
-                raise LLMUnavailableError(
-                    f"Gemini call failed ({type(exc).__name__}, status {status})"
-                ) from exc
+        response, retries = call_with_retries(
+            lambda: self._client.models.generate_content(
+                model=self._model, contents=request.user, config=generation
+            ),
+            policy=self._policy,
+            sleep=self._sleep,
+            rng=self._rng,
+            on_retry=on_retry,
+            what=f"Gemini call ({request.prompt_name})",
+        )
         usage = getattr(response, "usage_metadata", None)
         return LLMResponse(
             text=str(getattr(response, "text", "") or ""),
+            retries=retries,
             usage=Usage(
                 prompt_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
                 output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
@@ -176,24 +190,27 @@ class GeminiClient:
 # --------------------------------------------------------------------------- fakes
 
 Responder = Callable[[LLMRequest], str | Mapping[str, Any]]
+ScriptItem = str | Mapping[str, Any] | Responder | BaseException
 
 
 @dataclass
 class FakeLLM:
     """Scripted responses per prompt name, in order; then an optional default responder.
 
-    Usage is deterministic (characters / 4), so budget and manifest tests are exact.
+    A script item may be an exception (e.g. ``TransientLLMError(503)``) to simulate an
+    outage. Usage is deterministic (characters / 4), so budget and manifest tests are exact.
     """
 
-    scripts: dict[str, list[str | Mapping[str, Any] | Responder]] = field(default_factory=dict)
+    scripts: dict[str, list[ScriptItem]] = field(default_factory=dict)
     default: Mapping[str, Responder] = field(default_factory=dict)
     #: Priced like the real model so budget tests are realistic; the manifest records the
     #: client class separately.
     model_name: str = config.DEFAULT_MODEL
     calls: list[LLMRequest] = field(default_factory=list)
+    retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
 
     def __post_init__(self) -> None:
-        self._queues: dict[str, deque[str | Mapping[str, Any] | Responder]] = defaultdict(deque)
+        self._queues: dict[str, deque[ScriptItem]] = defaultdict(deque)
         for name, items in self.scripts.items():
             self._queues[name].extend(items)
 
@@ -208,19 +225,37 @@ class FakeLLM:
     def calls_for(self, prompt_name: str) -> list[LLMRequest]:
         return [c for c in self.calls if c.prompt_name == prompt_name]
 
-    def generate(self, request: LLMRequest) -> LLMResponse:
-        self.calls.append(request)
-        queue = self._queues[request.prompt_name]
-        if queue:
-            item = queue.popleft()
-        elif request.prompt_name in self.default:
-            item = self.default[request.prompt_name]
-        else:
-            raise AssertionError(f"FakeLLM has no response for {request.prompt_name!r}")
-        produced = item(request) if callable(item) else item
-        text = produced if isinstance(produced, str) else json.dumps(produced)
+    def generate(
+        self, request: LLMRequest, on_retry: Callable[[RetryEvent], None] | None = None
+    ) -> LLMResponse:
+        """Produce the next scripted item. Exceptions in a script are raised; transient
+        ones go through the same retry loop as the real client (without sleeping)."""
+
+        def attempt() -> str:
+            self.calls.append(request)
+            queue = self._queues[request.prompt_name]
+            if queue:
+                item = queue.popleft()
+            elif request.prompt_name in self.default:
+                item = self.default[request.prompt_name]
+            else:
+                raise AssertionError(f"FakeLLM has no response for {request.prompt_name!r}")
+            if isinstance(item, BaseException):
+                raise item
+            produced = item(request) if callable(item) else item
+            return produced if isinstance(produced, str) else json.dumps(produced)
+
+        text, retries = call_with_retries(
+            attempt,
+            policy=self.retry_policy,
+            sleep=lambda seconds: None,
+            rng=random.Random(0),
+            on_retry=on_retry,
+            what=f"fake call ({request.prompt_name})",
+        )
         return LLMResponse(
             text=text,
+            retries=retries,
             usage=Usage(
                 prompt_tokens=(len(request.system) + len(request.user)) // 4,
                 output_tokens=len(text) // 4,

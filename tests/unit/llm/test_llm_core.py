@@ -14,7 +14,13 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field
 
-from holdout.core.errors import BudgetExceededError, LLMOutputError, LLMUnavailableError
+from holdout.core.errors import (
+    BudgetExceededError,
+    LLMConfigError,
+    LLMOutputError,
+    LLMRequestError,
+    LLMUnavailableError,
+)
 from holdout.llm import config
 from holdout.llm.budget import Budget, SpendLedger, cost_inr, estimate_inr
 from holdout.llm.cache import ResponseCache, cache_key
@@ -278,14 +284,20 @@ def test_gemini_request_uses_schema_seed_and_thinking_cap() -> None:
 
 def test_gemini_retries_transient_errors_then_fails_typed() -> None:
     client, models = _gemini([_StatusError(429), _StatusError(503), _response("{}")])
-    assert client.generate(LLMRequest("t", "1", "s", "u", {}, seed=1)).text == "{}"
+    response = client.generate(LLMRequest("t", "1", "s", "u", {}, seed=1))
+    assert response.text == "{}"
+    assert response.retries == 2
     assert len(models.configs) == 3  # two transient failures, then success
-    client, _ = _gemini([_StatusError(400)])
-    with pytest.raises(LLMUnavailableError, match="status 400"):
+    client, models = _gemini([_StatusError(400)])
+    with pytest.raises(LLMRequestError, match="HTTP 400") as rejected:
         client.generate(LLMRequest("t", "1", "s", "u", {}, seed=1))
-    client, _ = _gemini([_StatusError(429)] * (config.MAX_TRANSIENT_RETRIES + 1))
-    with pytest.raises(LLMUnavailableError, match="status 429"):
+    assert rejected.value.status == 400
+    assert models.outcomes == []  # sent exactly once
+    client, models = _gemini([_StatusError(503)] * 6)
+    with pytest.raises(LLMUnavailableError, match="HTTP 503 on all 6 attempts") as down:
         client.generate(LLMRequest("t", "1", "s", "u", {}, seed=1))
+    assert (down.value.status, down.value.retries) == (503, 5)
+    assert len(models.configs) == 6
 
 
 def test_gemini_model_verification() -> None:
@@ -293,12 +305,12 @@ def test_gemini_model_verification() -> None:
     assert config.DEFAULT_MODEL in client.verify_model()
     assert client.model_verified
     missing, _ = _gemini([], names=["gemini-1-flash"])
-    with pytest.raises(LLMUnavailableError, match="not available"):
+    with pytest.raises(LLMConfigError, match="not available"):
         missing.verify_model()
 
 
 def test_gemini_needs_a_key_from_the_environment() -> None:
-    with pytest.raises(LLMUnavailableError, match="GEMINI_API_KEY is not set"):
+    with pytest.raises(LLMConfigError, match="GEMINI_API_KEY is not set"):
         GeminiClient()
 
 

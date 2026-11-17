@@ -50,8 +50,29 @@ class LLMError(HoldoutError):
     """Base class for language-model failures (never silently replaced by a default)."""
 
 
+class LLMConfigError(LLMError):
+    """The LLM cannot be used as configured: no API key, an unknown or unpriced model."""
+
+
+class LLMRequestError(LLMError):
+    """The API rejected a request with a non-transient error (400, 401, 403, ...)."""
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class LLMUnavailableError(LLMError):
-    """No API key, an unavailable model, or a transport failure after bounded retries."""
+    """The service stayed unavailable (429, 5xx, timeouts) after every retry.
+
+    The agent run is checkpointed and can be resumed; ``node`` is filled in by the graph.
+    """
+
+    def __init__(self, message: str, *, status: int | None = None, retries: int = 0) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retries = retries
+        self.node: str | None = None
 
 
 class LLMOutputError(LLMError):

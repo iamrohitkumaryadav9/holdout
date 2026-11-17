@@ -9,20 +9,25 @@
 5. on failure, send exactly one repair request that quotes the errors, and validate again;
 6. still invalid: raise :class:`LLMOutputError`. There is no silent default.
 
-Every attempt is recorded as a :class:`CallRecord` for the manifest.
+Transient API failures are retried inside the client (:mod:`holdout.llm.retry`); if they
+never clear, :class:`LLMUnavailableError` propagates with ``node`` set, after the failed
+call is recorded. Every attempt is recorded as a :class:`CallRecord` for the manifest.
 """
 
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from holdout.core.errors import LLMOutputError
+from holdout.core.errors import LLMOutputError, LLMUnavailableError
 from holdout.llm.budget import Budget
 from holdout.llm.cache import ResponseCache, cache_key
 from holdout.llm.client import LLMClient, LLMRequest, LLMResponse
+from holdout.llm.progress import NullProgress, Progress
+from holdout.llm.retry import RetryEvent
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -50,6 +55,8 @@ class CallRecord:
     inr: float
     valid: bool
     errors: tuple[str, ...]
+    #: Transient failures retried before this call succeeded (or gave up); cost no tokens.
+    retries: int = 0
 
 
 @dataclass
@@ -59,6 +66,9 @@ class LLMSession:
     seed: int
     cache: ResponseCache = field(default_factory=ResponseCache)
     records: list[CallRecord] = field(default_factory=list)
+    progress: Progress = field(default_factory=NullProgress)
+    #: Seconds spent sleeping between retries (excluded from the node wall-clock limit).
+    retry_wait_seconds: float = 0.0
 
     def call(
         self,
@@ -115,12 +125,49 @@ class LLMSession:
         key = cache_key(self.client.model, request)
         cached = self.cache.get(key)
         inr = 0.0
+        started = time.perf_counter()
         if cached is not None:
             response: LLMResponse = cached
         else:
             self.budget.check(request, node)
-            response = self.client.generate(request)
+            self.progress.call_started(node, prompt.name, attempt)
+
+            def waiting(event: RetryEvent) -> None:
+                self.retry_wait_seconds += event.wait_seconds
+                self.progress.retry_waiting(node, prompt.name, event)
+
+            try:
+                response = self.client.generate(request, on_retry=waiting)
+            except LLMUnavailableError as exc:
+                exc.node = node
+                self.records.append(
+                    CallRecord(
+                        node=node,
+                        prompt_name=prompt.name,
+                        prompt_version=prompt.version,
+                        prompt_sha256=prompt.sha256,
+                        attempt=attempt,
+                        cache_hit=False,
+                        prompt_tokens=0,
+                        output_tokens=0,
+                        thinking_tokens=0,
+                        inr=0.0,
+                        valid=False,
+                        errors=(f"LLM unavailable: {exc}",),
+                        retries=exc.retries,
+                    )
+                )
+                raise
             inr = self.budget.charge(response.usage, node=node, prompt_name=prompt.name)
+        self.progress.call_finished(
+            node,
+            prompt.name,
+            time.perf_counter() - started,
+            cache_hit=cached is not None,
+            tokens=0 if cached else response.usage.total,
+            inr=inr,
+            retries=0 if cached else response.retries,
+        )
         answer, errors = _parse(response.text, schema, check)
         if cached is None and answer is not None:
             self.cache.put(key, response)  # only valid answers are worth replaying
@@ -138,6 +185,7 @@ class LLMSession:
                 inr=inr,
                 valid=answer is not None,
                 errors=tuple(errors),
+                retries=0 if cached else response.retries,
             )
         )
         return answer, errors, response.text
