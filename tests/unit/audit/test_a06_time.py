@@ -32,6 +32,7 @@ def test_hidden_row_order_with_drift_is_critical(seed: int) -> None:
 
 
 @pytest.mark.parametrize("seed", SEEDS[:2])
+@pytest.mark.full_only
 def test_renamed_date_column_is_found_by_parsing_not_by_name(seed: int) -> None:
     ctx = context_for(build_case("time_order", seed, params={"mode": "rename"}), seed)
     flags = a6.run(ctx).flags

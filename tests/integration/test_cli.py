@@ -107,6 +107,7 @@ def test_timeseries_example_warns_when_declared_tabular(examples: Path, tmp_path
     assert [json.loads(line)["outcome"] for line in log] == ["marked_invalid"]
 
 
+@pytest.mark.full_only
 def test_timeseries_example_with_time_split(examples: Path, tmp_path: Path) -> None:
     out = tmp_path / "runs"
     result = runner.invoke(

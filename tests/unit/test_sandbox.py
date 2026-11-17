@@ -76,6 +76,7 @@ def _run(code: str, limits: Limits | None = None) -> Any:
     return runner.run_snippet(EDASnippet(purpose="probe", code=code), DEV, limits)
 
 
+@pytest.mark.full_only
 def test_a_snippet_runs_on_the_dev_copy() -> None:
     result = _run("print(df.shape)\nprint(int(df['y'].sum()))")
     assert result.status == "ok"
@@ -83,6 +84,7 @@ def test_a_snippet_runs_on_the_dev_copy() -> None:
     assert "100" in result.output
 
 
+@pytest.mark.full_only
 def test_runtime_guard_backs_up_the_static_check(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner, "check_snippet", lambda code: [])  # bypass layer one
     result = _run("import os\nprint(os.getcwd())")
@@ -116,12 +118,14 @@ def test_memory_limit_kills_the_process() -> None:
     assert result.status == "memory"
 
 
+@pytest.mark.full_only
 def test_output_is_capped() -> None:
     result = _run("print('x' * 500000)", Limits(output_bytes=1024))
     assert result.status == "ok"
     assert len(result.output) <= 1024
 
 
+@pytest.mark.full_only
 def test_figures_are_collected(tmp_path: Path) -> None:
     snippet = EDASnippet(
         purpose="histogram",

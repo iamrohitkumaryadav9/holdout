@@ -44,6 +44,7 @@ def test_offline_autopilot_runs_end_to_end(churn_csv: Path, tmp_path: Path) -> N
     assert "**Substitutions:** 0" in report
 
 
+@pytest.mark.full_only
 def test_without_a_terminal_an_interactive_run_pauses_then_resumes(
     churn_csv: Path, tmp_path: Path
 ) -> None:
@@ -84,6 +85,7 @@ def test_agent_errors_exit_with_code_2(args: list[str], message: str, tmp_path: 
     assert message in result.output
 
 
+@pytest.mark.full_only
 def test_unseal_refusal_exits_with_code_3(churn_csv: Path, tmp_path: Path) -> None:
     from holdout.agent.driver import run_agent
     from holdout.agent.graph import AgentOptions

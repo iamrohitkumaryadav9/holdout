@@ -20,7 +20,7 @@ from holdout.plan.schema import ModelPlan
 runner = CliRunner()
 
 #: Traps run in the fast tier; the rest run in the full tier only.
-FAST_TRAPS = {"direct_leak", "cross_split_duplicates"}
+FAST_TRAPS = {"direct_leak"}
 
 
 def _tiered(names: set[str]) -> list[Any]:
@@ -76,7 +76,8 @@ def test_trap_is_detected_end_to_end(name: str, tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("name", _tiered(set(TRAPS)))
+@pytest.mark.full_only
+@pytest.mark.parametrize("name", sorted(TRAPS))
 def test_clean_twin_has_no_critical_flag_end_to_end(name: str, tmp_path: Path) -> None:
     manifest = _run_case(clean_twin(build_case(name, 0)), tmp_path)
     criticals = [f for f in manifest["audit"]["flags"] if f["severity"] == "critical"]

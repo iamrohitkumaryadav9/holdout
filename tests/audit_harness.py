@@ -9,7 +9,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from bench.traps import TrapCase, build_case, clean_twin
+from bench.traps import TRAPS, TrapCase, build_case, clean_twin
 from holdout.audit.context import AuditContext
 from holdout.audit.thresholds import load_thresholds
 from holdout.core.schemas import DataType, EntityScope
@@ -21,6 +21,7 @@ from holdout.data.split import SplitSpec, propose_split
 from holdout.plan.compiler import evaluate_cv
 from holdout.plan.defaults import baseline_plan, default_plan
 from holdout.plan.schema import ModelPlan
+from tests.tiers import FULL
 
 _WORKDIR = Path(tempfile.mkdtemp(prefix="holdout-audit-tests-"))
 
@@ -76,11 +77,18 @@ def context_for(
     )
 
 
+def _size(name: str) -> dict[str, int]:
+    """Smaller cases in the fast tier (the full tier uses each trap's default size)."""
+    if FULL:
+        return {}
+    return {"n_days": 800} if TRAPS[name].base == "time_ordered" else {"n_rows": 800}
+
+
 @cache
 def trap_context(name: str, seed: int) -> AuditContext:
-    return context_for(build_case(name, seed), seed)
+    return context_for(build_case(name, seed, **_size(name)), seed)
 
 
 @cache
 def twin_context(name: str, seed: int) -> AuditContext:
-    return context_for(clean_twin(build_case(name, seed)), seed)
+    return context_for(clean_twin(build_case(name, seed, **_size(name))), seed)

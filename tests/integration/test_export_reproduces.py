@@ -103,6 +103,7 @@ def test_exported_script_reproduces_the_cv_score(tmp_path: Path, case: str) -> N
     assert exported_folds == pytest.approx(expected.fold_scores, abs=1e-9)
 
 
+@pytest.mark.full_only
 def test_exported_script_warns_on_a_different_csv(tmp_path: Path) -> None:
     frame = make_classification_example(n_rows=300, seed=1)
     csv = tmp_path / "data.csv"

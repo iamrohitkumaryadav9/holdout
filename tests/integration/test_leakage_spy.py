@@ -118,7 +118,13 @@ PLANS = {
 }
 
 
-@pytest.mark.parametrize("plan_name", sorted(PLANS))
+@pytest.mark.parametrize(
+    "plan_name",
+    [
+        "target_encoding_kbest",
+        pytest.param("onehot_model_based_lightgbm", marks=pytest.mark.full_only),
+    ],
+)
 @pytest.mark.parametrize("split_name", sorted(SPECS))
 def test_every_fit_sees_only_its_training_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, split_name: str, plan_name: str

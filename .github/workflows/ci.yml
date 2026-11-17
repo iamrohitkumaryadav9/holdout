@@ -52,6 +52,12 @@ jobs:
       - name: Audit coverage (>= 90% on holdout/audit)
         run: coverage report --include="*/holdout/audit/*" --fail-under=90
 
+      - name: Agent coverage (>= 90% on holdout/agent)
+        run: coverage report --include="*/holdout/agent/*" --fail-under=90
+
+      - name: LLM coverage (>= 90% on holdout/llm)
+        run: coverage report --include="*/holdout/llm/*" --fail-under=90
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4

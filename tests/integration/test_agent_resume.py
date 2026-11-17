@@ -105,6 +105,7 @@ def test_a_killed_run_resumes_to_an_identical_manifest(tmp_path: Path) -> None:
     assert [json.loads(line)["outcome"] for line in access] == ["evaluated"]  # once
 
 
+@pytest.mark.full_only
 def test_a_paused_run_resumes_in_a_new_process(tmp_path: Path) -> None:
     case = build_case("direct_leak", 0)
     csv = write_case(case, tmp_path)

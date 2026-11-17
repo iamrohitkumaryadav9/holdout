@@ -46,6 +46,7 @@ def _runs(out: Path) -> list[Path]:
     return sorted(p for p in out.iterdir() if p.is_dir())
 
 
+@pytest.mark.full_only
 def test_group_leakage_invalidates_and_accept_risk_cannot_override(
     csvs: dict[str, Path], tmp_path: Path
 ) -> None:
@@ -135,6 +136,7 @@ def test_too_short_risk_reason_is_an_error(csvs: dict[str, Path], tmp_path: Path
     assert "at least 10 characters" in result.output
 
 
+@pytest.mark.full_only
 def test_an_incomplete_audit_blocks_unsealing(
     csvs: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -151,6 +153,7 @@ def test_an_incomplete_audit_blocks_unsealing(
     assert any(b.startswith("audit incomplete: A8") for b in manifest["unseal"]["blocked_by"])
 
 
+@pytest.mark.full_only
 def test_reaudit_an_existing_run(csvs: dict[str, Path], tmp_path: Path) -> None:
     out = tmp_path / "runs"
     assert _run(csvs["direct_leak"], out).exit_code == 0

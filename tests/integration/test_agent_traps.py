@@ -11,7 +11,7 @@ from bench.traps import TRAPS, build_case, clean_twin
 from holdout.audit.types import CheckId
 from tests.agent_harness import detected, report_numbers_outside_state, run_case
 
-FAST_TRAPS = {"direct_leak", "imbalance_accuracy", "causal_question"}
+FAST_TRAPS = {"direct_leak"}
 
 
 def _tiered(names: set[str]) -> list[Any]:
@@ -37,6 +37,7 @@ def test_agent_detects_every_trap(name: str, tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("name", _tiered(set(TRAPS)))
+@pytest.mark.full_only
 def test_agent_clean_twins_raise_no_critical(name: str, tmp_path: Path) -> None:
     outcome = run_case(clean_twin(build_case(name, 0)), tmp_path)
     manifest = outcome.manifest

@@ -51,6 +51,7 @@ def test_injected_text_stays_inside_data_sections(tmp_path: Path) -> None:
         assert "ignore all previous instructions" not in outside
 
 
+@pytest.mark.full_only
 def test_an_obedient_model_cannot_break_the_guarantees(tmp_path: Path) -> None:
     """A model that follows the injected instructions still meets validation and the gate."""
     case = _injected_case()
@@ -112,6 +113,7 @@ def test_the_run_cap_stops_a_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         run_case(case, tmp_path, use_cache=False)
 
 
+@pytest.mark.full_only
 def test_spend_is_recorded_in_the_project_ledger(tmp_path: Path) -> None:
     before = SpendLedger().total_inr()
     outcome = run_case(build_case("direct_leak", 0), tmp_path, use_cache=False)
@@ -122,6 +124,7 @@ def test_spend_is_recorded_in_the_project_ledger(tmp_path: Path) -> None:
     assert SpendLedger().total_inr() == pytest.approx(before + spent)
 
 
+@pytest.mark.full_only
 def test_the_api_key_never_reaches_any_artifact(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -172,6 +175,7 @@ def _matches(name: str, contents: str) -> bool:
 # ------------------------------------------------------------------ tracing, seeds, offline
 
 
+@pytest.mark.full_only
 def test_every_node_emits_a_span_with_usage(tmp_path: Path) -> None:
     exporter = InMemorySpanExporter()
     configure_tracing(exporter=exporter)
@@ -186,6 +190,7 @@ def test_every_node_emits_a_span_with_usage(tmp_path: Path) -> None:
     assert plan_span.attributes["llm.prompt_tokens"] > 0
 
 
+@pytest.mark.full_only
 def test_two_seeds_never_share_cached_responses(tmp_path: Path) -> None:
     case = build_case("direct_leak", 0)
     first = run_case(case, tmp_path / "a", seed=11, use_cache=True)
@@ -205,6 +210,7 @@ def test_two_seeds_never_share_cached_responses(tmp_path: Path) -> None:
     assert other.manifest.agent.seed_passed_to_model  # type: ignore[union-attr]
 
 
+@pytest.mark.full_only
 def test_offline_runs_make_no_calls_and_keep_the_a11_skip(tmp_path: Path) -> None:
     case = build_case("direct_leak", 0)
 
@@ -256,6 +262,7 @@ def test_autopilot_starts_exactly_one_followup_with_the_corrected_split(tmp_path
     assert outcome.followup.followup is None  # never a second follow-up
 
 
+@pytest.mark.full_only
 def test_a_repeated_plan_stops_the_loop(tmp_path: Path) -> None:
     case = build_case("direct_leak", 0)
     fake = fake_for(case, write_case(case, tmp_path))
@@ -290,6 +297,7 @@ def test_node_timeout_is_enforced(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         run_case(build_case("direct_leak", 0), tmp_path)
 
 
+@pytest.mark.full_only
 def test_a_causal_claim_the_model_will_not_remove_is_stripped_by_code(tmp_path: Path) -> None:
     case = build_case("causal_question", 0)
     fake = fake_for(case, write_case(case, tmp_path))
