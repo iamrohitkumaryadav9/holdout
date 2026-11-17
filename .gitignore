@@ -26,6 +26,7 @@ htmlcov/
 # Run outputs (each run writes a sealed holdout; never commit those)
 runs/
 bench_runs/
+smoke_runs/
 
 # Editors / OS
 .vscode/

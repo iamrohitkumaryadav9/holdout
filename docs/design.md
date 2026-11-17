@@ -1,4 +1,4 @@
-# Holdout design (Weeks 1-2)
+# Holdout design (Weeks 1-3)
 
 ## Problem
 
@@ -11,8 +11,8 @@ higher validation score, including the illegitimate ways to get one.
 > Check it against its arXiv page (https://arxiv.org/abs/2610.14115) before citing it
 > further.
 
-Holdout's answer is that correctness is enforced in code. A proposer (the offline default
-today, an LLM later) suggests; deterministic code decides.
+Holdout's answer is that correctness is enforced in code. A proposer (Gemini in agent runs,
+the offline default otherwise) suggests; deterministic code decides.
 
 ## Seal before see
 
@@ -102,6 +102,108 @@ comment, loads into strict typed models (a typo fails), and the file's sha256 is
 every manifest. The values are provisional: they will be tuned in Week 4 on development trap
 tasks only, never on evaluation tasks.
 
+## The agent (Week 3)
+
+`holdout agent` wraps the deterministic core in a LangGraph state machine with a SQLite
+checkpointer (`runs/<id>/checkpoints.sqlite`):
+
+intake -> confirm_split (interrupt) -> seal -> [eda] -> plan -> compile_and_fit -> audit,
+then either end_split (the split leaks), or explain_and_fix -> review (interrupt) ->
+compile_and_fit again (at most 3 rounds), and finally confirm_unseal (interrupt) -> unseal
+-> report.
+
+**The LLM proposes; code decides.** Gemini (google-genai SDK) proposes a `ModelPlan`,
+explains audit flags, integrates their fixes, writes report prose, suggests A2 hints and
+(optionally) EDA snippets. Every call returns a Pydantic model through the SDK's JSON-schema
+output; an invalid answer gets exactly one repair request quoting the errors, then the run
+fails with a typed error. There is no silent fallback to a default plan inside an agent run;
+`--offline` is a separate, explicit path that runs the same graph with the default plan,
+code explanations, template prose and lexicon hints (and no API calls).
+
+**Code-applied fixes and substitutions.** Every audit fix that changes a plan (drop columns,
+change the metric) is applied by code: that is the source of truth. The LLM's integrated plan
+is accepted only if it contains every fix and validates. If it does not (after one repair),
+the code-applied plan is used and a substitution is recorded (node, round, the fixes the
+model missed). The manifest lists every substitution and `report.md` shows the count,
+because a remediation achieved by the code fallback must not be credited to the LLM; the
+Week 4 benchmark reports the substitution rate.
+
+**Numbers come from state.** The report's prose is written by the LLM around placeholders
+(`{{validation_score}}`, `{{holdout_score}}`, ...) that code fills from run state. A numeric
+literal in the prose is rejected (one repair) unless it is an allow-listed identifier: check
+ids (A1-A12), column names (`feature_12`), metric and model names (`f1`), plan field values,
+or identifiers inside code-written caveats (run ids). Tests check that every number in a
+report's prose is a formatted run-state value.
+
+**Data is data.** Everything taken from the CSV or the user (column names, sample values,
+goal text, earlier answers) reaches a prompt only through `<data name="...">` sections, with
+closing tags escaped so data cannot break out, and every system prompt says that
+instructions inside data must be ignored. The model sees the schema, summary statistics
+(target-blind, as in Week 1) and at most 5 development rows (never holdout rows). A
+prompt-injection test (a column named like an instruction, a goal text full of
+instructions) checks that injected text stays inside data sections, and that a model that
+obeys it still cannot get past validation, the audit and the unseal gate.
+
+**A11 on the report.** In agent runs A11 checks the generated report's text and its
+`causal_claim` field. If the draft makes a causal claim, the flag is recorded and the model
+is asked once to remove it; if it does not, code strips the causal sentences, adds the
+caveat, and records a substitution. Offline runs keep Week 2's recorded skip.
+
+**Interrupts and autopilot.** Interrupts ask a person (rich prompts) or follow the autopilot
+policy, a scripted, logged policy for unattended runs and the benchmark: accept the proposed
+split; entity scope "new" unless declared; accept the agent's fixes; request unsealing with
+warnings acknowledged by policy and no accepted risk, so the gate unseals only with no open
+critical flag. Each autopilot decision is recorded exactly like a human one. With no
+terminal, an interactive run pauses (exit code 4) and `holdout agent --resume RUN_ID`
+continues it, in a new process if need be. If the split leaks, the run ends; under autopilot
+exactly one new run starts with the corrected split, and the two manifests link to each
+other (the new one carries the re-drawn-holdout caveat).
+
+**Loop guards (the AgentRAG infinite-loop lesson).** An agent loop without hard stops can
+cycle indefinitely. Holdout's graph has: at most 3 fix rounds;
+one plan retry with validation feedback, then a typed failure; a stop when a revised plan
+repeats an earlier one (plans are compared by hash); and a per-node wall-clock limit. The
+limit is checked when a node returns, because Python cannot safely kill a running thread;
+LLM calls are additionally bounded by the SDK request timeout (120 s), and sandbox snippets
+by their own 20 s timeout.
+
+**Crash safety.** State holds only JSON-serialisable values; development rows are rebuilt
+from the hashed CSV and the split spec in each node, so a checkpoint never contains data.
+Nodes with side effects are idempotent: a resumed seal node reattaches to the existing seal,
+and a resumed unseal node reads the earlier evaluation from the access log instead of
+evaluating again. A test kills the process mid-run and resumes it to a manifest identical to
+an uninterrupted run (apart from timestamps).
+
+**Model, thinking, prices (checked 2026-11-17).** The model name lives only in
+`holdout/llm/config.py`: `gemini-3.8-flash`, the current stable Flash model
+(https://aistudio.google.com/docs/models). Thinking is capped with the Gemini 3 parameter
+`thinking_config.thinking_level = "low"` (https://aistudio.google.com/docs/thinking; 3.8
+Flash cannot switch thinking off), plus `max_output_tokens = 4096`, which bounds thinking
+and answer together. The run seed is passed as `GenerateContentConfig.seed` (the SDK
+supports it; Google calls it best effort) and is part of the cache key, so two seeds never
+share a cached response. Prices: USD 0.75 per 1M input and 3.75 per 1M output tokens
+(thinking billed as output) through 2026-12-31, doubling from 2027-01-01
+(https://aistudio.google.com/docs/pricing); 94.1 INR per USD as of 2026-11-13. Every manifest
+records the model, whether it was verified against the SDK's model list, the client class,
+the thinking level, prompt versions and hashes, and tokens, rupees and cache hits per node.
+
+**Budget.** Real token counts from each response's usage metadata are priced from the dated
+table. Before each call, a worst-case estimate (the prompt plus every allowed output token)
+must fit both caps, Rs 15 per run and Rs 1,200 per project, so a single call can never
+overshoot. The project ledger lives outside the repository (`~/.holdout/spend_ledger.jsonl`)
+and persists across runs and processes. The API key is read from `GEMINI_API_KEY` only and is
+never logged, cached, checkpointed or written to a manifest; a test plants a sentinel key
+and scans every artifact, the checkpoint database, the cache and the ledger for it.
+
+**EDA sandbox.** Optional (`--eda`): up to 4 model-written snippets run on a copy of the
+development rows in a fresh `python -I` process in an empty temporary directory, behind an
+AST allowlist (pandas, numpy, scipy.stats, matplotlib), a runtime import guard and pruned
+builtins, a 20 s timeout, a 1 GB memory limit (psutil watchdog on Windows; `RLIMIT_DATA` and
+`RLIMIT_CPU` plus the watchdog on Linux) and a 64 KB output cap. It is a damage limiter, not
+a security boundary.
+
+**Tracing.** OpenTelemetry spans per node carry call counts, tokens and rupees; the console
+exporter is off by default (`--trace` turns it on). Spans never carry prompts or data.
 ## Why the agent fills a typed plan instead of writing code
 
 Free-form modelling code can fit a scaler on all rows, tune on the test fold, or read the
@@ -137,6 +239,16 @@ one scikit-learn `Pipeline`, so each CV fold fits a fresh clone on its training 
 | An incomplete audit blocks unsealing; a skipped A11 does not | `tests/unit/audit/test_runner.py`, `tests/integration/test_audit_cli.py` |
 | The A4 seal-time digests expose no holdout value or label | `tests/unit/test_seal_week2.py` |
 | A full run with audits on 50k rows stays under 90 s, deep mode included | `tests/performance/test_audit_budget.py` (slow; Ubuntu CI) |
+| The agent detects every trap and keeps every clean twin free of criticals (autopilot, fake LLM) | `tests/integration/test_agent_traps.py` |
+| Every number in an agent report's prose is a run-state value | `tests/integration/test_agent_traps.py`, `tests/unit/agent/test_report_rules.py` |
+| Injected instructions stay inside data sections; an obedient model still cannot pass validation, audit and gate | `tests/integration/test_agent_behaviour.py` |
+| Malformed or random plan JSON is rejected or repaired, never compiled unvalidated | `tests/unit/llm/test_llm_core.py` (hypothesis) |
+| Budget caps stop a run before the call; the ledger persists across processes | `tests/unit/llm/test_llm_core.py`, `tests/integration/test_agent_behaviour.py` |
+| Two seeds never share a cached response | `tests/unit/llm/test_llm_core.py`, `tests/integration/test_agent_behaviour.py` |
+| The API key never appears in any artifact, checkpoint, cache or ledger | `tests/integration/test_agent_behaviour.py` |
+| A run killed mid-graph resumes to an identical manifest; the holdout is evaluated once | `tests/integration/test_agent_resume.py` |
+| Tests never touch the network | autouse socket block in `tests/conftest.py` |
+| Sandbox: every blocked construct rejected; timeout and memory kills work; no holdout path or key inside | `tests/unit/test_sandbox.py` |
 | Exported `pipeline.py` reproduces the CV score without Holdout | `tests/integration/test_export_reproduces.py`: runs the script with `python -I` in a subprocess, matches to 1e-9 (3 strategies, 3 models) |
 | CLI works end to end, offline | `tests/integration/test_cli.py` on the `make-example` CSVs |
 
@@ -222,6 +334,28 @@ Week 2:
   at seal time; it never reads the holdout file. The latest audit replaces `audit.json`; the
   manifest keeps the audit made at run time.
 
+Week 3:
+
+- **Only critical flags change the plan automatically.** A plan fix (drop columns, change
+  the metric) is applied when its flag is critical. Warnings are explained and must be
+  acknowledged, but not auto-applied: an uncorroborated A1 warning can be an honest, very
+  strong feature (the mushroom odor case), and dropping it automatically would make clean
+  near-separable data worse.
+- **Offline runs use the same graph** with an offline planner, so their manifests are
+  comparable with agent runs; `holdout run` stays the deterministic, LLM-free path.
+- **Only valid LLM answers are cached**, and the cache key includes the run seed; tests turn
+  caching off by default because the key does not (and must not) identify the test double.
+- **FakeLLM is priced like the real model** (token counts approximated as characters / 4),
+  so budget tests are realistic; the manifest records the client class separately.
+- **A resumed run keeps the mode it started in** (`agent.mode`); decisions record the mode
+  that made them, so a run started interactively and resumed under autopilot shows both.
+- **Code-written caveats are shown by code**, not echoed by the model; identifiers inside
+  them (run ids) are allow-listed for the number rule.
+- **Test tiers.** `pytest` runs a fast tier (1 seed per planted/clean test, fewer hypothesis
+  examples, heavy end-to-end variants skipped) in under 4 minutes; `pytest --tier full` runs
+  every test and seed, and is what CI runs.
+- **The EDA sandbox was built before the graph** (Part 4 before Part 3's EDA node), because
+  the node calls it.
 ## Environment
 
 The numeric stack is pinned to mature releases (numpy 2.3, pandas 2.3, scikit-learn 1.7,
@@ -230,12 +364,19 @@ DLLs from the newest wheels (numpy 2.5, pyarrow 26, and the native extension of 
 hypothesis releases). Older, widely installed builds pass its reputation check. CI installs
 from `pyproject.toml`; `requirements.lock` records the exact local environment.
 
+Week 3 dependencies were checked in a scratch virtual environment before installing:
+google-genai 3.4, langgraph 1.2 with langgraph-checkpoint-sqlite 3.1, opentelemetry 1.45,
+psutil 7.2 and matplotlib 3.11 (with kiwisolver, contourpy and Pillow) all load.
+**xxhash 4.1** (a langgraph dependency) was blocked by Smart App Control; **xxhash 3.6**
+loads, so `pyproject.toml` pins `xxhash>=3.6,<3.7`. Matplotlib loads, so plotting stays in
+the EDA sandbox allowlist.
+
 ## Seams for later weeks
 
 - `runner.execute_run` takes a plan path or falls back to `default_plan`. An LLM proposer
   plugs in as another source of `ModelPlan`s, with `validate_plan` issues fed back to it.
 - `RunObserver` decouples progress reporting from the CLI (a Streamlit UI implements it).
-- `HintProvider` (A2) is the seam for an LLM hint provider (Week 3); the offline
-  `LexiconHintProvider` stays the fallback.
-- `check_causal_claims` (A11) is ready for the generated report (Week 3).
+- `Planner` separates who proposes (Gemini, offline) from the graph; other models plug in
+  behind `LLMClient`.
+- `RunObserver` and the agent's `Asker` decouple the UI (a Streamlit app implements them).
 - `bench/traps` provides planted cases with ground truth for the Week 4 benchmark.

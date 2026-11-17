@@ -33,7 +33,7 @@ critical flag** (end to end) and, per check, nothing above info for the check it
 | `time_order` | drift, date removed (or renamed), rows in time order | A6 | time_leakage | critical | training on the future; the holdout ignores time |
 | `imbalance_accuracy` | minority at 4%, metric accuracy | A7 | metric_mismatch | critical | accuracy cannot separate a model from the majority-class guess |
 | `messy_formats` | `"Rs 1,200"` strings, case/space variants, -999 sentinels | A8 | format_issue | warning | quality problems, not leaks; A8 never escalates |
-| `causal_question` | the goal asks whether X causes Y | A11 | causal_claim | warning | a claim to remove, not a leak; detected on the generated report from Week 3 (string-level in Week 2) |
+| `causal_question` | the goal asks whether X causes Y | A11 | causal_claim | warning | a claim to remove, not a leak; detected by A11 on the agent's generated report (`holdout run` writes no prose, so it cannot detect this trap) |
 
 Clean twins: `direct_leak`, `noisy_proxy`, `cross_split_duplicates`, `messy_formats` and
 `causal_question` use the untouched base; `id_with_signal` keeps the ID column but issues

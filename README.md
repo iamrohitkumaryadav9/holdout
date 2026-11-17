@@ -5,16 +5,17 @@ have been shown to leak validation data, and to leak more as they get more capab
 ([Silent Failures in Agentic Data Science](docs/design.md#problem)). Holdout's position is
 that correctness should be enforced by code, not by a prompt. The holdout set is split off,
 written to disk and hashed before anything computes a feature-target statistic. Proposals
-(today an offline default, later an LLM) are typed `ModelPlan`s with bounded choices;
+(from Gemini in agent runs, or an offline default) are typed `ModelPlan`s with bounded choices;
 deterministic code validates them and compiles them into leakage-safe scikit-learn
 pipelines. After cross-validation, twelve audit checks inspect the pipeline on the
 development rows for leakage, contaminated splits and misleading metrics. A critical
 finding blocks the single, logged holdout evaluation. Every run exports a standalone script
 that reproduces its result without Holdout installed.
 
-**Status: Week 2 of 6.** Offline core and the audit layer: profiling, split proposal,
-sealed holdout, typed plans, cross-validation, twelve audit checks with an unseal gate,
-trap generators for testing them, export and CLI. No LLM or UI yet.
+**Status: Week 3 of 6.** The deterministic core, the audit layer, and the agent: a Gemini-backed
+LangGraph agent that proposes plans, explains audit flags, applies their fixes and writes a
+report whose every number comes from run state, with checkpointed resume, an autopilot mode,
+spend caps and an optional EDA sandbox. No UI yet; benchmark results come in Week 4.
 
 ## Quickstart (Windows PowerShell)
 
@@ -63,6 +64,47 @@ mypy src/holdout bench
 
 On Linux or macOS, use `python3.12 -m venv .venv` and `source .venv/bin/activate`.
 
+## The agent
+
+```powershell
+# Offline: the same graph with the default plan, audits and a template report; no API calls
+holdout agent --csv examples\churn_classification.csv --target churned --offline
+
+# With Gemini (set your key in the environment first; it is never written anywhere)
+$env:GEMINI_API_KEY = "..."
+holdout agent --csv examples\churn_classification.csv --target churned --goal "predict churn"
+
+# Unattended: every question answered by the logged autopilot policy
+holdout agent --csv examples\churn_classification.csv --target churned --autopilot
+
+# A run paused at a question (exit code 4) or interrupted continues from its checkpoint
+holdout agent --resume <run_id>
+
+# Options: --eda (sandboxed analysis snippets), --no-cache, --trace (OpenTelemetry spans)
+```
+
+`holdout run` stays the deterministic, LLM-free path. In agent runs Gemini proposes the
+plan, explains audit flags and writes the report's prose; code validates every answer,
+applies every audit fix, re-audits, decides whether the holdout may be unsealed, and fills
+every number in the report. Spend is capped at Rs 15 per run and Rs 1,200 per project
+(ledger in `~/.holdout/spend_ledger.jsonl`); responses are cached in `~/.holdout/cache`.
+
+**Privacy.** Only the schema, summary statistics and at most 5 sample rows (development rows,
+never holdout rows) are sent to Gemini; never the full dataset. Under Gemini's free tier,
+Google may use inputs to improve its products: for private data use the paid tier or
+`--offline`.
+
+**EDA sandbox.** With `--eda`, up to four model-written snippets run on a copy of the
+development rows in an isolated process with an import allowlist, a 20 s timeout, a 1 GB
+memory limit and a 64 KB output cap. It limits damage from mistakes; it is not a security
+boundary.
+
+**Live smoke test** (manual, uses your key, never run in CI):
+
+```powershell
+$env:GEMINI_API_KEY = "..."
+python -m scripts.smoke_gemini
+```
 ## The audit
 
 Every run audits the cross-validated pipeline on development rows only. The twelve checks
@@ -119,6 +161,8 @@ Other run options:
   state, and a log of every access attempt.
 - `holdout_row_digests.json`: keyed digests of the holdout's feature rows, used only to
   count duplicates across the seal (no values, no labels).
+- agent runs only: `checkpoints.sqlite` (LangGraph checkpoints for `--resume`; state only, no
+  data, no key) and `agent_options.json`; `eda/` holds sandbox figures when `--eda` is used.
 
 ## Layout
 
@@ -128,7 +172,10 @@ src/holdout/data/     loading, target-blind profiling, split proposal, the seal
 src/holdout/plan/     ModelPlan contract, validation, metrics, compiler, defaults
 src/holdout/audit/    the twelve checks, thresholds, audit runner, unseal gate
 src/holdout/export/   pipeline.py generator, manifest and report
-src/holdout/cli.py    holdout run / holdout audit / holdout make-example
+src/holdout/llm/      Gemini client, structured calls, budget, response cache
+src/holdout/agent/    LangGraph agent, prompts, planner, report rules, autopilot policy
+src/holdout/sandbox/  EDA sandbox (AST allowlist, isolated process, limits)
+src/holdout/cli.py    holdout run / holdout audit / holdout agent / holdout make-example
 bench/traps/          trap generators with ground truth and clean twins (not shipped)
 tests/                unit, property (hypothesis), integration and performance tests
 docs/                 design.md (guarantees and decisions), audits.md (the checks)
