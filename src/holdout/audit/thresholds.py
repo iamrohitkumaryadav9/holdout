@@ -88,8 +88,7 @@ class TooGoodThresholds(_Section):
 
 
 class StabilityThresholds(_Section):
-    max_lift_coefficient_of_variation: float = Field(gt=0.0)
-    min_worst_fold_lift_share: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(gt=0.5, lt=1.0)
 
 
 class Thresholds(_Section):

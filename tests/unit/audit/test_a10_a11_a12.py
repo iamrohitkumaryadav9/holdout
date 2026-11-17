@@ -2,6 +2,7 @@
 
 import dataclasses
 
+import numpy as np
 import pytest
 
 from bench.traps import build_case, clean_twin
@@ -99,17 +100,52 @@ def _with_folds(scores: list[float]):  # type: ignore[no-untyped-def]
     return dataclasses.replace(ctx, cv_result=result)
 
 
-def test_widely_spread_folds_warn() -> None:
-    ctx = _with_folds([0.55, 0.85, 0.6, 0.8, 0.58])  # dummy is 0.5
+def test_nadeau_bengio_interval_matches_a_hand_computed_example() -> None:
+    # d = [0.10, 0.12, 0.08, 0.11, 0.09]: mean 0.10, s^2 = 0.001 / 4 = 0.00025.
+    # k = 5, n_test/n_train = 1/4: corrected variance = (1/5 + 1/4) * 0.00025 = 0.0001125,
+    # se = 0.0106066; t(4, 0.975) = 2.7764451; half-width = 0.0294488.
+    mean, low, high = a12.nadeau_bengio_interval(
+        np.array([0.10, 0.12, 0.08, 0.11, 0.09]), test_train_ratio=0.25, confidence=0.95
+    )
+    assert mean == pytest.approx(0.10)
+    assert low == pytest.approx(0.10 - 0.0294488, abs=1e-6)
+    assert high == pytest.approx(0.10 + 0.0294488, abs=1e-6)
+    # The naive interval (variance s^2 / k) would be narrower: the correction matters.
+    naive_half = 2.7764451 * np.sqrt(0.00025 / 5)
+    assert high - mean > naive_half
+
+
+def test_interval_needs_two_folds() -> None:
+    _, low, high = a12.nadeau_bengio_interval(np.array([0.1]), 0.25, 0.95)
+    assert (low, high) == (float("-inf"), float("inf"))
+
+
+def test_test_train_ratio_comes_from_the_run_folds() -> None:
+    ctx = twin_context("direct_leak", 0)  # stratified 5-fold
+    assert a12.fold_test_train_ratio(ctx) == pytest.approx(0.25, abs=0.01)
+
+
+def test_spread_that_could_change_the_conclusion_warns() -> None:
+    ctx = _with_folds([0.55, 0.85, 0.6, 0.8, 0.58])  # dummy folds are 0.5
     flag = a12.run(ctx).flags[0]
     assert flag.severity is Severity.WARNING
-    assert "spread" in flag.message
-    assert flag.evidence.lift_coefficient_of_variation > 0.25  # type: ignore[union-attr,operator]
+    assert "includes zero" in flag.message
+    assert flag.evidence.lift_interval_low <= 0  # type: ignore[union-attr]
 
 
-def test_a_worst_fold_near_the_dummy_warns() -> None:
-    flag = a12.run(_with_folds([0.72, 0.73, 0.71, 0.72, 0.52])).flags[0]
-    assert "worst fold" in flag.message
+def test_a_fold_at_or_below_the_dummy_warns() -> None:
+    flag = a12.run(_with_folds([0.72, 0.73, 0.71, 0.72, 0.49])).flags[0]
+    assert flag.severity is Severity.WARNING
+    assert "1 fold(s) score at or below the dummy" in flag.message
+
+
+def test_spread_that_cannot_change_the_conclusion_is_info() -> None:
+    # Week 2 warned here (worst fold kept little of the lift); every fold still beats the
+    # dummy and the corrected interval excludes zero, so the conclusion stands.
+    flag = a12.run(_with_folds([0.72, 0.73, 0.71, 0.72, 0.62])).flags[0]
+    assert flag.severity is Severity.INFO
+    assert flag.evidence.lift_interval_low > 0  # type: ignore[union-attr,operator]
+    assert flag.evidence.fold_lifts == pytest.approx([0.22, 0.23, 0.21, 0.22, 0.12])  # type: ignore[union-attr]
 
 
 def test_plan_not_beating_the_dummy_is_not_assessed() -> None:
@@ -120,8 +156,6 @@ def test_plan_not_beating_the_dummy_is_not_assessed() -> None:
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_quiet_when_validation_is_stable(seed: int) -> None:
-    # A12's clean twin: the same clean base with enough rows for stable folds. (On ~1k
-    # rows with a weak model, fold scores genuinely vary by a large share of the lift, and
-    # the A12 warning there is correct; A12 is never critical.)
     case = clean_twin(build_case("direct_leak", seed, n_rows=6000))
-    assert a12.run(context_for(case, seed)).flags == []
+    flags = a12.run(context_for(case, seed)).flags
+    assert [f.severity for f in flags] == [Severity.INFO]  # spread recorded, no warning

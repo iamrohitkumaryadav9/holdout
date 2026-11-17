@@ -136,8 +136,7 @@ deep_max_rows = 50000
 deep_max_features = 1000
 
 [a12_stability]
-# Warn when fold scores spread by at least this share of the claimed lift
-# (std / |mean - dummy|).
-max_lift_coefficient_of_variation = 0.25
-# Warn when the worst fold keeps at most this share of the mean lift over the dummy.
-min_worst_fold_lift_share = 0.25
+# Confidence of the Nadeau-Bengio corrected interval of the plan's per-fold lift over the
+# dummy. A12 warns only if a fold scores at or below the dummy or this interval includes
+# zero (the spread could change the conclusion); otherwise it records info.
+confidence = 0.95

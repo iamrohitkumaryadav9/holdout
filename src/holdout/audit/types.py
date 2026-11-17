@@ -232,11 +232,16 @@ class StabilityEvidence(_Frozen):
     kind: Literal["stability"] = "stability"
     fold_scores: list[float]
     dummy_score: float
+    dummy_fold_scores: list[float]
+    fold_lifts: list[float] = Field(description="per-fold lift of the plan over the dummy")
     coefficient_of_variation: float | None = Field(description="std / |mean| of fold scores")
     lift_coefficient_of_variation: float | None = Field(
         description="std / |mean - dummy|: spread relative to the lift being claimed"
     )
-    worst_fold_lift_share: float | None
+    test_train_ratio: float = Field(description="mean n_test / n_train over the folds")
+    lift_interval_low: float = Field(description="Nadeau-Bengio corrected interval, low end")
+    lift_interval_high: float
+    confidence: float
 
 
 Evidence = Annotated[

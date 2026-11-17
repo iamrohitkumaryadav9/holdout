@@ -21,6 +21,7 @@ dependencies = [
     "pandas>=2.3,<2.4",
     "numpy>=2.3,<2.4",
     "scikit-learn>=1.7,<1.8",
+    "scipy>=1.16,<1.17",
     "lightgbm>=4.6,<4.7",
     "pydantic>=2.14,<3",
     "typer>=0.29,<1",
@@ -64,7 +65,7 @@ warn_unreachable = true
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["sklearn.*", "lightgbm.*", "pyarrow.*"]
+module = ["sklearn.*", "lightgbm.*", "pyarrow.*", "scipy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

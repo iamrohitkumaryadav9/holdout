@@ -205,9 +205,11 @@ Week 2:
   time, before any audit runs.
 - **`run_audits` takes its context explicitly** (`baseline`, `profile`, `spec`, `target`,
   `overlap_source`, ...) in addition to the spec's `(run_state, dev_df, plan, cv_result)`.
-- **A12 measures spread against the claimed lift** (std / |mean - dummy|), not only the plain
-  coefficient of variation (recorded too), which is scale-dependent and meaningless near
-  AUC 0.5 or R2 0.
+- **A12 (revised in Week 3)** warns only when the fold spread could change the conclusion:
+  a fold at or below the dummy, or a Nadeau-Bengio corrected 95% interval of the per-fold
+  lift that includes zero (plan and dummy share seeded folds, so differences are paired).
+  Otherwise it records info with the spread. Week 2's rule (spread relative to the lift)
+  warned on honest small-data runs whose conclusion was not in doubt.
 - **Trap design.** `id_with_signal` issues IDs in target order and then shuffles the file (a
   target-sorted file makes the ID monotonic, which Week 1 already drops). `time_order`
   bases have features that drift with time: with the date removed and no time information
