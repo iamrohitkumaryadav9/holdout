@@ -41,7 +41,7 @@ TRAPS: dict[str, TrapSpec] = {
         structure.time_order,
         structure.clean_time_order,
         "time_ordered",
-        base_kwargs={"drift": 1.0},
+        base_kwargs={"drift": 2.0},
         clean_base_kwargs={"drift": 0.0},
     ),
     "imbalance_accuracy": TrapSpec(

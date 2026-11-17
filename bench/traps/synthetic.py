@@ -76,9 +76,13 @@ def regression(n_rows: int = 1200, seed: int = 0) -> Base:
 
 
 def time_ordered(n_days: int = 1200, seed: int = 0, drift: float = 1.0) -> Base:
-    """One row per day in date order; ``drift`` adds a trend and a changing promo effect.
+    """One row per day in date order; ``drift`` adds a trend, a changing promo effect and
+    drifting features (prices inflate, footfall grows).
 
-    With ``drift=0`` the rows are exchangeable in time (no trend, no concept drift), which
+    Drifting features are what make a random split leak the future: the model learns where
+    in time a row sits from its features and interpolates, which forward-chaining folds
+    cannot do. Noise keeps every feature far from monotonic in time (no single column
+    "explains" the row order). With ``drift=0`` the rows are exchangeable in time, which
     makes it the clean twin of the time-order trap.
     """
     rng = _rng(seed, "time_ordered")
@@ -86,7 +90,8 @@ def time_ordered(n_days: int = 1200, seed: int = 0, drift: float = 1.0) -> Base:
     progress = np.linspace(0.0, 1.0, n_days)
     temperature = np.round(rng.normal(15, 6, n_days), 1)
     promo = (rng.random(n_days) < 0.25).astype(int)
-    price = np.round(rng.uniform(4.0, 6.0, n_days), 2)
+    price = np.round(5.0 + drift * 1.5 * (progress - 0.5) + rng.normal(0, 0.4, n_days), 2)
+    footfall = np.round(200 + drift * 120 * (progress - 0.5) + rng.normal(0, 25, n_days))
     weekday = dates.dayofweek.to_numpy()
     promo_effect = 20 + drift * 40 * progress
     demand = (
@@ -94,6 +99,7 @@ def time_ordered(n_days: int = 1200, seed: int = 0, drift: float = 1.0) -> Base:
         + drift * 120 * progress
         + promo_effect * promo
         - 10 * (price - 5)
+        + 0.2 * (footfall - 200)
         + 1.2 * temperature
         + 8 * (weekday >= 5)
         + rng.normal(0, 8, n_days)
@@ -104,6 +110,7 @@ def time_ordered(n_days: int = 1200, seed: int = 0, drift: float = 1.0) -> Base:
             "temperature": temperature,
             "promo": promo,
             "price": price,
+            "footfall": footfall.astype(int),
             "weekday": pd.Series(weekday).map(
                 dict(enumerate(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]))
             ),
