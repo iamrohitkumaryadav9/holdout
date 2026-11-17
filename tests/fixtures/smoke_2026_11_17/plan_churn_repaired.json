@@ -1,0 +1,33 @@
+{
+ "task": "classification",
+ "metric": "roc_auc",
+ "drop_columns": [],
+ "numeric": {
+  "impute": "median",
+  "scale": "none"
+ },
+ "categorical": {
+  "impute": "most_frequent",
+  "encode": "onehot"
+ },
+ "feature_selection": {
+  "method": "none"
+ },
+ "model": {
+  "name": "hist_gb",
+  "learning_rate": 0.05,
+  "max_iter": 150,
+  "max_leaf_nodes": 31,
+  "min_samples_leaf": 20,
+  "l2_regularization": 0.1
+ },
+ "class_weight": "balanced",
+ "rationale": {
+  "metric": "ROC AUC evaluates churn ranking performance effectively under class imbalance.",
+  "drop_columns": "No high-cardinality IDs, datetime strings, or free-text columns are present in the dataset.",
+  "preprocessing": "Median imputation preserves numerical robustly and one-hot encoding fits low cardinality categories.",
+  "feature_selection": "Keep all features as the total feature dimension is small and informative.",
+  "model": "Hist gradient boosting handles tabular nonlinear relationships and interactions well.",
+  "class_weight": "Balanced class weighting compensates for the ~26% minority positive class."
+ }
+}

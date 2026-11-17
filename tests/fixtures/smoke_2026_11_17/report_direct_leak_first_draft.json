@@ -1,0 +1,17 @@
+{
+ "summary": "We trained a gradient boosting model to predict whether an instance converted. The model completed its development process successfully and outperformed the simple baseline. Performance was evaluated via stratified cross-validation on the development set, yielding a validation score of {{validation_score}} with a standard deviation of {{validation_std}}, compared to the baseline score of {{dummy_score}}. Total data spanned {{n_rows}} rows, divided into {{n_dev_rows}} development rows and {{n_holdout_rows}} holdout rows across {{n_fix_rounds}} refinement rounds. On the independent holdout set, the model achieved a score of {{holdout_score}}, resulting in an optimism gap of {{optimism_gap}}.",
+ "findings": [
+  "The final plan successfully outperformed the dummy baseline on the target metric.",
+  "The development process completed with {{n_critical}} critical flags and {{n_warning}} warning flags raised during the audit.",
+  "Evaluation on the sealed holdout set confirmed predictive performance, yielding an optimism gap of {{optimism_gap}}."
+ ],
+ "caveats": [
+  "The model identifies statistical correlations rather than causal effects and cannot determine why a conversion occurred.",
+  "Performance depends on future data closely resembling the historical distribution observed across development and holdout splits."
+ ],
+ "recommendations": [
+  "Monitor predictive performance periodically after deployment to check for data drift.",
+  "Validate high-value predictions with domain experts before taking significant operational actions."
+ ],
+ "causal_claim": false
+}

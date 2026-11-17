@@ -1,0 +1,33 @@
+{
+ "task": "classification",
+ "metric": "roc_auc",
+ "drop_columns": [],
+ "numeric": {
+  "impute": "median",
+  "scale": "standard"
+ },
+ "categorical": {
+  "impute": "most_frequent",
+  "encode": "onehot"
+ },
+ "feature_selection": {
+  "method": "none"
+ },
+ "model": {
+  "name": "hist_gb",
+  "learning_rate": 0.05,
+  "max_iter": 150,
+  "max_leaf_nodes": 31,
+  "min_samples_leaf": 20,
+  "l2_regularization": 0.1
+ },
+ "class_weight": "balanced",
+ "rationale": {
+  "metric": "ROC AUC is robust and standard for binary conversion prediction with 31 percent positive class.",
+  "drop_columns": "No high-cardinality IDs, datetimes, or text columns are present in the features.",
+  "preprocessing": "Median imputation and standard scaling for numericals, with one-hot encoding for categoricals.",
+  "feature_selection": "Keeping all features since the dataset has a very small feature set of only 9 predictors.",
+  "model": "Hist gradient boosting effectively captures non-linear interactions across mixed tabular feature types.",
+  "class_weight": "Balanced class weighting accounts for the moderate conversion class imbalance."
+ }
+}
