@@ -1,0 +1,133 @@
+# Holdout audit thresholds.
+#
+# PROVISIONAL: every value below is a first, hand-set guess. They will be tuned in Week 4
+# on *development* trap tasks only (never on the evaluation tasks of the benchmark), and
+# each run records this file's sha256 in its manifest so results stay attributable to the
+# exact thresholds that produced them.
+#
+# Scores are compared on a metric-independent scale:
+#   lift            = how much better a score is than the dummy baseline (direction-aware)
+#   relative lift   = lift(single feature) / lift(full plan)
+#   normalized      = lift / (perfect score - dummy score), i.e. the share of the way from
+#                     "predict the prior" to "perfect" (perfect = 1 for AUC/accuracy/F1/R2,
+#                     0 for RMSE/MAE)
+
+[sampling]
+# Expensive checks use at most this many development rows (stratified, by whole groups,
+# or every k-th row in time order, matching the run's split) ...
+max_rows = 20000
+# ... and at most this many features (the ones with the strongest univariate association
+# with the target on development rows).
+max_features = 200
+
+[a01_single_feature]
+# Depth of the single-feature decision tree.
+tree_max_depth = 3
+# Warn when one feature alone carries at least this share of the full plan's lift.
+warn_relative_lift = 0.8
+# Warn when one feature alone gets at least this share of the way from dummy to perfect.
+warn_normalized_score = 0.95
+# Relative lift is only meaningful when the full plan beats the dummy by at least this
+# normalized margin; below it, only the normalized rule applies.
+min_full_normalized_lift = 0.05
+
+[a02_hints]
+# A name hint is raised to a warning only when the column also shows at least this
+# relative lift in A1 (otherwise it stays info: a suggestive name without signal).
+min_relative_lift_for_warning = 0.1
+min_normalized_score_for_warning = 0.05
+
+[a03_id_like]
+# A column is near-unique when distinct values / non-missing values reach this ratio.
+near_unique_ratio = 0.95
+# Integer sequence: (max - min + 1) / distinct values at most this (1.0 = no gaps).
+integer_sequence_max_span_ratio = 1.1
+# Uniform code: this share of values has the same character shape (e.g. "AB-1234").
+uniform_code_min_share = 0.95
+# Correlation with row order: |Spearman(value, row position)| at least this.
+row_order_min_abs_spearman = 0.9
+# An ID-like column "has signal" when its single-feature relative lift or normalized
+# score reaches these values.
+signal_min_relative_lift = 0.1
+signal_min_normalized_score = 0.05
+
+[a04_duplicates]
+# Floats are rounded to this many significant digits before hashing (near-duplicates
+# that differ only below this precision count as duplicates).
+float_significant_digits = 6
+# Share of holdout rows that have an identical feature row in development data at or
+# above which the holdout is contaminated: critical, and the holdout is invalid.
+# A smaller positive overlap is a warning (real data has natural duplicates).
+holdout_overlap_invalidate_share = 0.01
+# Same share logic for validation rows whose duplicate sits in the same fold's training
+# data: at or above this share -> critical; smaller positive share -> warning.
+cross_fold_critical_share = 0.01
+
+[a05_group]
+# Structural entity candidates: at least this many rows per distinct value on average ...
+min_mean_rows_per_value = 2.0
+# ... at least this many distinct values (moderate cardinality; also enough for 5 folds) ...
+min_groups = 20
+# ... and at most this distinct-values / rows ratio.
+max_unique_ratio = 0.5
+# Candidates compared per run (normal mode / deep mode).
+max_candidates = 3
+deep_max_candidates = 6
+# Drop of the plan's CV score under GroupKFold, relative to the plan's lift over the
+# dummy: warning / critical.
+warn_relative_drop = 0.2
+critical_relative_drop = 0.35
+
+[a06_time]
+# Row-order autocorrelation of the target is significant when it exceeds the shuffled
+# baseline by this many standard deviations ...
+autocorrelation_min_z = 4.0
+# ... and by at least this absolute effect (lag-1 correlation for regression; excess
+# agreement of consecutive labels for classification).
+autocorrelation_min_effect = 0.05
+# Shuffles used for the baseline.
+n_permutations = 200
+# Row order "is explained by sorting on a feature" when |Spearman(position, column)|
+# reaches this, for a non-sequence column ...
+sorted_min_abs_spearman = 0.95
+# ... or when a categorical column forms contiguous blocks: number of value runs at most
+# this multiple of its number of distinct values.
+sorted_max_runs_per_value = 1.5
+# Orders compared per run (normal mode / deep mode).
+max_candidates = 2
+deep_max_candidates = 4
+# Drop of the plan's CV score under forward-chaining folds along the inferred order,
+# against the same folds on a shuffled order, relative to the plan's lift: warning /
+# critical.
+warn_relative_drop = 0.2
+critical_relative_drop = 0.35
+
+[a07_metric]
+# Regression targets are heavy-tailed when (p99 - p50) / (p75 - p25) reaches this; R2 is
+# then dominated by a few extreme rows and MAE is suggested.
+heavy_tail_ratio = 10.0
+
+[a08_formats]
+# A string column is numeric-looking when this share of its values parses as a number
+# after removing currency tokens, thousands separators, percent signs and units.
+numeric_parse_min_share = 0.9
+# Candidate sentinel values for missing data.
+sentinel_values = [-9999.0, -999.0, -99.0, -1.0, 999.0, 9999.0, 99999.0]
+# A sentinel must cover at least this share of rows ...
+sentinel_min_share = 0.005
+# ... and lie at least this many IQRs from the median of the other values.
+sentinel_min_iqr_distance = 3.0
+
+[a10_too_good]
+# The plan's normalized score at or above which the run switches to deep mode.
+deep_mode_normalized_score = 0.95
+# Deep-mode caps (kept so deep mode also fits the time budget on 50k rows).
+deep_max_rows = 50000
+deep_max_features = 1000
+
+[a12_stability]
+# Warn when fold scores spread by at least this share of the claimed lift
+# (std / |mean - dummy|).
+max_lift_coefficient_of_variation = 0.25
+# Warn when the worst fold keeps at most this share of the mean lift over the dummy.
+min_worst_fold_lift_share = 0.25
