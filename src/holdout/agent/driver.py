@@ -9,6 +9,8 @@
   with status ``paused_llm_unavailable`` (CLI exit code 5). The checkpoint holds every
   completed node and ``run_manifest.json`` records what failed, where, what was spent and
   the exact resume command. A run is never switched to another model to get past an outage.
+  A call refused by a spend cap (``paused_budget_cap``, exit 6; the call is never sent) and
+  a billing / quota refusal from Gemini (``paused_billing``, exit 7) pause the same way.
 * Autopilot runs that end because the split leaks start exactly one follow-up run with the
   corrected split; the two manifests link to each other.
 """
@@ -20,7 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
@@ -28,19 +30,26 @@ from langgraph.types import Command
 from holdout.agent.graph import AgentDeps, AgentOptions, AgentState, build_graph, usage_by_node
 from holdout.agent.planner import LLMPlanner, OfflinePlanner, Planner
 from holdout.agent.policy import Asker, autopilot_decision
-from holdout.agent.schemas import Decision, LLMOutage, RoundRecord
-from holdout.core.errors import AgentError, HoldoutError, LLMUnavailableError
+from holdout.agent.schemas import Decision, LLMOutage, PauseKind, RoundRecord
+from holdout.core.errors import (
+    AgentError,
+    BudgetExceededError,
+    HoldoutError,
+    LLMBillingError,
+    RunPausingError,
+)
 from holdout.core.state import RunState
 from holdout.data.split import SplitSpec
 from holdout.export.manifest import (
     PausedRunManifest,
+    PausedStatus,
     RunManifest,
     capture_environment,
     write_manifest,
     write_report,
 )
 from holdout.llm import config as llm_config
-from holdout.llm.budget import Budget
+from holdout.llm.budget import Budget, balance_warning
 from holdout.llm.cache import ResponseCache
 from holdout.llm.client import GeminiClient, LLMClient
 from holdout.llm.progress import NullProgress, Progress
@@ -48,7 +57,10 @@ from holdout.llm.structured import LLMSession
 
 ClientFactory = Callable[[], LLMClient]
 
-PAUSED_LLM = "paused_llm_unavailable"
+PAUSED_LLM: Final = "paused_llm_unavailable"
+PAUSED_BUDGET: Final = "paused_budget_cap"
+PAUSED_BILLING: Final = "paused_billing"
+PAUSED_STATUSES = frozenset({PAUSED_LLM, PAUSED_BUDGET, PAUSED_BILLING})
 VERIFY_NODE = "verify_model"
 
 
@@ -81,6 +93,7 @@ def run_agent(
     if not options.offline:
         pinned = options.pinned_model or options.model or llm_config.DEFAULT_MODEL
         llm_config.require_priced(pinned, date.today())
+        llm_config.project_cap_inr()  # a malformed HOLDOUT_PROJECT_CAP_INR fails before the run
         options = replace(options, pinned_model=pinned)
     started = datetime.now(UTC)
     state = RunState.create(Path(options.out_dir), options.seed, now=started)
@@ -160,7 +173,7 @@ def _deps(
             client.verify_model(
                 on_retry=lambda event: progress.retry_waiting(VERIFY_NODE, "list models", event)
             )
-        except LLMUnavailableError as exc:
+        except RunPausingError as exc:
             exc.node = VERIFY_NODE
             raise
         progress.node_finished(VERIFY_NODE, (datetime.now(UTC) - started).total_seconds())
@@ -172,6 +185,9 @@ def _deps(
         cache=ResponseCache(enabled=options.use_cache),
         progress=progress,
     )
+    standing = balance_warning(session.budget.ledger.balance_left())
+    if standing is not None:
+        progress.warning(standing)
     planner: Planner = LLMPlanner(session)
     return AgentDeps(
         planner=planner,
@@ -186,7 +202,7 @@ def _load_paused(state: RunState) -> PausedRunManifest | None:
     if not state.manifest_path.is_file():
         return None
     raw = json.loads(state.manifest_path.read_text(encoding="utf-8"))
-    if raw.get("status") != PAUSED_LLM:
+    if raw.get("status") not in PAUSED_STATUSES:
         return None
     return PausedRunManifest.model_validate(raw)
 
@@ -254,13 +270,13 @@ def _drive(
                     )
                 result = app.invoke(Command(resume=decision.model_dump(mode="json")), config)
             final = app.get_state(config).values
-        except LLMUnavailableError as exc:
+        except RunPausingError as exc:
             values = reader.get_state(config).values or dict(initial or {})
             record = _write_paused(state, options, exc, values, deps, carried, outages)
             return AgentOutcome(
                 run_id=state.run_id,
                 run_dir=state.run_dir,
-                status=PAUSED_LLM,
+                status=record.status,
                 stop_reason=record.message,
                 pending=None,
                 manifest=None,
@@ -299,7 +315,7 @@ def _drive(
 def _write_paused(
     state: RunState,
     options: AgentOptions,
-    exc: LLMUnavailableError,
+    exc: RunPausingError,
     values: dict[str, Any],
     deps: AgentDeps | None,
     carried: list[dict[str, Any]],
@@ -316,19 +332,22 @@ def _write_paused(
     model = options.pinned_model or llm_config.DEFAULT_MODEL
     command = resume_command(state.run_id, state.run_dir.parent)
     done = list(values.get("nodes_done", []))
-    status = "a timeout" if exc.status is None else f"HTTP {exc.status}"
-    message = (
-        f"Gemini ({model}) stayed unavailable: the call in node '{node}' failed with "
-        f"{status} on every attempt ({exc.retries} retries with backoff). The run is "
-        f"checkpointed in {state.run_dir}"
+    where = (
+        f"The run is checkpointed in {state.run_dir}"
         + (f" after node '{done[-1]}'" if done else " before its first node")
-        + "; nothing completed is lost and the sealed holdout is untouched. When the "
-        f"service recovers, resume with: {command}"
+        + "; nothing completed is lost and the sealed holdout is untouched."
     )
+    kind, status_text, message = _pause_text(exc, model, node, where, command)
     outage = LLMOutage(
-        node=node, status=exc.status, retries=exc.retries, at=now.isoformat(), message=str(exc)
+        kind=kind,
+        node=node,
+        status=exc.status,
+        retries=exc.retries,
+        at=now.isoformat(),
+        message=str(exc),
     )
     record = PausedRunManifest(
+        status=status_text,
         run_id=state.run_id,
         started_at=datetime.fromisoformat(values["started_at"]),
         paused_at=now,
@@ -352,6 +371,51 @@ def _write_paused(
     )
     write_manifest(state.manifest_path, record)
     return record
+
+
+def _pause_text(
+    exc: RunPausingError, model: str, node: str, where: str, command: str
+) -> tuple[PauseKind, PausedStatus, str]:
+    """(outage kind, manifest status, the one-paragraph message) for a pause."""
+    if isinstance(exc, BudgetExceededError):
+        if exc.scope == "run":
+            limit = (
+                f"would take this run's spend from Rs {exc.run_spent_inr:.2f} past the per-run "
+                f"cap of Rs {exc.cap_inr:g}"
+            )
+            raise_it = "To allow more for this run, raise RUN_CAP_INR in holdout/llm/config.py"
+        else:
+            limit = (
+                f"would take project spend from Rs {exc.project_spent_inr:.2f} past the "
+                f"project cap of Rs {exc.cap_inr:g}"
+            )
+            raise_it = (
+                "To continue, check your prepaid balance with 'holdout spend' and, only if "
+                f"it covers more, raise the cap for this shell with "
+                f'$env:{llm_config.PROJECT_CAP_ENV} = "<rupees>"'
+            )
+        message = (
+            f"Budget cap reached: the next Gemini call in node '{node}' could cost up to "
+            f"Rs {exc.estimate_inr:.2f}, which {limit}, so it was not sent. Spend so far: "
+            f"this run Rs {exc.run_spent_inr:.2f}, project Rs {exc.project_spent_inr:.2f}. "
+            f"{where} {raise_it}, then resume with: {command}"
+        )
+        return "budget_cap", PAUSED_BUDGET, message
+    status = "a timeout" if exc.status is None else f"HTTP {exc.status}"
+    if isinstance(exc, LLMBillingError):
+        message = (
+            f"Gemini ({model}) refused the call in node '{node}' for billing or quota "
+            f"reasons ({status}): the prepaid credit may be used up. {where} Top up in "
+            "Google AI Studio, record the new balance with 'holdout spend --set-balance "
+            f"<rupees>', then resume with: {command}"
+        )
+        return "billing", PAUSED_BILLING, message
+    message = (
+        f"Gemini ({model}) stayed unavailable: the call in node '{node}' failed with "
+        f"{status} on every attempt ({exc.retries} retries with backoff). {where} When the "
+        f"service recovers, resume with: {command}"
+    )
+    return "llm_unavailable", PAUSED_LLM, message
 
 
 def _followup(

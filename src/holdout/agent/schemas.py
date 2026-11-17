@@ -97,9 +97,14 @@ class NodeUsage(_Strict):
     retries: int = 0
 
 
-class LLMOutage(_Strict):
-    """The run paused because the LLM stayed unavailable after every retry."""
+PauseKind = Literal["llm_unavailable", "budget_cap", "billing"]
 
+
+class LLMOutage(_Strict):
+    """The run paused: the LLM stayed unavailable after every retry, a call was refused by
+    a spend cap before it was sent, or Gemini refused it for billing / quota reasons."""
+
+    kind: PauseKind = "llm_unavailable"
     node: str
     status: int | None = Field(description="last HTTP status; None for a timeout")
     retries: int

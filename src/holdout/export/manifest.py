@@ -169,12 +169,16 @@ class RunManifest(_Record):
     )
 
 
+PausedStatus = Literal["paused_llm_unavailable", "paused_budget_cap", "paused_billing"]
+
+
 class PausedRunManifest(_Record):
-    """Written to ``run_manifest.json`` when an agent run pauses because the LLM stayed
-    unavailable; replaced by a :class:`RunManifest` once the resumed run completes."""
+    """Written to ``run_manifest.json`` when an agent run pauses on an LLM problem (service
+    unavailable, spend cap, billing); replaced by a :class:`RunManifest` once the resumed run
+    completes."""
 
     schema_version: Literal[3] = 3
-    status: Literal["paused_llm_unavailable"] = "paused_llm_unavailable"
+    status: PausedStatus = "paused_llm_unavailable"
     run_id: str
     started_at: datetime
     paused_at: datetime
@@ -338,11 +342,13 @@ def _agent_section(agent: AgentRecord) -> list[str]:
     if agent.model_overridden:
         lines.append(f"- **Model override:** `{model}` was chosen with --model for this run")
     for outage in agent.outages:
-        status = "a timeout" if outage.status is None else f"HTTP {outage.status}"
-        lines.append(
-            f"- **Paused** at {outage.at} in node `{outage.node}`: {status} after "
-            f"{outage.retries} retries; resumed later"
-        )
+        if outage.kind == "budget_cap":
+            why = "a spend cap refused the next call"
+        else:
+            status = "a timeout" if outage.status is None else f"HTTP {outage.status}"
+            what = "billing / quota refusal" if outage.kind == "billing" else status
+            why = f"{what} after {outage.retries} retries"
+        lines.append(f"- **Paused** at {outage.at} in node `{outage.node}`: {why}; resumed later")
     if agent.previous_run_id:
         lines.append(f"- **Follows run** `{agent.previous_run_id}` (corrected split)")
     if agent.next_run_id:

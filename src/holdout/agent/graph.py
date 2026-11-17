@@ -52,7 +52,7 @@ from holdout.audit.gate import UnsealDecision, decide_unseal
 from holdout.audit.runner import run_audits, write_audit
 from holdout.audit.thresholds import load_thresholds
 from holdout.audit.types import AuditFlag, AuditReport, ChangeSplit, CheckId, CheckRun, Severity
-from holdout.core.errors import AgentError, LLMUnavailableError
+from holdout.core.errors import AgentError, RunPausingError
 from holdout.core.schemas import CVResult, DataType, EntityScope, HoldoutResult, Task
 from holdout.core.state import RunState
 from holdout.data.load import LoadedData, load_dataset
@@ -228,7 +228,7 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
             ) as span:
                 try:
                     update = fn(state)
-                except LLMUnavailableError as exc:
+                except RunPausingError as exc:
                     exc.node = exc.node or name
                     raise
                 new = session.records[start_index:] if session is not None else []

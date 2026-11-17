@@ -2,7 +2,9 @@
 
 Exit codes: 0 done; 2 error; 3 unsealing was requested and refused; 4 paused at a question
 with no terminal to ask it on; 5 paused because the LLM stayed unavailable after every
-retry (reserved for that). Resume either pause with ``holdout agent --resume RUN_ID``.
+retry; 6 paused because a spend cap refused the next call ("budget cap reached"); 7 paused
+because Gemini refused a call for billing / quota reasons (top up). Every pause is
+checkpointed; resume with ``holdout agent --resume RUN_ID``.
 """
 
 import sys
@@ -12,17 +14,26 @@ from typing import Annotated, Any
 import typer
 from rich.prompt import Confirm, Prompt
 
-from holdout.agent.driver import PAUSED_LLM, AgentOutcome, resume_agent, run_agent
+from holdout.agent.driver import (
+    PAUSED_BILLING,
+    PAUSED_BUDGET,
+    PAUSED_LLM,
+    AgentOutcome,
+    resume_agent,
+    run_agent,
+)
 from holdout.agent.graph import AgentOptions
 from holdout.agent.schemas import Decision
 from holdout.agent.tracing import configure_tracing
 from holdout.cli import EXIT_UNSEAL_REFUSED, TaskOption, _print_audit, _print_summary, app, console
 from holdout.core.errors import HoldoutError
 from holdout.core.schemas import DataType, EntityScope
-from holdout.llm.progress import LineProgress
+from holdout.llm.progress import LineProgress, Progress, WarningsOnly
 
 EXIT_PAUSED = 4
 EXIT_LLM_UNAVAILABLE = 5
+EXIT_BUDGET_CAP = 6
+EXIT_BILLING = 7
 
 
 class RichAsker:
@@ -192,10 +203,15 @@ def agent(
     """Run the agent: the model proposes, Holdout's code validates, audits and decides."""
     configure_tracing(console=trace)
     asker = RichAsker() if sys.stdin.isatty() else None
-    progress = (
-        LineProgress(lambda line: console.print(line, markup=False, highlight=False))
+
+    def warn(line: str) -> None:
+        console.print(line, style="bold yellow", markup=False, highlight=False)
+
+    # Spend and balance warnings are always shown; --verbose adds the progress lines.
+    progress: Progress = (
+        LineProgress(lambda line: console.print(line, markup=False, highlight=False), warn=warn)
         if verbose
-        else None
+        else WarningsOnly(warn)
     )
     try:
         if resume is not None:
@@ -236,11 +252,19 @@ def agent(
     raise typer.Exit(code=_report(outcome))
 
 
+_PAUSES = {
+    PAUSED_LLM: ("LLM unavailable - run paused.", EXIT_LLM_UNAVAILABLE),
+    PAUSED_BUDGET: ("Budget cap reached - run paused.", EXIT_BUDGET_CAP),
+    PAUSED_BILLING: ("Gemini billing / quota problem - run paused.", EXIT_BILLING),
+}
+
+
 def _report(outcome: AgentOutcome) -> int:
-    if outcome.status == PAUSED_LLM and outcome.paused is not None:
-        console.print("LLM unavailable - run paused.", style="bold yellow", highlight=False)
+    if outcome.status in _PAUSES and outcome.paused is not None:
+        title, code = _PAUSES[outcome.status]
+        console.print(title, style="bold yellow", highlight=False)
         console.print(outcome.paused.message, markup=False, highlight=False)
-        return EXIT_LLM_UNAVAILABLE
+        return code
     if outcome.status == "paused":
         kind = (outcome.pending or {}).get("kind", "?")
         console.print(

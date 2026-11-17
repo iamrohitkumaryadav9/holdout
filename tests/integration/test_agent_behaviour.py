@@ -15,7 +15,7 @@ from holdout.agent import graph as agent_graph
 from holdout.agent.driver import run_agent
 from holdout.agent.graph import AgentOptions
 from holdout.agent.tracing import configure_tracing
-from holdout.core.errors import AgentError, BudgetExceededError, LLMOutputError
+from holdout.core.errors import AgentError, LLMOutputError
 from holdout.llm import config as llm_config
 from holdout.llm.budget import SpendLedger
 from holdout.llm.client import FakeLLM, GeminiClient
@@ -109,8 +109,10 @@ def test_the_run_cap_stops_a_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(llm_config, "RUN_CAP_INR", 0.01)
     monkeypatch.setattr("holdout.llm.budget.config.RUN_CAP_INR", 0.01)
     case = build_case("direct_leak", 0)
-    with pytest.raises(BudgetExceededError, match="run cap"):
-        run_case(case, tmp_path, use_cache=False)
+    outcome = run_case(case, tmp_path, use_cache=False)
+    assert outcome.status == "paused_budget_cap"  # checkpointed and resumable, not a crash
+    assert outcome.paused is not None
+    assert "per-run cap" in outcome.paused.message
 
 
 @pytest.mark.full_only
