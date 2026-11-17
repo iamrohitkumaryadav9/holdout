@@ -29,12 +29,8 @@ def run(ctx: AuditContext, single: SingleFeatureResult | None) -> tuple[CheckOut
     for hint in sorted(hints, key=lambda h: h.column):
         score = single.scores.get(hint.column) if single is not None else None
         used = hint.column in ctx.used_features
-        has_signal = score is not None and (
-            (
-                score.relative_lift is not None
-                and score.relative_lift >= t.min_relative_lift_for_warning
-            )
-            or score.normalized_score >= t.min_normalized_score_for_warning
+        has_signal = (
+            score is not None and score.normalized_score >= t.min_normalized_score_for_warning
         )
         severity = Severity.WARNING if (has_signal and used) else Severity.INFO
         reason_text = "; ".join(hint.reasons)

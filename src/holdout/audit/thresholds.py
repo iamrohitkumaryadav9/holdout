@@ -30,7 +30,6 @@ class SingleFeatureThresholds(_Section):
 
 
 class HintThresholds(_Section):
-    min_relative_lift_for_warning: float = Field(ge=0.0)
     min_normalized_score_for_warning: float = Field(ge=0.0)
 
 
@@ -39,7 +38,6 @@ class IdLikeThresholds(_Section):
     integer_sequence_max_span_ratio: float = Field(ge=1.0)
     uniform_code_min_share: float = Field(gt=0.0, le=1.0)
     row_order_min_abs_spearman: float = Field(gt=0.0, le=1.0)
-    signal_min_relative_lift: float = Field(ge=0.0)
     signal_min_normalized_score: float = Field(ge=0.0)
 
 

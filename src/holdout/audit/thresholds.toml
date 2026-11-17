@@ -34,24 +34,26 @@ warn_normalized_score = 0.95
 min_full_normalized_lift = 0.5
 
 [a02_hints]
-# A name hint is raised to a warning only when the column also shows at least this
-# relative lift in A1 (otherwise it stays info: a suggestive name without signal).
-min_relative_lift_for_warning = 0.1
-min_normalized_score_for_warning = 0.05
+# A name hint is raised to a warning only when the column alone gets at least this far
+# (normalized) from dummy to perfect in A1; otherwise it stays info (a suggestive name
+# without signal). Normalized, not relative, lift: relative lift is noise-dominated when
+# the full plan is weak.
+min_normalized_score_for_warning = 0.1
 
 [a03_id_like]
 # A column is near-unique when distinct values / non-missing values reach this ratio.
 near_unique_ratio = 0.95
-# Integer sequence: (max - min + 1) / distinct values at most this (1.0 = no gaps).
+# Integer sequence: (max - min + 1) / distinct values at most this (1.0 = no gaps),
+# divided by the development share (1 - test_size), since the holdout's IDs are missing
+# from development rows.
 integer_sequence_max_span_ratio = 1.1
 # Uniform code: this share of values has the same character shape (e.g. "AB-1234").
 uniform_code_min_share = 0.95
 # Correlation with row order: |Spearman(value, row position)| at least this.
 row_order_min_abs_spearman = 0.9
-# An ID-like column "has signal" when its single-feature relative lift or normalized
-# score reaches these values.
-signal_min_relative_lift = 0.1
-signal_min_normalized_score = 0.05
+# An ID-like column "has signal" when its single-feature normalized score reaches this
+# (an ID with no signal scores ~0; noise on ~1k rows stays well below 0.1).
+signal_min_normalized_score = 0.1
 
 [a04_duplicates]
 # (Float rounding before hashing - 6 significant digits - is fixed in holdout.core.config
