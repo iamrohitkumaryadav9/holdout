@@ -607,6 +607,80 @@ dev data only.
 - OpenML 4541 has the same encounters, in the same order, with the same labels as UCI's
   `diabetic_data.csv`.
 
+## Benchmark suites (Week 4)
+
+**Frozen files, pinned hashes.** Each suite is committed with its hash pinned in
+`bench/suites/frozen.py`; tests compare the files to the pins. A full-tier test rebuilds
+both planted suites from the cached OpenML files and checks every frame's sha256. Changing
+a suite therefore means a new version (`final_v2`) and a documented amendment, never a
+silent regeneration. Hashes are taken with LF line endings, so Windows and Linux checkouts
+agree.
+
+The suites are:
+
+- `real_world_v1.toml`, the external ground truth. It was committed before any benchmark
+  system code existed.
+- `final_v1.json`: 40 tasks × seeds 101 and 202.
+- `dev_v1.json`: 12 tasks × seeds 11 and 12.
+
+**Final planted suite.**
+
+- **Trap tasks:** 28, with `direct_leak` on 4 bases and every other trap on 3. No base
+  carries the same trap twice.
+- **Clean controls:** 12 clean twins on the same final bases.
+- **Seeds:** each task is instantiated at both seeds. The seed drives the planting and is
+  also the run seed.
+- **Guard:** the builder reuses the Week 2 contamination guard, which refuses any base or
+  seed registered in `dev_usage.toml`.
+- **The suite file records, per task:** trap, base, base sha256, goal, plan overrides, the
+  column choices, the ground truth, and every frame's sha256 and shape.
+
+**Moving traps from synthetic to real bases.** Three changes were needed. The 54 synthetic
+frames built for seeds 0–2 stayed byte-identical through all of them, so earlier dev and
+test results cannot move.
+
+- *Label handling:* `direct_leak`, `noisy_proxy` and `group_leakage` assumed 0/1 targets.
+  They now use the indicator of the positive class, defined as the larger label in text
+  order. That definition maps 0/1 to itself and works for `g`/`h` or `N`/`P`.
+- *Column choices:* `messy_formats` and `causal_question` choose their columns by fixed
+  rules, recorded in the suite.
+  - Numbers as text go on the numeric feature with the most distinct values, and sentinels
+    on the next one. Values are written with two decimals when the median is below 1,000.
+  - Spelling variants only apply when the base has a text column; no final base has one.
+  - The causal goal is "Does <first numeric feature> cause <target>?".
+- *`time_order` is semi-synthetic on real bases:*
+  - The shuffled base's row order becomes a hidden timeline.
+  - The target trends along it. For classification, negatives turn positive with
+    probability `0.35·t`; for regression, the target gets `+ std·t`.
+  - The two most varied numeric features shift by `std·(t − 0.5)` plus noise.
+  - The rows stay in timeline order, with no time column.
+  - Its clean twin keeps the same timeline without drift.
+  - Results label it semi-synthetic, so it is never confused with the genuinely
+    time-ordered real-world cases (Electricity, Covertype, Bank Marketing).
+
+**Dev suite.**
+
+- **Tasks:** every trap type once, plus three clean controls on the dev bases.
+- **A class-sorted control:** one control keeps credit-approval in its original
+  **class-sorted file order**. One-time tuning can then address the risk that A6 reads a
+  sorted file as time, using dev data only.
+- **Registration:** dev bases and seeds 11 and 12 were registered in `dev_usage.toml` before
+  first use.
+
+**Real-world suite.** Five cases with documented issues and four clean controls.
+
+- **Detection:** a cited issue is detected when it is reported as a problem (warning or
+  higher) in one of its accepted categories, naming at least one of its columns where it
+  has any. No source grades the severity of these problems; critical-level detection is a
+  secondary metric.
+- **Unscored issue:** one documented issue, death making readmission impossible in
+  Diabetes, fits no category. It is listed but not scored.
+- **Clean-control reasons:** our judgement from the documented nature of the rows, stated
+  as such.
+- **Anonymisation:** the anonymised variant renames columns only. Values are unchanged, so
+  sample rows can still reveal a famous dataset (Titanic passenger names, Bank Marketing's
+  job categories). This is a stated limitation of H5, which is exploratory.
+
 ## Environment
 
 The numeric stack is pinned to mature releases (numpy 2.3, pandas 2.3, scikit-learn 1.7,
