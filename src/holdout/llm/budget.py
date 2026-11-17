@@ -66,8 +66,9 @@ class SpendLedger:
 class Budget:
     run_id: str
     model: str
-    run_cap_inr: float = config.RUN_CAP_INR
-    project_cap_inr: float = config.PROJECT_CAP_INR
+    # Read at construction (not import) so configuration changes apply to new budgets.
+    run_cap_inr: float = field(default_factory=lambda: config.RUN_CAP_INR)
+    project_cap_inr: float = field(default_factory=lambda: config.PROJECT_CAP_INR)
     ledger: SpendLedger = field(default_factory=SpendLedger)
     spent_run_inr: float = 0.0
     today: date = field(default_factory=lambda: datetime.now(UTC).date())

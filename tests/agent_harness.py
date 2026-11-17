@@ -16,6 +16,7 @@ from tests.agent_fakes import cooperative_fake
 
 
 def write_case(case: TrapCase, root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
     csv = root / "data.csv"
     case.df.to_csv(csv, index=False)
     return csv
@@ -35,6 +36,9 @@ def run_case(
     llm: FakeLLM | None = None,
     **options: Any,
 ) -> AgentOutcome:
+    # Tests share one HOLDOUT_HOME; the response cache is keyed on the request, not on which
+    # fake answers it, so tests opt in to caching explicitly.
+    options.setdefault("use_cache", False)
     csv = write_case(case, root)
     fake = llm if llm is not None else fake_for(case, csv)
     return run_agent(

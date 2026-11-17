@@ -135,7 +135,7 @@ class AgentDeps:
     llm_client: str
     model_verified: bool = False
     node_start_index: int = 0
-    timeout_seconds: float = NODE_TIMEOUT_SECONDS
+    timeout_seconds: float = field(default_factory=lambda: NODE_TIMEOUT_SECONDS)
     after_node: Callable[[str], None] | None = field(default=None)
 
 
