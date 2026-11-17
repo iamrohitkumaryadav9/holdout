@@ -542,6 +542,71 @@ Week 3:
   every test and seed, and is what CI runs.
 - **The EDA sandbox was built before the graph** (Part 4 before Part 3's EDA node), because
   the node calls it.
+## Benchmark data (Week 4)
+
+`bench/datasets.toml` registers every OpenML dataset the benchmark uses. Each entry has:
+
+- the OpenML id and version;
+- the target and task;
+- the licence and row count;
+- OpenML's md5 (of its ARFF file, kept for provenance);
+- the sha256 of the parquet file the loader actually uses;
+- its pool and how it is prepared.
+
+`bench/data/openml.py` downloads each parquet file once over plain HTTPS into
+`~/.holdout/datasets/` and verifies the sha256 on **every** load. It does not use the
+`openml` package, to avoid its compiled dependencies under Smart App Control. A mismatch is
+an error and is never silently replaced. After the first download everything works
+offline: `python -m bench.data verify --offline`.
+
+**Three disjoint pools.**
+
+- `dev` is used for tuning and the pilot.
+- `final` holds the planted-trap bases.
+- `real_world` holds the external-ground-truth cases.
+
+A test fails if any OpenML id or name appears in two pools. The suite builders refuse a
+dataset from the wrong pool, so a real-world dataset can never become a trap base.
+
+**Screening trap bases, without any system.** The dev and final bases were chosen by
+properties of the data alone, before any system ran on them:
+
+- binary classification or regression;
+- fewer than 1% exact duplicate feature rows;
+- not known to be time-ordered.
+
+Selecting bases on which Holdout's audits happen to be quiet would inflate its measured
+specificity, so the audits were deliberately not used to choose bases. The datasets
+excluded by the screen are listed in the registry's header. Most were dropped for
+duplicates, which would make a "clean" control fire A4 for a real reason.
+
+**Trap bases are de-duplicated and shuffled; real-world data is not.** Many OpenML files are
+sorted by class. In file order, the lag-1 autocorrelation of the target has z-scores of 125
+for MagicTelescope, 82 for spambase and 21 for credit-approval. In a trap base that order
+would be structure nobody planted. Dev and final bases therefore:
+
+- drop their remaining exact duplicate feature rows (keeping the first);
+- are shuffled with a base-specific seed.
+
+Real-world datasets are used exactly as distributed, because their order and duplicates are
+part of the case. The class-sorted real-world controls (mushroom z = 44, kr-vs-kp z = 64,
+abalone z = 14) will show whether a system mistakes a sorted file for time order. A
+class-sorted *dev* control (credit-approval in file order) lets that weakness be tuned on
+dev data only.
+
+**Subsampling (at most 50,000 rows, deterministic).**
+
+- Covertype keeps its first 50,000 rows in file order, so its documented ordering survives.
+- Diabetes keeps whole patients, sampled with seed 0, so the repeated-patient structure
+  survives.
+
+**Real-world checks against primary sources.**
+
+- OpenML 42813 is byte-for-byte equivalent, in values and row order, to UCI's
+  `bank-additional-full.csv`; its `duration` is stored as a float.
+- OpenML 4541 has the same encounters, in the same order, with the same labels as UCI's
+  `diabetic_data.csv`.
+
 ## Environment
 
 The numeric stack is pinned to mature releases (numpy 2.3, pandas 2.3, scikit-learn 1.7,
