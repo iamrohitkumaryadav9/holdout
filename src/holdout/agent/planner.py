@@ -45,7 +45,7 @@ from holdout.core.schemas import Task
 from holdout.data.profile import DatasetProfile
 from holdout.llm.structured import LLMSession
 from holdout.plan.defaults import default_plan
-from holdout.plan.schema import DropColumn, ModelPlan, validate_plan
+from holdout.plan.schema import MODEL_NAMES, DropColumn, ModelPlan, validate_plan
 from holdout.plan.schema import Severity as IssueSeverity
 
 # ----------------------------------------------------------------------------- fixes
@@ -70,6 +70,25 @@ def fix_labels(flags: Sequence[AuditFlag]) -> list[str]:
         elif isinstance(flag.fix, ChangeMetric):
             labels.append(f"metric:{flag.fix.metric.value}")
     return sorted(set(labels))
+
+
+def fix_constraints(plan: ModelPlan, flags: Sequence[AuditFlag]) -> list[str]:
+    """Every plan fix as an explicit, checkable constraint on the revised plan."""
+    constraints = []
+    for label in fix_labels(flags):
+        kind, value = label.split(":", 1)
+        if kind == "drop":
+            constraints.append(
+                f'revised_plan.drop_columns MUST contain an entry {{"column": "{value}", '
+                '"reason": ...}; keep every column the current plan already drops'
+            )
+        else:
+            constraints.append(f'revised_plan.metric MUST be "{value}"')
+    constraints.append(
+        f'revised_plan.task MUST stay "{plan.task.value}" and revised_plan.model.name MUST be '
+        "exactly one of: " + ", ".join(MODEL_NAMES)
+    )
+    return constraints
 
 
 def apply_fixes(plan: ModelPlan, flags: Sequence[AuditFlag]) -> ModelPlan:
@@ -255,28 +274,29 @@ class LLMPlanner:
         return False
 
     def propose_plan(self, ctx: PlanContext) -> ModelPlan:
-        """Ask for a plan; validation errors go back once, then the run fails."""
-        prompt = load_prompt("plan")
-        feedback: list[str] = []
-        for attempt in (1, 2):
-            rendered = prompt.render(
-                goal=ctx.goal,
-                target={"target": ctx.target, "task": ctx.task.value},
-                profile=profile_summary(ctx.profile),
-                sample_rows=sample_rows(ctx.dev, ctx.seed),
-                history=ctx.history,
-                eda=ctx.eda,
-                feedback=feedback or "none",
+        """Ask for a plan. Schema and data-aware validation are one check, so a plan gets
+        exactly one repair for any problem; a second failure stops the run."""
+        rendered = load_prompt("plan").render(
+            goal=ctx.goal,
+            target={"target": ctx.target, "task": ctx.task.value},
+            profile=profile_summary(ctx.profile),
+            sample_rows=sample_rows(ctx.dev, ctx.seed),
+            history=ctx.history,
+            eda=ctx.eda,
+        )
+        try:
+            return self.session.call(
+                node="plan",
+                prompt=rendered,
+                schema=ModelPlan,
+                check=lambda plan: plan_errors(plan, ctx.profile, ctx.task),
             )
-            plan = self.session.call(node="plan", prompt=rendered, schema=ModelPlan)
-            feedback = plan_errors(plan, ctx.profile, ctx.task)
-            if not feedback:
-                return plan
-            if attempt == 2:
-                raise AgentError(
-                    "the proposed plan was rejected twice by validation: " + "; ".join(feedback)
-                )
-        raise AssertionError("unreachable")
+        except LLMOutputError as exc:
+            if exc.last_answer is None:
+                raise  # not even schema-valid twice
+            raise AgentError(
+                "the proposed plan was rejected twice by validation: " + "; ".join(exc.errors)
+            ) from exc
 
     def explain_and_fix(
         self, plan: ModelPlan, flags: list[AuditFlag], profile: DatasetProfile, round_: int
@@ -308,6 +328,10 @@ class LLMPlanner:
             plan=plan.model_dump(mode="json"),
             flags=[_flag_brief(f) for f in open_flags],
             fixes=fix_labels(fixes),
+            # A numbered plain-text list: as JSON the quotes inside would arrive escaped.
+            constraints="\n".join(
+                f"{i}. {c}" for i, c in enumerate(fix_constraints(plan, fixes), start=1)
+            ),
             profile=profile_summary(profile),
         )
         try:
@@ -336,57 +360,45 @@ class LLMPlanner:
         placeholders = set(ctx.values)
         required = sorted({f.check.value for f in _open_flags(ctx.flags)})
 
-        def check(draft: ReportDraft) -> list[str]:
+        #: A11 flags of the first draft that had any: recorded even when the repair fixes them.
+        caught: list[AuditFlag] = []
+
+        def form_problems(draft: ReportDraft) -> list[str]:
             return draft_problems(
                 draft, allowed=allowed, placeholders=placeholders, required_checks=required
             )
 
-        def render(feedback: list[str]) -> Any:
-            return load_prompt("report").render(
-                goal=ctx.goal,
-                facts=ctx.facts,
-                placeholders=placeholder_catalogue(ctx.values),
-                flags=[
-                    {**_flag_brief(f), "explanation": ctx.explanations.get(flag_key(f), f.message)}
-                    for f in _open_flags(ctx.flags)
-                ],
-                caveats=ctx.caveats,
-                feedback=feedback or "none",
-            )
+        def check(draft: ReportDraft) -> list[str]:
+            causal = _causal_flags(fill_draft(draft, ctx.values))
+            if causal and not caught:
+                caught.extend(causal)
+            return form_problems(draft) + causal_problems(draft)
 
-        draft = self.session.call(node="report", prompt=render([]), schema=ReportDraft, check=check)
-        filled = fill_draft(draft, ctx.values)
-        causal = _causal_flags(filled)
-        if not causal:
-            return ReportOutcome(draft=filled, causal_flags=[], substitution=None)
-        feedback = [
-            "remove every causal claim: a predictive model shows association, not cause and "
-            "effect; set causal_claim to false"
-        ] + [
-            f"causal statement: {s}"
-            for f in causal
-            if isinstance(f.evidence, CausalEvidence)
-            for s in f.evidence.statements
-        ]
-
-        def check_again(answer: ReportDraft) -> list[str]:
-            return check(answer) + (
-                ["remove the causal claims"]
-                if _causal_flags(fill_draft(answer, ctx.values))
-                else []
-            )
-
+        rendered = load_prompt("report").render(
+            goal=ctx.goal,
+            facts=ctx.facts,
+            placeholders=placeholder_catalogue(ctx.values),
+            flags=[
+                {**_flag_brief(f), "explanation": ctx.explanations.get(flag_key(f), f.message)}
+                for f in _open_flags(ctx.flags)
+            ],
+            caveats=ctx.caveats,
+        )
         try:
-            revised = self.session.call(
-                node="report", prompt=render(feedback), schema=ReportDraft, check=check_again
+            draft = self.session.call(
+                node="report", prompt=rendered, schema=ReportDraft, check=check
             )
             return ReportOutcome(
-                draft=fill_draft(revised, ctx.values), causal_flags=causal, substitution=None
+                draft=fill_draft(draft, ctx.values), causal_flags=caught, substitution=None
             )
-        except LLMOutputError:
+        except LLMOutputError as exc:
+            last = exc.last_answer
+            if not isinstance(last, ReportDraft) or form_problems(last):
+                raise  # numbers, schema or missing flags: no safe deterministic fallback
+            # Only causal wording remains: code strips it (not credited to the model).
             return ReportOutcome(
-                draft=_strip_causal(filled),
-                causal_flags=causal,
+                draft=_strip_causal(fill_draft(last, ctx.values)),
+                causal_flags=caught,
                 substitution=Substitution(
                     node="report", round=ctx.round, missed_fixes=["remove_causal_claim"]
                 ),
@@ -410,6 +422,28 @@ def _flag_brief(flag: AuditFlag) -> dict[str, Any]:
         "category": flag.category.value,
         "message": flag.message,
     }
+
+
+def causal_problems(draft: ReportDraft) -> list[str]:
+    """Repair feedback naming each causal sentence and the exact words that triggered A11,
+    so the model can rephrase precisely (checked on the draft as written, placeholders and
+    all)."""
+    problems = []
+    if draft.causal_claim:
+        problems.append(
+            "causal_claim is true: a predictive model shows association, not cause and "
+            "effect; set causal_claim to false"
+        )
+    for flag in check_causal_claims(full_text(draft)):
+        if isinstance(flag.evidence, CausalEvidence):
+            words = ", ".join(f'"{p}"' for p in flag.evidence.phrases)
+            for statement in flag.evidence.statements:
+                problems.append(
+                    f"causal wording ({words}) in: {statement!r}. Rephrase without causal "
+                    "verbs (causes, leads to, drives, results in, because of, effect of); "
+                    "use neutral verbs such as 'is', 'gives', 'reaches', 'is associated with'"
+                )
+    return problems
 
 
 def _causal_flags(draft: ReportDraft) -> list[AuditFlag]:

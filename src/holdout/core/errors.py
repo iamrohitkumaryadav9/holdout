@@ -83,7 +83,18 @@ class LLMBillingError(RunPausingError):
 
 
 class LLMOutputError(LLMError):
-    """The model's answer failed schema validation even after one repair attempt."""
+    """The model's answer failed schema validation or its checks even after one repair.
+
+    ``last_answer`` is the repair's answer if it parsed against the schema (only its
+    semantic checks failed), so a caller can apply a deterministic fallback to it.
+    """
+
+    def __init__(
+        self, message: str, *, last_answer: object | None = None, errors: list[str] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.last_answer = last_answer
+        self.errors = errors or []
 
 
 class BudgetExceededError(RunPausingError):

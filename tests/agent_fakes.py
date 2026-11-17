@@ -72,11 +72,11 @@ def report(request: LLMRequest) -> dict[str, Any]:
     names = {key.strip("{}") for key in catalogue}
     flags = data(request, "flags")
     goal = str(data(request, "goal")).lower()
-    feedback = data(request, "feedback")
+    repairing = "<repair>" in request.user  # the session's repair request quotes the problems
     score = "{{validation_score}}" if "validation_score" in names else "a validation score"
     summary = f"The final plan reaches {score} in cross-validation"
     summary += " against {{dummy_score}} for the dummy baseline." if "dummy_score" in names else "."
-    causal = "cause" in goal and feedback == "none"
+    causal = "cause" in goal and not repairing
     if causal:
         summary += " Yes: being contacted by phone causes customers to convert."
     findings = []

@@ -18,7 +18,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -62,6 +62,10 @@ class CallRecord:
     errors: tuple[str, ...]
     #: Transient failures retried before this call succeeded (or gave up); cost no tokens.
     retries: int = 0
+    #: The start of a rejected answer (None when valid), so failures can be diagnosed later.
+    rejected_text: str | None = None
+    #: The call never got an answer (service unavailable, billing): not a validity verdict.
+    failed: bool = False
 
 
 @dataclass
@@ -88,12 +92,12 @@ class LLMSession:
             prompt_version=prompt.version,
             system=prompt.system,
             user=prompt.user,
-            response_schema=schema.model_json_schema(),
+            response_schema=llm_schema(schema),
             seed=self.seed,
         )
-        answer, errors, text = self._attempt(node, prompt, request, schema, check, attempt=1)
-        if answer is not None:
-            return answer
+        parsed, errors, text = self._attempt(node, prompt, request, schema, check, attempt=1)
+        if parsed is not None and not errors:
+            return parsed
         repair = LLMRequest(
             prompt_name=prompt.name,
             prompt_version=prompt.version,
@@ -110,11 +114,13 @@ class LLMSession:
             response_schema=request.response_schema,
             seed=self.seed,
         )
-        answer, errors, _ = self._attempt(node, prompt, repair, schema, check, attempt=2)
-        if answer is not None:
-            return answer
+        parsed, errors, _ = self._attempt(node, prompt, repair, schema, check, attempt=2)
+        if parsed is not None and not errors:
+            return parsed
         raise LLMOutputError(
-            f"{prompt.name}: the model's answer is invalid after one repair: {'; '.join(errors)}"
+            f"{prompt.name}: the model's answer is invalid after one repair: {'; '.join(errors)}",
+            last_answer=parsed,
+            errors=errors,
         )
 
     def _attempt(
@@ -170,6 +176,7 @@ class LLMSession:
                         valid=False,
                         errors=(f"{reason}: {exc}",),
                         retries=exc.retries,
+                        failed=True,
                     )
                 )
                 raise
@@ -188,8 +195,9 @@ class LLMSession:
         )
         for text in warnings:
             self.progress.warning(text)
-        answer, errors = _parse(response.text, schema, check)
-        if cached is None and answer is not None:
+        parsed, errors = _parse(response.text, schema, check)
+        valid = parsed is not None and not errors
+        if cached is None and valid:
             self.cache.put(key, response)  # only valid answers are worth replaying
         self.records.append(
             CallRecord(
@@ -203,17 +211,53 @@ class LLMSession:
                 output_tokens=0 if cached else response.usage.output_tokens,
                 thinking_tokens=0 if cached else response.usage.thinking_tokens,
                 inr=inr,
-                valid=answer is not None,
+                valid=valid,
                 errors=tuple(errors),
                 retries=0 if cached else response.retries,
+                rejected_text=None if valid else response.text[:REJECTED_TEXT_CHARS],
             )
         )
-        return answer, errors, response.text
+        return parsed, errors, response.text
+
+
+#: How much of a rejected answer is kept for diagnosis (checkpoint and manifest).
+REJECTED_TEXT_CHARS = 4000
+
+
+def llm_schema(schema: type[BaseModel]) -> dict[str, Any]:
+    """The JSON schema sent to the model, in the subset Gemini's structured output documents.
+
+    Pydantic writes tagged unions as ``oneOf`` + ``discriminator`` with each tag as a
+    ``const``. Gemini documents ``anyOf`` and ``enum`` but not those keywords, and in the
+    first paid smoke runs the model invented the model tag (``hist_gradient_boosting``,
+    ``HistGradientBoostingClassifier``) instead of ``hist_gb``. This rewrites the schema into
+    an equivalent form (tags are disjoint, so ``anyOf`` = ``oneOf``; ``enum: [x]`` =
+    ``const: x``). Validation still uses the full Pydantic model, so nothing is loosened.
+    """
+
+    def rewrite(node: Any) -> Any:
+        if isinstance(node, dict):
+            out: dict[str, Any] = {}
+            for key, value in node.items():
+                if key == "discriminator":
+                    continue
+                if key == "const":
+                    out["enum"] = [value]
+                    continue
+                out["anyOf" if key == "oneOf" else key] = rewrite(value)
+            return out
+        if isinstance(node, list):
+            return [rewrite(item) for item in node]
+        return node
+
+    rewritten: dict[str, Any] = rewrite(schema.model_json_schema())
+    return rewritten
 
 
 def _parse[T: BaseModel](
     text: str, schema: type[T], check: Callable[[T], list[str]] | None
 ) -> tuple[T | None, list[str]]:
+    """(the schema-valid answer or None, every problem: schema errors or failed checks)."""
     body = text.strip()
     if body.startswith("```"):
         body = body.strip("`")
@@ -226,5 +270,4 @@ def _parse[T: BaseModel](
         return None, [
             f"{'.'.join(str(p) for p in e['loc']) or '<root>'}: {e['msg']}" for e in exc.errors()
         ]
-    problems = check(answer) if check is not None else []
-    return (None, problems) if problems else (answer, [])
+    return answer, check(answer) if check is not None else []

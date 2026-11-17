@@ -74,22 +74,30 @@ FeatureSelection = Annotated[
 class DummyModel(_Strict):
     """Prior (classification) or mean (regression) predictor: the baseline every plan must beat."""
 
-    name: Literal["dummy"] = "dummy"
+    name: Literal["dummy"] = Field(
+        default="dummy", description="exactly 'dummy': prior / mean baseline"
+    )
 
 
 class LogRegModel(_Strict):
-    name: Literal["logreg"] = "logreg"
+    name: Literal["logreg"] = Field(
+        default="logreg", description="exactly 'logreg': logistic regression, classification only"
+    )
     C: float = Field(default=1.0, ge=1e-4, le=1e4, description="inverse L2 strength")
     max_iter: int = Field(default=1000, ge=100, le=10_000)
 
 
 class RidgeModel(_Strict):
-    name: Literal["ridge"] = "ridge"
+    name: Literal["ridge"] = Field(
+        default="ridge", description="exactly 'ridge': ridge regression, regression only"
+    )
     alpha: float = Field(default=1.0, ge=1e-4, le=1e4, description="L2 strength")
 
 
 class RandomForestModel(_Strict):
-    name: Literal["random_forest"] = "random_forest"
+    name: Literal["random_forest"] = Field(
+        default="random_forest", description="exactly 'random_forest': random forest"
+    )
     n_estimators: int = Field(default=300, ge=10, le=1000)
     max_depth: int | None = Field(default=None, ge=1, le=64)
     min_samples_leaf: int = Field(default=1, ge=1, le=200)
@@ -97,7 +105,11 @@ class RandomForestModel(_Strict):
 
 
 class HistGBModel(_Strict):
-    name: Literal["hist_gb"] = "hist_gb"
+    name: Literal["hist_gb"] = Field(
+        default="hist_gb",
+        description="exactly 'hist_gb': histogram gradient boosting "
+        "(scikit-learn HistGradientBoosting*)",
+    )
     learning_rate: float = Field(default=0.1, ge=0.01, le=1.0)
     max_iter: int = Field(default=200, ge=10, le=2000)
     max_leaf_nodes: int = Field(default=31, ge=2, le=256)
@@ -106,7 +118,9 @@ class HistGBModel(_Strict):
 
 
 class LightGBMModel(_Strict):
-    name: Literal["lightgbm"] = "lightgbm"
+    name: Literal["lightgbm"] = Field(
+        default="lightgbm", description="exactly 'lightgbm': LightGBM gradient boosting"
+    )
     n_estimators: int = Field(default=300, ge=10, le=5000)
     learning_rate: float = Field(default=0.05, ge=0.005, le=0.5)
     num_leaves: int = Field(default=31, ge=2, le=1024)
@@ -116,9 +130,17 @@ class LightGBMModel(_Strict):
     reg_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
 
 
+#: The model tags, exactly as a plan must spell them.
+MODEL_NAMES = ("dummy", "logreg", "ridge", "random_forest", "hist_gb", "lightgbm")
+
 ModelSpec = Annotated[
     DummyModel | LogRegModel | RidgeModel | RandomForestModel | HistGBModel | LightGBMModel,
-    Field(discriminator="name"),
+    Field(
+        discriminator="name",
+        description="one model object; its name must be exactly one of: "
+        + ", ".join(MODEL_NAMES)
+        + " (no other spelling, e.g. not a scikit-learn class name)",
+    ),
 ]
 
 #: Models that only make sense for one task; enforced in validate_plan.
