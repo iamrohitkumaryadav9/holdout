@@ -681,6 +681,52 @@ test results cannot move.
   sample rows can still reveal a famous dataset (Titanic passenger names, Bank Marketing's
   job categories). This is a stated limitation of H5, which is exploratory.
 
+## The benchmark harness (Week 4)
+
+**One seal per unit, an oracle partition.**
+
+- **Partition:** the harness splits each (task, seed, variant) once, by a rule that follows
+  the deployment framing in the ground truth:
+  - unseen entities for entity traps and Diabetes;
+  - the latest 20% of rows for time traps and the time-ordered real cases;
+  - holdout rows that duplicate development rows are removed for duplicate traps;
+  - otherwise a stratified or random 20%.
+- **Sharing:** every system gets the same development rows. The holdout lives outside every
+  system's work directory and is scored once per system with Holdout's own scorer.
+- **Isolation:** a test with a Python audit hook proves no system opens it.
+
+Each system chooses its own internal validation. The optimism gap compares that claim with
+the oracle holdout.
+
+**Leak columns are unavailable at prediction time.** The free part of the pilot showed
+FLAML scoring 0.995 on the adult holdout *using* the planted `refund_issued` leak, because
+the column was present in the holdout rows too. A post-outcome column (`refund_issued`,
+Bank Marketing's `duration`, Titanic's `boat`) does not exist when a real prediction is
+made, so a harness that leaves it in the holdout rewards leakage in every score.
+
+- **Which columns:** the leak columns named by the ground truth. These are the planted
+  `direct_leak`, `noisy_proxy` and `id_with_signal` columns, and the documented
+  post-outcome or target-leakage columns of the real cases.
+- **How:** they are **permuted within the holdout**. Permuting keeps types and values, so no
+  missing values crash an otherwise valid pipeline, and removes only the link to the
+  target.
+- **Disclosure:** systems are not told.
+- **Clean twins:** they have no leak, so nothing is permuted.
+
+This was found and fixed before any LLM system ran; the free pilot results from before the
+fix were discarded and rerun.
+
+**Benchmark reserve.** Rs 600 of the Rs 750 project cap is kept for the final run.
+
+- **General spend** (dev, tuning, smoke, ping, ordinary runs) may not take project spend past
+  Rs 150. It pauses with exit code 6, naming the reserve.
+- **Purpose:** each ledger entry records it. A process is `general` unless
+  `bench.run --purpose benchmark` set `HOLDOUT_SPEND_PURPOSE`.
+- **Pre-flight:** it prices pending units from the pilot's measured cost per run plus 20%,
+  rescaled by the dated price table (the price doubles on 2027-01-01). A system with no
+  measurement, such as during the pilot itself, is bounded by its hard worst case, the per-run
+  cap.
+
 ## Environment
 
 The numeric stack is pinned to mature releases (numpy 2.3, pandas 2.3, scikit-learn 1.7,
