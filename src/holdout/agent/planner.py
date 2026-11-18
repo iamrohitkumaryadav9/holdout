@@ -12,7 +12,7 @@ remediation achieved by the code fallback must not be credited to the LLM.
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -157,6 +157,9 @@ class PlanContext:
     seed: int
     history: list[dict[str, Any]]
     eda: list[dict[str, Any]] = field(default_factory=list)
+    #: Plan fields the user stated (e.g. a required metric). Only the offline planner
+    #: applies them, since it cannot read the goal text; an LLM planner reads the goal.
+    overrides: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -222,7 +225,10 @@ class OfflinePlanner:
         return True
 
     def propose_plan(self, ctx: PlanContext) -> ModelPlan:
-        return default_plan(ctx.profile, ctx.task)
+        plan = default_plan(ctx.profile, ctx.task)
+        if not ctx.overrides:
+            return plan
+        return ModelPlan.model_validate({**plan.model_dump(mode="json"), **ctx.overrides})
 
     def explain_and_fix(
         self, plan: ModelPlan, flags: list[AuditFlag], profile: DatasetProfile, round_: int
@@ -268,6 +274,20 @@ class OfflinePlanner:
 @dataclass
 class LLMPlanner:
     session: LLMSession
+    #: Replaces the A11 lexicon on the generated report (the benchmark's LLM-judge
+    #: ablation): returns causal-claim flags for a filled draft. None = the lexicon.
+    causal_checker: Callable[[ReportDraft], list[AuditFlag]] | None = None
+
+    def _flagged(self, draft: ReportDraft, ctx: "ReportContext") -> list[str] | None:
+        """The statements the judge flags in ``draft`` (None: the lexicon decides)."""
+        if self.causal_checker is None:
+            return None
+        return [
+            s
+            for f in self.causal_checker(fill_draft(draft, ctx.values))
+            if isinstance(f.evidence, CausalEvidence)
+            for s in f.evidence.statements
+        ]
 
     @property
     def offline(self) -> bool:
@@ -369,10 +389,22 @@ class LLMPlanner:
             )
 
         def check(draft: ReportDraft) -> list[str]:
-            causal = _causal_flags(fill_draft(draft, ctx.values))
+            filled = fill_draft(draft, ctx.values)
+            if self.causal_checker is None:
+                causal = _causal_flags(filled)
+                problems = causal_problems(draft)
+            else:
+                causal = self.causal_checker(filled)
+                problems = [
+                    f"a reviewer flagged this as a causal claim: {s!r}. Rephrase it without "
+                    "claiming cause and effect"
+                    for f in causal
+                    if isinstance(f.evidence, CausalEvidence)
+                    for s in f.evidence.statements
+                ] or (["remove the causal claims"] if causal else [])
             if causal and not caught:
                 caught.extend(causal)
-            return form_problems(draft) + causal_problems(draft)
+            return form_problems(draft) + problems
 
         rendered = load_prompt("report").render(
             goal=ctx.goal,
@@ -397,7 +429,7 @@ class LLMPlanner:
                 raise  # numbers, schema or missing flags: no safe deterministic fallback
             # Only causal wording remains: code strips it (not credited to the model).
             return ReportOutcome(
-                draft=_strip_causal(fill_draft(last, ctx.values)),
+                draft=_strip_causal(fill_draft(last, ctx.values), self._flagged(last, ctx)),
                 causal_flags=caught,
                 substitution=Substitution(
                     node="report", round=ctx.round, missed_fixes=["remove_causal_claim"]
@@ -458,11 +490,21 @@ def _causal_flags(draft: ReportDraft) -> list[AuditFlag]:
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 
 
-def _strip_causal(draft: ReportDraft) -> ReportDraft:
-    """Deterministic fallback: drop causal sentences and state the limitation."""
+def _strip_causal(draft: ReportDraft, flagged: list[str] | None = None) -> ReportDraft:
+    """Code fallback: drop causal sentences and state the limitation.
+
+    ``flagged`` are the statements a judge flagged (LLM-judge ablation); without it the
+    A11 lexicon decides sentence by sentence.
+    """
+
+    def causal(sentence: str) -> bool:
+        if flagged is None:
+            return bool(check_causal_claims(sentence))
+        text = sentence.strip()
+        return bool(text) and any(s.strip() and (s.strip() in text or text in s) for s in flagged)
 
     def clean(text: str) -> str:
-        kept = [s for s in _SENTENCE.split(text) if not check_causal_claims(s)]
+        kept = [s for s in _SENTENCE.split(text) if not causal(s)]
         return " ".join(kept)
 
     return draft.model_copy(

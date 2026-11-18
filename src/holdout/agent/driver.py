@@ -56,6 +56,9 @@ from holdout.llm.progress import NullProgress, Progress
 from holdout.llm.structured import LLMSession
 
 ClientFactory = Callable[[], LLMClient]
+#: Adjusts a run's dependencies after they are built (the benchmark's LLM-judge ablation
+#: installs its auditor here, on the run's own session, so costs land in the same ledger).
+Customize = Callable[[AgentDeps], None]
 
 PAUSED_LLM: Final = "paused_llm_unavailable"
 PAUSED_BUDGET: Final = "paused_budget_cap"
@@ -84,6 +87,7 @@ def run_agent(
     asker: Asker | None = None,
     after_node: Callable[[str], None] | None = None,
     progress: Progress | None = None,
+    customize: Customize | None = None,
 ) -> AgentOutcome:
     """Start a new agent run.
 
@@ -103,7 +107,7 @@ def run_agent(
         "run_id": state.run_id,
         "started_at": started.isoformat(),
     }
-    return _drive(state, options, initial, client_factory, asker, after_node, progress)
+    return _drive(state, options, initial, client_factory, asker, after_node, progress, customize)
 
 
 def resume_agent(
@@ -115,6 +119,7 @@ def resume_agent(
     asker: Asker | None = None,
     after_node: Callable[[str], None] | None = None,
     progress: Progress | None = None,
+    customize: Customize | None = None,
 ) -> AgentOutcome:
     """Continue a paused or interrupted run from its last checkpoint, on the same model.
 
@@ -140,7 +145,7 @@ def resume_agent(
         run_seed=options.seed,
         created_at=datetime.now(UTC),
     )
-    return _drive(state, options, None, client_factory, asker, after_node, progress)
+    return _drive(state, options, None, client_factory, asker, after_node, progress, customize)
 
 
 def resume_command(run_id: str, out_dir: Path) -> str:
@@ -215,6 +220,7 @@ def _drive(
     asker: Asker | None,
     after_node: Callable[[str], None] | None,
     progress: Progress | None,
+    customize: Customize | None = None,
 ) -> AgentOutcome:
     progress = progress if progress is not None else NullProgress()
     connection = sqlite3.connect(state.checkpoint_path, check_same_thread=False)
@@ -249,6 +255,8 @@ def _drive(
         try:
             deps = _deps(options, state.run_id, client_factory, spent, progress)
             deps.after_node = after_node
+            if customize is not None:
+                customize(deps)
             deps.carried_calls = carried
             deps.outages = outages
             app = build_graph(deps).compile(checkpointer=saver)
@@ -307,7 +315,12 @@ def _drive(
     next_spec = final.get("next_spec")
     if options.mode == "autopilot" and next_spec and options.allow_followup:
         return _followup(
-            outcome, options, SplitSpec.model_validate(next_spec), client_factory, progress
+            outcome,
+            options,
+            SplitSpec.model_validate(next_spec),
+            client_factory,
+            progress,
+            customize,
         )
     return outcome
 
@@ -384,6 +397,17 @@ def _pause_text(
                 f"cap of Rs {exc.cap_inr:g}"
             )
             raise_it = "To allow more for this run, raise RUN_CAP_INR in holdout/llm/config.py"
+        elif exc.scope == "reserve":
+            limit = (
+                f"would take project spend from Rs {exc.project_spent_inr:.2f} into the "
+                f"benchmark reserve (spend other than the benchmark may reach Rs "
+                f"{exc.cap_inr:g})"
+            )
+            raise_it = (
+                "The reserve keeps money for the final benchmark run. Lower "
+                "BENCHMARK_RESERVE_INR in holdout/llm/config.py only as a deliberate, "
+                "documented decision"
+            )
         else:
             limit = (
                 f"would take project spend from Rs {exc.project_spent_inr:.2f} past the "
@@ -424,6 +448,7 @@ def _followup(
     spec: SplitSpec,
     client_factory: ClientFactory | None,
     progress: Progress,
+    customize: Customize | None = None,
 ) -> AgentOutcome:
     """Exactly one new run with the corrected split (same model); it carries the caveat."""
     column = spec.group_col or spec.time_col
@@ -436,7 +461,9 @@ def _followup(
         previous_run_id=first.run_id,
         allow_followup=False,
     )
-    second = run_agent(followup_options, client_factory=client_factory, progress=progress)
+    second = run_agent(
+        followup_options, client_factory=client_factory, progress=progress, customize=customize
+    )
     assert first.manifest is not None
     if first.manifest.agent is not None:
         linked = first.manifest.model_copy(

@@ -244,8 +244,18 @@ class StabilityEvidence(_Frozen):
     confidence: float
 
 
+class JudgeEvidence(_Frozen):
+    """A flag raised by an LLM verifier instead of a deterministic check (benchmark
+    ablation only): what it said, nothing measured."""
+
+    kind: Literal["judge"] = "judge"
+    verifier: str
+    rationale: str
+
+
 Evidence = Annotated[
-    SingleFeatureEvidence
+    JudgeEvidence
+    | SingleFeatureEvidence
     | HintEvidence
     | IdLikeEvidence
     | DuplicateEvidence

@@ -103,6 +103,8 @@ class AgentOptions:
     #: The model this run is pinned to, resolved once at the start; resume and follow-up
     #: runs reuse it, so a run never switches models.
     pinned_model: str | None = None
+    #: Plan fields the user stated, applied by the offline planner only (see PlanContext).
+    plan_overrides: dict[str, Any] = field(default_factory=dict)
 
     @property
     def model_overridden(self) -> bool:
@@ -161,6 +163,26 @@ class AgentDeps:
     carried_calls: list[dict[str, Any]] = field(default_factory=list)
     #: Earlier pauses of this run (LLMOutage records as JSON).
     outages: list[dict[str, Any]] = field(default_factory=list)
+    #: Replaces the deterministic audit layer (the benchmark's LLM-judge ablation only).
+    auditor: "Auditor | None" = None
+
+
+@dataclass(frozen=True)
+class AuditInputs:
+    """What an auditor sees after a cross-validated plan (development rows only)."""
+
+    dev: pd.DataFrame
+    plan: ModelPlan
+    cv: CVResult
+    baseline: CVResult
+    profile: DatasetProfile
+    spec: SplitSpec
+    target: str
+    goal: str
+    round: int
+
+
+Auditor = Callable[[AuditInputs], AuditReport]
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -356,6 +378,7 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
                     {"purpose": e["purpose"], "status": e["status"], "output": e["output"][:4000]}
                     for e in state.get("eda", [])
                 ],
+                overrides=_options(state).plan_overrides,
             )
         )
         return {
@@ -379,20 +402,35 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
         run_state = _run_state(state)
         sealed = SealedHoldout.load(run_state)
         current = ModelPlan.model_validate(state["current_plan"])
-        report = run_audits(
-            run_state,
-            dev,
-            current,
-            CVResult.model_validate(state["cv"]),
-            baseline=CVResult.model_validate(state["baseline"]),
-            profile=profile,
-            spec=spec,
-            target=_options(state).target,
-            thresholds=load_thresholds(),
-            overlap_source=sealed,
-            hint_provider=planner.hint_provider(state["goal"]),
-            goal_text=state["goal"],
-        )
+        if deps.auditor is not None:  # the LLM-judge ablation replaces the audit layer
+            report = deps.auditor(
+                AuditInputs(
+                    dev=dev,
+                    plan=current,
+                    cv=CVResult.model_validate(state["cv"]),
+                    baseline=CVResult.model_validate(state["baseline"]),
+                    profile=profile,
+                    spec=spec,
+                    target=_options(state).target,
+                    goal=state["goal"],
+                    round=state["round"],
+                )
+            )
+        else:
+            report = run_audits(
+                run_state,
+                dev,
+                current,
+                CVResult.model_validate(state["cv"]),
+                baseline=CVResult.model_validate(state["baseline"]),
+                profile=profile,
+                spec=spec,
+                target=_options(state).target,
+                thresholds=load_thresholds(),
+                overlap_source=sealed,
+                hint_provider=planner.hint_provider(state["goal"]),
+                goal_text=state["goal"],
+            )
         if report.holdout_invalid and not sealed.holdout_invalid:
             sealed.mark_invalid(
                 [f"{f.check.value}: {f.message}" for f in report.flags if f.invalidates_holdout],
