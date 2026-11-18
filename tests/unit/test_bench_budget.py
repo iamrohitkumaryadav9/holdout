@@ -88,12 +88,15 @@ def test_general_spend_is_measured_against_the_cap_minus_the_reserve(home: Path)
     assert "the cap minus the reserve" in report.render()
 
 
-def test_unmeasured_llm_systems_and_a_missing_balance_are_refusals(home: Path) -> None:
+def test_unmeasured_systems_are_bounded_by_the_cap_and_a_missing_balance_refuses(
+    home: Path,
+) -> None:
     report = estimate(
         {"holdout": 5, "flaml": 5}, load_bench_config(), purpose="benchmark", measured={},
         today=date(2026, 11, 20),
     )  # fmt: skip
-    assert "holdout: no pilot measurement" in report.render()
+    assert report.total_inr == 5 * 15.0  # worst case: the per-run cap for every unit
+    assert "worst case = per-run cap" in report.render()
     measured_only = estimate(
         {"holdout": 5}, load_bench_config(), purpose="benchmark", measured=MEASURED,
         today=date(2026, 11, 20),

@@ -33,3 +33,8 @@ smoke_runs/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Benchmark harness state: seals and system work directories contain data.
+results/**/seals/
+results/**/work/
+

@@ -9,8 +9,9 @@ table is dated; the promotional price doubles on 2027-01-01). The total is compa
   reserve - spent`` for anything else (the benchmark reserve);
 * the prepaid balance left (recorded with ``holdout spend --set-balance``).
 
-A run that does not fit is refused with every shortfall spelled out. An LLM system without a
-pilot measurement, or no recorded balance, is also a refusal: the estimate would be a guess.
+A run that does not fit is refused with every shortfall spelled out; so is any LLM spend
+without a recorded balance. An LLM system without a pilot measurement (the pilot itself) is
+estimated at its hard worst case, the per-run cap per unit.
 """
 
 import json
@@ -133,9 +134,17 @@ def estimate(
             continue
         m = measured.get(system)
         if m is None:
-            if units:
-                shortfalls.append(f"{system}: no pilot measurement; run the pilot first")
-            estimates.append(SystemEstimate(system, units, None, "not measured", 0.0))
+            # No measurement (the pilot itself): bound it by the hard per-run cap. A call
+            # past that cap is never sent, so this is a true worst case, not a guess.
+            estimates.append(
+                SystemEstimate(
+                    system,
+                    units,
+                    config.run_cap_inr,
+                    "not measured: worst case = per-run cap",
+                    units * config.run_cap_inr,
+                )
+            )
             continue
         system_factor = _price_factor(config.model, m.measured_on, today)
         factor = max(factor, system_factor)
