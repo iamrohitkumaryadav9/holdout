@@ -18,7 +18,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -422,6 +422,13 @@ def pending(
     return todo
 
 
+def tier_of(service_tier: str | Mapping[str, str] | None, system: str) -> str | None:
+    """The tier a system's calls request: one tier for all, or per system (Amendment 2)."""
+    if isinstance(service_tier, Mapping):
+        return service_tier.get(system)
+    return service_tier
+
+
 def ensure_seal(unit: Unit, root: Path, prepare_fn: Callable[[Unit], PreparedUnit]) -> None:
     """Create the unit's seal and dummy scores if missing. With several workers this runs
     in the parent before dispatch, so units of different systems that share a seal never
@@ -572,7 +579,7 @@ def run_all(
     max_spend_inr: float | None = None,
     ledger: SpendLedger | None = None,
     retry_failed: bool = False,
-    service_tier: str | None = None,
+    service_tier: str | Mapping[str, str] | None = None,
     workers: int = 1,
     system_factory: Callable[[list[str]], dict[str, System]] | None = None,
     purpose: str | None = None,
@@ -692,7 +699,7 @@ def _run_pass(
     write: Callable[[str], None],
     prepare_fn: Callable[[Unit], PreparedUnit],
     max_spend_inr: float | None,
-    service_tier: str | None,
+    service_tier: str | Mapping[str, str] | None,
     system_factory: Callable[[list[str]], dict[str, System]] | None,
     breaker: CircuitBreaker,
 ) -> tuple[list[BaseException], bool]:
@@ -794,7 +801,7 @@ def _run_pass(
                 result = run_unit(
                     unit, system_for(unit.system), root, model=model, run_cap_inr=run_cap_inr,
                     progress=progress, resume=resume, prepare_fn=prepare_fn,
-                    service_tier=service_tier,
+                    service_tier=tier_of(service_tier, unit.system),
                 )  # fmt: skip
                 future: cf.Future[BenchResult] = cf.Future()
                 future.set_result(result)
@@ -803,7 +810,8 @@ def _run_pass(
             else:
                 assert system_factory is not None
                 ensure_seal(unit, root, prepare_fn)
-                job = _Job(unit, resume, root, model, run_cap_inr, service_tier,
+                job = _Job(unit, resume, root, model, run_cap_inr,
+                           tier_of(service_tier, unit.system),
                            system_factory, prepare_fn)  # fmt: skip
                 running[pool.submit(_work, job)] = unit
         while running:
@@ -892,7 +900,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         progress=progress,
         max_spend_inr=args.max_spend,
         retry_failed=args.retry_failed,
-        service_tier=config.service_tier,
+        service_tier=config.tiers(),
         workers=args.workers,
         system_factory=functools.partial(build_systems, config=config),
         purpose=args.purpose,

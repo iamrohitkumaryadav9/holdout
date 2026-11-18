@@ -242,7 +242,8 @@ def test_the_preflight_leaves_headroom_for_the_units_in_flight() -> None:
                               "today": date(2026, 11, 20)}  # fmt: skip
     one = estimate({"react": 10, "holdout": 10}, cfg, workers=1, **kwargs)
     four = estimate({"react": 10, "holdout": 10}, cfg, workers=4, **kwargs)
-    assert one.total_inr == four.total_inr == pytest.approx((60 + 10) * 1.2 * 0.5)
+    # react on Flex (x 0.5), holdout on Standard (x 1; Amendment 2).
+    assert one.total_inr == four.total_inr == pytest.approx((60 * 0.5 + 10) * 1.2)
     assert one.fits, one.render()  # 42 + 30 <= 150
     assert one.headroom_inr == 30.0  # the largest single worst case (Holdout: two caps)
     assert four.headroom_inr == 4 * 30.0

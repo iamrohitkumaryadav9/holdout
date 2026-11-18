@@ -7,6 +7,11 @@ model = "gemini-3.8-flash"
 # (50% of the standard price; requests may queue for minutes, so the client timeout is 15
 # minutes and time waiting on the API is reported apart from compute time). Pre-registered.
 service_tier = "flex"
+# Per-system overrides of the tier (prereg Amendment 2, 2026-11-18: Flex refused about 80%
+# of requests with HTTP 503, so holdout and llm_judge run on Standard; react stays on Flex
+# with Amendment 1's retries and per-call Standard fallback). Same model, prompts and
+# parameters: the tier changes latency and price only.
+service_tiers = { holdout = "standard", llm_judge = "standard" }
 # Per-run budget cap in rupees, the same for every system (holdout.llm.config.RUN_CAP_INR).
 run_cap_inr = 15.0
 # Systems compared, in report order.

@@ -251,16 +251,16 @@ def estimate(
                 )
             )
             continue
-        system_factor = _price_factor(
-            config.model, m.measured_on, today, m.tier, config.service_tier
-        )
-        if config.service_tier == "flex" and fallback_share > 0:
+        tier = config.tier_for(system)  # per system (Amendment 2)
+        system_factor = _price_factor(config.model, m.measured_on, today, m.tier, tier)
+        if tier == "flex" and fallback_share > 0:
             # Calls served by the standard fallback cost the standard rate (Amendment 1).
             standard = _price_factor(config.model, m.measured_on, today, m.tier, "standard")
             system_factor = (1 - fallback_share) * system_factor + fallback_share * standard
         factors.append(system_factor)
         total = units * m.per_run_inr * (1 + config.cost_margin) * system_factor
-        source = f"pilot mean of {m.runs} runs, {m.measured_on}, {m.tier} tier"
+        source = (f"pilot mean of {m.runs} runs, {m.measured_on}, {m.tier} tier; priced at "
+                  f"{tier}")  # fmt: skip
         estimates.append(SystemEstimate(system, units, m.per_run_inr, source, total))
     total = sum(e.total_inr for e in estimates)
     llm_units = sorted(
@@ -324,13 +324,17 @@ def estimate(
 FALLBACK_MIN_UNITS: Final = 10
 
 
-def observed_fallback_share(results_root: Path, suites: Sequence[str]) -> tuple[float, str]:
-    """Share of LLM calls served by the standard fallback, over the completed LLM units of
-    ``suites`` (latest result per unit). 0 until ``FALLBACK_MIN_UNITS`` have completed."""
+def observed_fallback_share(
+    results_root: Path, suites: Sequence[str], systems: Sequence[str] | None = None
+) -> tuple[float, str]:
+    """Share of LLM calls served by the standard fallback, over the completed units of the
+    Flex systems ``systems`` (default: every LLM system) in ``suites`` (latest result per
+    unit). 0 until ``FALLBACK_MIN_UNITS`` such units have completed."""
     from bench.score import load_results
 
+    wanted = set(systems) if systems is not None else set(LLM_SYSTEMS)
     runs = [r for s in suites for r in load_results(results_root, s)
-            if r.system in LLM_SYSTEMS and r.status == "completed"]  # fmt: skip
+            if r.system in wanted and r.status == "completed"]  # fmt: skip
     calls = sum(r.calls for r in runs)
     fallbacks = sum(r.fallbacks for r in runs)
     if len(runs) < FALLBACK_MIN_UNITS or calls == 0:
@@ -367,11 +371,16 @@ def preflight(
         counts.setdefault(unit.system, 0)
     if not all_units:
         raise ValueError("no units to estimate")
+    flex_systems = [s for s in LLM_SYSTEMS if config.tier_for(s) == "flex"]
     share, note = (
-        observed_fallback_share(results_root, sorted({u.suite for u in all_units}))
-        if config.service_tier == "flex"
+        observed_fallback_share(
+            results_root, sorted({u.suite for u in all_units}), sorted(flex_systems)
+        )
+        if flex_systems
         else (0.0, "")
     )
+    if flex_systems:
+        note += f" (Flex systems: {', '.join(sorted(flex_systems))})"
     report = estimate(counts, config, purpose=purpose, workers=workers, fallback_share=share,
                       fallback_note=note)  # fmt: skip
     report.scope = scope

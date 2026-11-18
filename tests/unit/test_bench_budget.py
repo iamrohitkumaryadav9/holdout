@@ -55,7 +55,8 @@ def test_a_run_that_fits_is_allowed(home: Path) -> None:
         today=date(2026, 11, 20),
     )
     assert report.fits, report.render()
-    assert report.total_inr == pytest.approx((10 * 1.0 + 10 * 6.0) * 1.2)
+    # holdout runs on Standard (Amendment 2): twice its Flex measurement; react on Flex.
+    assert report.total_inr == pytest.approx((10 * 1.0 * 2 + 10 * 6.0) * 1.2)
     assert "fits: yes" in report.render()
 
 
@@ -117,11 +118,11 @@ def test_completed_units_cost_nothing(home: Path) -> None:
 def test_the_price_doubling_is_priced_in(home: Path) -> None:
     SpendLedger().record_balance(700.0, datetime.now().astimezone().date())
     before = estimate(
-        {"holdout": 10}, load_bench_config(), purpose="benchmark", measured=MEASURED,
+        {"react": 10}, load_bench_config(), purpose="benchmark", measured=MEASURED,
         today=date(2026, 12, 31),
     )  # fmt: skip
     after = estimate(
-        {"holdout": 10}, load_bench_config(), purpose="benchmark", measured=MEASURED,
+        {"react": 10}, load_bench_config(), purpose="benchmark", measured=MEASURED,
         today=date(2027, 1, 1),
     )  # fmt: skip
     assert after.price_factor == pytest.approx(2.0)

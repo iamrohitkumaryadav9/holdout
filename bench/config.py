@@ -2,7 +2,7 @@
 
 import hashlib
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from holdout.llm import config as llm_config
@@ -23,6 +23,16 @@ class BenchConfig:
     cost_margin: float
     pilot_results: Path
     sha256: str
+    #: Per-system tier overrides (Amendment 2); systems not listed use ``service_tier``.
+    service_tiers: dict[str, str] = field(default_factory=dict)
+
+    def tier_for(self, system: str) -> str:
+        """The Gemini service tier the system's calls request."""
+        return self.service_tiers.get(system, self.service_tier)
+
+    def tiers(self) -> dict[str, str]:
+        """Tier per configured LLM system."""
+        return {s: self.tier_for(s) for s in self.systems}
 
 
 def load_bench_config(path: Path = CONFIG_PATH) -> BenchConfig:
@@ -45,15 +55,20 @@ def load_bench_config(path: Path = CONFIG_PATH) -> BenchConfig:
         cost_margin=float(raw["cost_margin"]),
         pilot_results=Path(raw["pilot_results"]),
         sha256=hashlib.sha256(raw_bytes.replace(b"\r\n", b"\n")).hexdigest(),
+        service_tiers={str(k): str(v) for k, v in raw.get("service_tiers", {}).items()},
     )
     unknown = sorted(set(cfg.systems) - set(ALL_SYSTEMS))
     if unknown:
         raise ValueError(f"unknown systems in {path.name}: {unknown}")
-    if cfg.service_tier not in llm_config.SERVICE_TIERS:
-        raise ValueError(f"unknown service tier {cfg.service_tier!r}")
-    table = llm_config.FLEX_PRICE_TABLE if cfg.service_tier == "flex" else llm_config.PRICE_TABLE
-    if cfg.model not in table:
-        raise ValueError(f"{cfg.model!r} has no {cfg.service_tier} price in holdout.llm.config")
+    unknown_overrides = sorted(set(cfg.service_tiers) - set(cfg.systems))
+    if unknown_overrides:
+        raise ValueError(f"service_tiers names unknown systems: {unknown_overrides}")
+    for tier in {cfg.service_tier, *cfg.service_tiers.values()}:
+        if tier not in llm_config.SERVICE_TIERS:
+            raise ValueError(f"unknown service tier {tier!r}")
+        table = llm_config.FLEX_PRICE_TABLE if tier == "flex" else llm_config.PRICE_TABLE
+        if cfg.model not in table:
+            raise ValueError(f"{cfg.model!r} has no {tier} price in holdout.llm.config")
     if cfg.run_cap_inr != llm_config.RUN_CAP_INR:
         raise ValueError("run_cap_inr must equal Holdout's RUN_CAP_INR (one cap for all)")
     if cfg.cost_margin < 0:

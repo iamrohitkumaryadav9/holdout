@@ -56,7 +56,7 @@ def test_the_whole_benchmark_must_fit_not_each_suite(
         out = capsys.readouterr().out
         assert "scope: the whole final benchmark (final_v1 + real_world_v1" in out
         assert "fits: NO" in out
-        assert "unit-start guard would stop the run" in out
+        assert "short: estimated Rs" in out
         assert bench_run.main(args) == 6  # and the run refuses to start
         assert "refusing to start" in capsys.readouterr().out
     assert not (root / "final_v1").exists()  # nothing ran

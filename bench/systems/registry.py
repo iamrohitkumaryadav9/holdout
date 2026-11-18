@@ -47,7 +47,7 @@ def build_systems(
             systems[name] = HoldoutSystem("llm_judge", client_factory=factory, customize=install)
         elif name == "react":
             systems[name] = ReactSystem(
-                factory or gemini_factory(config.model, config.service_tier),
+                factory or gemini_factory(config.model, config.tier_for("react")),
                 max_steps=config.react_max_steps,
                 observation_chars=config.react_observation_chars,
             )
