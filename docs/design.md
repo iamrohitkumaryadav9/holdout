@@ -792,9 +792,18 @@ cost, so the benchmark runs on Gemini's Flex tier and the ReAct prompt is append
   largest worst case among pending LLM units. Otherwise the guard would stop the run before
   its last units.
 - **Not supported.** Two `bench.run` invocations on the same results directory at once.
-- **FLAML contention.** FLAML's 60 s budget is wall-clock, so with several workers sharing
-  the CPU it searches less than it would alone. See the limitations in
-  docs/benchmark.md.
+- **CPU fairness.** With several workers the run has two passes.
+  - First, the LLM units run in parallel. Each worker is limited to `cores // workers`
+    threads through the OpenMP, BLAS and loky environment variables, which the workers'
+    sandboxes inherit, plus threadpoolctl.
+  - Then the CPU-only units (flaml, audits_only) run one at a time in the parent, unlimited.
+  - A pause or a guard stop ends the first pass but not the second: CPU-only units cost
+    nothing and need no API.
+  - Each result records `workers`, `threads_per_worker` and `logical_cores`.
+- **Whole-benchmark pre-flight.** Any run or `--plan` on `final_v1` or `real_world_v1` is
+  budget-checked as the whole final benchmark: every pending unit of both suites and every
+  configured system, with the in-flight headroom. Checked one suite at a time, each fit
+  while the two together did not.
 
 ## Environment
 

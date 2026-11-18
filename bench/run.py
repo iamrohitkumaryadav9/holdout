@@ -17,7 +17,8 @@ import json
 import os
 import sys
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -435,6 +436,52 @@ class _Job:
 
 
 _WORKER_SYSTEMS: dict[str, System] = {}
+_WORKER_LIMITS: list[Any] = []
+
+#: Environment variables that cap native thread pools (read when a library loads):
+#: OpenMP (LightGBM, scikit-learn), MKL, OpenBLAS, numexpr, Accelerate, and joblib/loky's
+#: CPU count (``n_jobs=-1``). Set for worker processes and the sandboxes they start.
+THREAD_ENV = (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "LOKY_MAX_CPU_COUNT",
+)
+
+
+def logical_cores() -> int:
+    return os.cpu_count() or 1
+
+
+def threads_per_worker(workers: int, cores: int | None = None) -> int:
+    """Threads each of ``workers`` processes may use so the total stays within the
+    machine's logical cores (at least one each)."""
+    return max(1, (cores if cores is not None else logical_cores()) // workers)
+
+
+@contextmanager
+def _thread_limits(threads: int) -> Iterator[None]:
+    """Set the thread-limit variables while worker processes are spawned (they inherit the
+    environment, and so do the sandbox processes they start); restore them afterwards."""
+    saved = {name: os.environ.get(name) for name in THREAD_ENV}
+    os.environ.update({name: str(threads) for name in THREAD_ENV})
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _limit_worker_threads(threads: int) -> None:
+    """Pool initializer: also cap pools of libraries already loaded (threadpoolctl)."""
+    from threadpoolctl import threadpool_limits  # type: ignore[import-untyped]
+
+    _WORKER_LIMITS.append(threadpool_limits(limits=threads))
 
 
 def _work(job: _Job) -> BenchResult:
@@ -490,31 +537,101 @@ def run_all(
     nothing running, the pass stops cleanly. Spend is read from the ledger, so failed and
     paused units count too.
 
-    With ``workers`` > 1, units run in separate processes; ``system_factory`` builds the
-    systems there and must be picklable, like ``prepare_fn``. Seals and dummy scores are
-    created here first; results are appended here, in completion order.
+    With ``workers`` > 1, the LLM units run first, in separate processes (``system_factory``
+    builds the systems there and must be picklable, like ``prepare_fn``), each limited to
+    ``threads_per_worker`` native threads so the total stays within the logical cores.
+    Seals and dummy scores are created here first; results are appended here, in
+    completion order. The CPU-only units (flaml, audits_only) then run in a second pass,
+    one at a time, so FLAML's wall-clock budget and the timings are not reduced by
+    contention. Every result records its pass's worker count and thread limit.
     """
-    import concurrent.futures as cf
-    import multiprocessing
-
-    from bench.budget import limits_left, start_refusal, unit_worst_case
+    from bench.budget import LLM_SYSTEMS
 
     if workers < 1:
         raise ValueError("workers must be at least 1")
     if workers > 1 and system_factory is None:
         raise ValueError("several workers need a picklable system_factory")
+    todo = pending(units, root, retry_failed=retry_failed)
+    if workers > 1:
+        passes = [
+            ([t for t in todo if t[0].system in LLM_SYSTEMS], workers),
+            ([t for t in todo if t[0].system not in LLM_SYSTEMS], 1),
+        ]
+    else:
+        passes = [(todo, 1)]
     ledger = ledger if ledger is not None else SpendLedger()
     purpose = purpose or llm_config.spend_purpose()
     start = ledger.total_inr()
     done: list[BenchResult] = []
+    for batch, n in passes:
+        if not batch:
+            continue
+        if len(passes) > 1:
+            kind = "LLM units" if n > 1 else "CPU-only units, one at a time"
+            write(f"pass: {len(batch)} {kind} ({n} worker(s))")
+        errors = _run_pass(
+            batch, n, systems, root, done, ledger=ledger, start=start, purpose=purpose,
+            model=model, run_cap_inr=run_cap_inr, progress=progress,
+            stop_on_pause=stop_on_pause, write=write, prepare_fn=prepare_fn,
+            max_spend_inr=max_spend_inr, service_tier=service_tier,
+            system_factory=system_factory,
+        )  # fmt: skip
+        if errors:
+            raise errors[0]
+    return done
+
+
+def _run_pass(
+    todo: list[tuple[Unit, bool]],
+    workers: int,
+    systems: dict[str, System],
+    root: Path,
+    done: list[BenchResult],
+    *,
+    ledger: SpendLedger,
+    start: float,
+    purpose: str,
+    model: str,
+    run_cap_inr: float,
+    progress: Progress | None,
+    stop_on_pause: bool,
+    write: Callable[[str], None],
+    prepare_fn: Callable[[Unit], PreparedUnit],
+    max_spend_inr: float | None,
+    service_tier: str | None,
+    system_factory: Callable[[list[str]], dict[str, System]] | None,
+) -> list[BaseException]:
+    """One pass of :func:`run_all` with ``workers`` processes (1: in this process)."""
+    import concurrent.futures as cf
+    import multiprocessing
+
+    from bench.budget import limits_left, start_refusal, unit_worst_case
+
     running: dict[cf.Future[BenchResult], Unit] = {}
     errors: list[BaseException] = []
     stopping = False
+    threads = threads_per_worker(workers) if workers > 1 else None
+    setting = {"workers": workers, "threads_per_worker": threads,
+               "logical_cores": logical_cores()}  # fmt: skip
+    limits: AbstractContextManager[None] = (
+        _thread_limits(threads) if threads is not None else nullcontext()
+    )
+    limits.__enter__()  # workers are spawned on demand: keep the limits for the whole pass
     pool = (
-        cf.ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"))
+        cf.ProcessPoolExecutor(
+            workers,
+            mp_context=multiprocessing.get_context("spawn"),
+            initializer=functools.partial(_limit_worker_threads, threads or 1),
+        )
         if workers > 1
         else None
     )
+
+    def system_for(name: str) -> System:
+        if name not in systems:
+            assert system_factory is not None, f"no system {name!r}"
+            systems.update(system_factory([name]))
+        return systems[name]
 
     def worst(unit: Unit) -> float:
         return unit_worst_case(unit.system, run_cap_inr)
@@ -533,8 +650,8 @@ def run_all(
                 stopping = True
                 continue
             result = future.result()
-            # Units share the CPU under several workers (FLAML's wall-clock budget): record it.
-            result = result.model_copy(update={"extra": {**result.extra, "workers": workers}})
+            # How the CPU was shared while this unit ran: workers and threads per worker.
+            result = result.model_copy(update={"extra": {**result.extra, **setting}})
             append_result(root, result)
             done.append(result)
             write(f"  -> {unit.system} {unit.task_id} seed {unit.seed}: {result.status} in "
@@ -546,7 +663,7 @@ def run_all(
                 write("paused: no further unit starts; rerun the same command to resume")
 
     try:
-        for unit, resume in pending(units, root, retry_failed=retry_failed):
+        for unit, resume in todo:
             while running and len(running) >= workers and not stopping:
                 collect(block=True)
             while not stopping:
@@ -573,7 +690,7 @@ def run_all(
                   f"seed {unit.seed} {unit.variant}")  # fmt: skip
             if pool is None:
                 result = run_unit(
-                    unit, systems[unit.system], root, model=model, run_cap_inr=run_cap_inr,
+                    unit, system_for(unit.system), root, model=model, run_cap_inr=run_cap_inr,
                     progress=progress, resume=resume, prepare_fn=prepare_fn,
                     service_tier=service_tier,
                 )  # fmt: skip
@@ -590,11 +707,12 @@ def run_all(
         while running:
             collect(block=True)
     finally:
-        if pool is not None:
-            pool.shutdown(wait=True, cancel_futures=True)
-    if errors:
-        raise errors[0]
-    return done
+        try:
+            if pool is not None:
+                pool.shutdown(wait=True, cancel_futures=True)
+        finally:
+            limits.__exit__(None, None, None)
+    return errors
 
 
 def main(argv: Sequence[str] | None = None) -> int:
