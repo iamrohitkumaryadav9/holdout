@@ -1,11 +1,11 @@
 # Pre-registration: Holdout benchmark v1
 
-**Status: DRAFT for review. Not yet tagged.** This document becomes binding when it is
-committed and tagged `prereg-v1`. After the tag, nothing that affects results may change
-without a dated amendment at the end of this file that says what changed, why, and whether
-any final result had been seen.
+**Status: registered.** This document is binding from the commit tagged `prereg-v1`.
+Nothing that affects results may change without a dated amendment at the end of this file.
+Each amendment says what changed, why, and whether any final result had been seen.
 
-- Written 2026-11-18, before any system has run on `final_v1` or `real_world_v1`.
+- Written and reviewed 2026-11-18, before any system has run on `final_v1` or
+  `real_world_v1`.
 - Definitions of systems, suites, holdouts and scoring: [benchmark.md](benchmark.md).
 - Design decisions and the one-time tuning: [design.md](design.md).
 
@@ -18,7 +18,7 @@ are never pooled with originals.
 | | hypothesis | data | primary metric | test | decision rule |
 |---|---|---|---|---|---|
 | **H1** | Holdout's detection recall on planted traps exceeds ReAct's. | `final_v1`, 28 trap tasks | detection in both seeds, per task | exact McNemar (binomial on discordant tasks), two-sided | **supported** if Holdout has more discordant wins and the Holm-adjusted p < 0.05 |
-| **H2** | Holdout's critical false-alarm rate on clean controls is at most 10%. | 12 clean twins in `final_v1` + 4 real-world clean controls = **16 clean tasks** | a task alarms if any seed or variant raised a critical issue | observed rate; exact one-sided binomial p for H0: rate ≥ 10% | **pass** if the observed rate ≤ 10%, i.e. at most 1 of 16 |
+| **H2** | Holdout's critical false-alarm rate on clean controls is at most 10%. | 12 clean twins in `final_v1` + 4 real-world clean controls = **16 clean tasks** | a task is a non-pass if any seed or variant raised a critical issue **or failed** | none: decided by the rate rule; the exact one-sided binomial p (H0: rate ≥ 10%) and the Clopper–Pearson upper bound are descriptive only | **pass** if the observed rate ≤ 10%, i.e. at most 1 of 16 |
 | **H3** | Holdout's optimism gap is smaller than ReAct's. | `final_v1`, every task where both systems have a gap | **primary: `optimism_gap_deploy`**; secondary: `optimism_gap_iid` | paired sign-flip permutation test on the per-task difference (Holdout − ReAct), two-sided | **supported** if the mean difference is negative and the Holm-adjusted p < 0.05 |
 | **H4** | Deterministic audits beat the LLM judge on detection. | `final_v1`, 28 trap tasks | as H1, `holdout` vs `llm_judge` | as H1 | as H1 |
 | **H5** *(exploratory)* | Real-world detection does not depend on column names. | `real_world_v1` issues, original vs anonymised | per-issue detection rate (seeds averaged) | paired bootstrap 95% CI of original − anonymised | "no material dependence" if the CI lies within ±0.20; outside the Holm family |
@@ -28,21 +28,21 @@ Gemini verifier. Same planner, compiler, fix loop and unseal gate. The compariso
 isolates the audit layer.
 
 **Multiplicity.**
-- **Family.** Holm–Bonferroni over **H1–H4** at α = 0.05.
-- **H2's p.** H2 is decided by its observed-rate rule. Its exact binomial p still enters
-  the Holm family. That makes the correction for H1, H3 and H4 more conservative, never
-  less.
+- **Family.** Holm–Bonferroni over **H1, H3 and H4** at α = 0.05.
+- **H2 is not in the family.** It is decided by its pre-stated observed-rate rule, so no
+  p-value plays a role in its decision. This corrects the earlier "Holm covers H1–H4",
+  which was written before H2 became a rate rule.
 - **H5** is exploratory.
 
-**H2's bound, stated as decided.** With 16 clean tasks, the one-sided 95% Clopper–Pearson
-upper bound cannot fall below about 17% even with zero false alarms (and H2's binomial p
-cannot fall below 0.9¹⁶ = 0.185). The bound is therefore **reported next to the rate but
-not used as the pass condition**.
+**H2's bound and p, stated as decided.** With 16 clean tasks, the one-sided 95%
+Clopper–Pearson upper bound cannot fall below about 17% even with zero false alarms. The
+exact binomial p cannot fall below 0.9¹⁶ = 0.185. Both are **reported next to the rate as
+descriptive statistics only**.
 
 **Estimates reported with every hypothesis.**
 - **H1, H4:** the mean per-task difference in detection rate, with a paired bootstrap 95% CI
   (10,000 resamples, seed 0).
-- **H2:** the rate and its Clopper–Pearson bound.
+- **H2:** the rate, with its Clopper–Pearson bound and binomial p (descriptive).
 - **H3:** the mean per-task gap difference, with a paired bootstrap CI.
 - **H5:** the mean difference with its CI.
 
@@ -50,7 +50,8 @@ not used as the pass condition**.
 Holm) and `bench/score.py` (detection, remediation, false alarms, gaps, McNemar,
 Clopper–Pearson, bootstrap). It is tested on hand-built results in
 `tests/unit/test_bench_hypotheses.py` and `tests/unit/test_bench_scoring.py`.
-`python -m bench.analyze` prints the H1–H5 table first.
+`python -m bench.analyze` prints the H1–H5 table first, then each suite's unit failure
+rates.
 
 ## 2. Secondary and descriptive measures (no hypothesis tests)
 
@@ -74,10 +75,14 @@ Clopper–Pearson, bootstrap). It is tested on hand-built results in
   - *Planted traps:* the expected category is reported at severity ≥ the trap's minimum.
   - *Real-world issues:* one of the issue's categories is reported at ≥ warning, naming
     one of its columns when it has any. See benchmark.md, "Scoring".
-- **Failed units count as not detected and not remediated.** A unit fails when a system
-  crashes or a node exceeds its compute limit. Without this rule, a crashing system would
-  escape its misses. Failed units are excluded from false-alarm counts: a crash cannot
-  raise an alarm. The number of failed units per system is reported.
+- **Failed units count against the system everywhere.** A unit fails when a system
+  crashes or a node exceeds its compute limit.
+  - *On a trap:* the unit counts as not detected and not remediated.
+  - *On a clean task:* for H2 and every false-alarm metric (critical, warning, any), it
+    counts as a **non-pass**. Failing therefore cannot shrink the denominator or improve
+    the false-alarm rate.
+  - *Reporting:* each system's unit failure rate is shown near the top of every suite
+    section of `docs/results.md`.
 - **Paused units are not results.** The run is repeated until every unit is completed,
   stopped or failed.
 - **Stopped units are scored as they are.** A unit stops when it hits the per-run cap or
@@ -107,6 +112,10 @@ deterministic path. They are stated here so they cannot be explained away afterw
 - **`causal_question`: `audits_only` cannot detect it.** It does not read the goal.
 - **Neutral-named leaks** (`noisy_proxy`) get only an A1 warning, so they are not removed
   automatically. Their optimism gap is expected to resemble FLAML's for `audits_only`.
+- **A11's recall is untested going in.** It could not be measured on the dev suite: none of
+  the 14 dev reports contained a causal claim. Its performance on `causal_question` in
+  the final run is therefore untested. Only its false-positive behaviour was checked:
+  there were no flags on those 14 reports.
 
 ## 5. What is frozen
 
@@ -210,8 +219,10 @@ plus the 20% margin, × 116 units per system:
 
 ## 8. Deviations from the original Week 4 plan, decided before this registration
 
-- **H2's pass rule** is the observed rate (≤ 10%); the Clopper–Pearson bound is reported.
-- **H5** is exploratory, and Holm covers H1–H4.
+- **H2's pass rule** is the observed rate (≤ 10%). The Clopper–Pearson bound and the
+  binomial p are descriptive.
+- **H5** is exploratory, and Holm covers H1, H3 and H4. This was corrected at review: the
+  earlier "H1–H4" predates H2 becoming a rate rule.
 - **ReAct:**
   - 60 s for model-fitting steps;
   - observations truncated to 2,000 characters (never summarised);
@@ -220,7 +231,8 @@ plus the 20% margin, × 116 units per system:
 - **Flex tier** for all LLM systems, with four parallel workers for LLM units and a
   separate single-worker pass for CPU-only units.
 - **Unit worst case:** the guard counts a Holdout-family unit as two per-run caps.
-- **Failed units** count as not detected (section 3).
+- **Failed units** count against the system: as misses on traps, and as non-passes on
+  clean tasks (section 3).
 
 ## Amendments
 
