@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 
 from bench.config import BenchConfig
 from holdout.llm import config as llm_config
@@ -189,15 +190,20 @@ def estimate(
 
 
 def preflight(
-    units: Sequence[object], results_root: Path, config: BenchConfig, *, purpose: str
+    units: Sequence[Any], results_root: Path, config: BenchConfig, *, purpose: str
 ) -> PreflightReport:
     """Estimate the pending units of ``units`` (see :func:`estimate`)."""
-    from bench.run import Unit, pending
+    from bench.run import pending
 
-    typed = [u for u in units if isinstance(u, Unit)]
+    # No isinstance check: under ``python -m bench.run`` the units are instances of
+    # ``__main__.Unit``, not ``bench.run.Unit``; a type filter silently dropped them all
+    # and estimated Rs 0 (found by the pilot's pre-flight). Units are duck-typed.
+    all_units = list(units)
     counts: dict[str, int] = {}
-    for unit, _ in pending(typed, results_root):
+    for unit, _ in pending(all_units, results_root):
         counts[unit.system] = counts.get(unit.system, 0) + 1
-    for unit in typed:
+    for unit in all_units:
         counts.setdefault(unit.system, 0)
+    if not all_units:
+        raise ValueError("no units to estimate")
     return estimate(counts, config, purpose=purpose)

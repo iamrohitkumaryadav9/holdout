@@ -127,6 +127,25 @@ def test_the_price_doubling_is_priced_in(home: Path) -> None:
     assert after.total_inr == pytest.approx(2 * before.total_inr)
 
 
+def test_the_preflight_counts_units_through_the_real_entry_point(home: Path) -> None:
+    """Regression: under ``python -m bench.run`` units are ``__main__.Unit`` instances, and
+    an isinstance filter once dropped them all (estimate Rs 0)."""
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "HOLDOUT_HOME": str(home)}
+    out = subprocess.run(
+        [sys.executable, "-m", "bench.run", "--suite", "dev_v1", "--tasks", "direct_leak@adult",
+         "--seeds", "11", "--systems", "holdout", "flaml", "--results", str(home / "r"),
+         "--plan"],
+        capture_output=True, text=True, env=env, check=True,
+        cwd=Path(__file__).resolve().parents[2],
+    ).stdout  # fmt: skip
+    assert "holdout         1 pending units x Rs 15.000" in out
+    assert "estimated total Rs 15.00" in out
+
+
 # ------------------------------------------------------------------ the reserve
 
 
