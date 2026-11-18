@@ -149,6 +149,8 @@ def _rename_remedy(remedy: str, rename: Callable[[str], str]) -> str:
 
 
 def detected(result: BenchResult, expectation: Expectation) -> bool:
+    if result.status == "failed":
+        return False
     for issue in result.issues:
         if issue.category not in expectation.categories:
             continue
@@ -178,6 +180,8 @@ def remediated(result: BenchResult, expectation: Expectation) -> bool | None:
     pipeline = result.pipeline
     if remedy is None:
         return None
+    if result.status == "failed":
+        return False
     if remedy == "report:no_causal_claim":
         return bool(result.report_text) and not check_causal_claims(result.report_text or "")
     if pipeline is None:
@@ -265,9 +269,11 @@ class TaskScore:
 def task_scores(
     results: Iterable[BenchResult], truths: dict[tuple[str, str], TaskTruth]
 ) -> list[TaskScore]:
+    # Failed units count as not detected and not remediated (a crash must not escape its
+    # misses; they report no issues and no pipeline). Paused units are not results yet.
     grouped: dict[tuple[str, str, str], list[BenchResult]] = defaultdict(list)
     for r in results:
-        if r.status == "completed" or r.status == "stopped":
+        if r.status in ("completed", "stopped", "failed"):
             grouped[(r.task_id, r.variant, r.system)].append(r)
     scores = []
     for (task_id, variant, system), runs in sorted(grouped.items()):

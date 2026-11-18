@@ -136,6 +136,10 @@ The rules are in `bench/harness.py` (`DEPLOY_RULES`, `planted_rule`); the tests 
   - *Real world:* one of the issue's categories is reported at severity ≥ its minimum
     (warning) and names one of its columns, when it has any. No source grades the severity
     of these problems, so critical-level detection is a secondary metric.
+- **Failed units** (a crash, or an agent node over its compute limit) count as **not
+  detected and not remediated**, so a crash cannot escape its misses. They are excluded
+  from false-alarm counts, since a crash cannot raise an alarm. Paused units are not
+  results; the run is repeated until none remain.
 - **Remediation:** the final pipeline actually fixed it.
   - The column is dropped.
   - The split is the required group or time split.

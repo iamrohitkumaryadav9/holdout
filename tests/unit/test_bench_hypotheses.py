@@ -135,6 +135,29 @@ def test_missing_systems_are_not_evaluable_and_render() -> None:
     assert "**not evaluable**" in text
 
 
+def test_failed_units_count_as_misses_and_paused_ones_are_not_results() -> None:
+    results = _planted(12, 12, 12)
+    failed = [
+        r.model_copy(update={"status": "failed"})
+        if r.system == "react" and r.task_id in ("t0", "t1") else r
+        for r in results
+    ]  # fmt: skip
+    out = _by_name(confirmatory(failed, _truths(), _real(), _real_truths()))
+    assert "holdout only 2, react only 0" in out["H1"].detail  # the crashes are misses
+    assert out["H1"].n == N_TRAPS
+    paused = [r for r in results if not (r.system == "react" and r.task_id == "t0")] + [
+        r.model_copy(update={"status": "paused"})
+        for r in results if r.system == "react" and r.task_id == "t0"
+    ]  # fmt: skip
+    assert _by_name(confirmatory(paused, _truths(), _real(), _real_truths()))["H1"].n == (
+        N_TRAPS - 1
+    )
+    clean_fail = [r.model_copy(update={"status": "failed"}) if r.task_id == "c0" else r
+                  for r in _planted(12, 2, 2, critical_clean=1)]  # fmt: skip
+    h2 = _by_name(confirmatory(clean_fail, _truths(), _real(), _real_truths()))["H2"]
+    assert h2.n == N_CLEAN  # a crash cannot raise (or clear) an alarm: excluded
+
+
 def test_the_sign_flip_test_is_exact_for_small_samples() -> None:
     assert sign_flip_p([1.0, 1.0, 1.0]) == pytest.approx(2 / 8)  # all-plus or all-minus
     assert sign_flip_p([0.0, 0.0]) == 1.0
