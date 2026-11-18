@@ -12,10 +12,13 @@ development rows for leakage, contaminated splits and misleading metrics. A crit
 finding blocks the single, logged holdout evaluation. Every run exports a standalone script
 that reproduces its result without Holdout installed.
 
-**Status: Week 3 of 6.** The deterministic core, the audit layer, and the agent: a Gemini-backed
+**Status: Week 4 of 6.** The deterministic core, the audit layer, and the agent: a Gemini-backed
 LangGraph agent that proposes plans, explains audit flags, applies their fixes and writes a
 report whose every number comes from run state, with checkpointed resume, an autopilot mode,
-spend caps and an optional EDA sandbox. No UI yet; benchmark results come in Week 4.
+spend caps and an optional EDA sandbox. Week 4 adds the benchmark harness (five systems,
+frozen suites, two holdouts; see [docs/benchmark.md](docs/benchmark.md)) and its
+pre-registration ([docs/preregistration.md](docs/preregistration.md)). No UI yet; benchmark
+results follow the pre-registered final run.
 
 ## Quickstart (Windows PowerShell)
 
