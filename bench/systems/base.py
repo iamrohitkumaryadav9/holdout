@@ -101,6 +101,8 @@ class BenchResult(_Record):
     compute_seconds: float = 0.0
     #: Timeouts during the unit, by kind (see ``TIMEOUT_KINDS``); empty when none.
     timeouts: dict[str, int] = Field(default_factory=dict)
+    #: Calls served by the standard-tier fallback after Flex was unavailable (Amendment 1).
+    fallbacks: int = 0
     calls: int = 0
     retries: int = 0
     cache_hits: int = 0
@@ -173,6 +175,7 @@ class SystemOutput:
     tiers_served: dict[str, int] = field(default_factory=dict)
     api_seconds: float = 0.0
     timeouts: dict[str, int] = field(default_factory=dict)
+    fallbacks: int = 0
     calls: int = 0
     retries: int = 0
     cache_hits: int = 0

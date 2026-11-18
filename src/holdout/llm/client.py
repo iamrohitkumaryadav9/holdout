@@ -15,12 +15,18 @@ import random
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
 from holdout.core.errors import LLMConfigError
 from holdout.llm import config
-from holdout.llm.retry import RetryEvent, RetryPolicy, call_with_retries
+from holdout.llm.retry import (
+    FLEX_RETRY_POLICY,
+    RetryEvent,
+    RetryPolicy,
+    call_with_flex_fallback,
+    call_with_retries,
+)
 
 
 @dataclass(frozen=True)
@@ -58,6 +64,11 @@ class Usage:
     cached_tokens: int = 0
     #: The tier that actually served the call ("standard", "flex", ...; None = not reported).
     tier: str | None = None
+    #: The tier the request asked for (None = the API default).
+    tier_requested: str | None = None
+    #: A Flex request that exhausted its attempts and was served by the single standard-tier
+    #: fallback (prereg Amendment 1).
+    fell_back: bool = False
 
     @property
     def total(self) -> int:
@@ -101,10 +112,12 @@ class GeminiClient:
         policy: RetryPolicy | None = None,
         rng: random.Random | None = None,
         timeout_seconds: float = config.REQUEST_TIMEOUT_SECONDS,
+        flex_policy: RetryPolicy = FLEX_RETRY_POLICY,
     ) -> None:
         self._model = model
         self._sleep = sleep
         self._policy = policy if policy is not None else RetryPolicy()
+        self._flex_policy = flex_policy
         self._rng = rng if rng is not None else random.Random()
         if sdk_client is not None:
             self._client = sdk_client
@@ -163,35 +176,47 @@ class GeminiClient:
         from google.genai import types
 
         structured = bool(request.response_schema)  # an empty schema asks for plain text
-        generation = types.GenerateContentConfig(
-            system_instruction=request.system or None,
-            response_mime_type="application/json" if structured else None,
-            response_json_schema=dict(request.response_schema) if structured else None,
-            temperature=request.temperature,
-            max_output_tokens=request.max_output_tokens,
-            seed=request.seed,
-            thinking_config=types.ThinkingConfig(
-                thinking_level=types.ThinkingLevel(request.thinking_level.upper())
-            ),
-            service_tier=(
-                types.ServiceTier(request.service_tier) if request.service_tier else None
-            ),
-            # The raw body: google-genai 3.4 parses only ``trafficType`` (Vertex AI only)
-            # and drops the Gemini API's ``usageMetadata.serviceTier``, the served tier.
-            should_return_http_response=True,
-        )
-        response, retries = call_with_retries(
-            lambda: self._client.models.generate_content(
+
+        def send(tier: str | None) -> Any:
+            generation = types.GenerateContentConfig(
+                system_instruction=request.system or None,
+                response_mime_type="application/json" if structured else None,
+                response_json_schema=dict(request.response_schema) if structured else None,
+                temperature=request.temperature,
+                max_output_tokens=request.max_output_tokens,
+                seed=request.seed,
+                thinking_config=types.ThinkingConfig(
+                    thinking_level=types.ThinkingLevel(request.thinking_level.upper())
+                ),
+                service_tier=types.ServiceTier(tier) if tier else None,
+                # The raw body: google-genai 3.4 parses only ``trafficType`` (Vertex AI
+                # only) and drops the Gemini API's ``usageMetadata.serviceTier``.
+                should_return_http_response=True,
+            )
+            return self._client.models.generate_content(
                 model=self._model, contents=request.user, config=generation
-            ),
+            )
+
+        # Same model, prompt and parameters on both tiers: only the tier may change.
+        response, retries, fell_back = call_with_flex_fallback(
+            send,
+            tier=request.service_tier,
             policy=self._policy,
+            flex_policy=self._flex_policy,
             sleep=self._sleep,
             rng=self._rng,
             on_retry=on_retry,
             what=f"Gemini call ({request.prompt_name})",
         )
         text, usage = parse_response(response)
-        return LLMResponse(text=text, retries=retries, usage=usage)
+        return LLMResponse(text=text, retries=retries, usage=_requested(usage, request, fell_back))
+
+
+def _requested(usage: Usage, request: LLMRequest, fell_back: bool) -> Usage:
+    """Record the requested tier and the fallback. A fallback call was sent on standard, so
+    an unreported tier is standard (it is priced as standard either way)."""
+    served = usage.tier if usage.tier is not None or not fell_back else "standard"
+    return replace(usage, tier=served, tier_requested=request.service_tier, fell_back=fell_back)
 
 
 def parse_response(response: Any) -> tuple[str, Usage]:
@@ -277,6 +302,7 @@ class FakeLLM:
     model_name: str = config.DEFAULT_MODEL
     calls: list[LLMRequest] = field(default_factory=list)
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
+    flex_retry_policy: RetryPolicy = FLEX_RETRY_POLICY
     #: Report implicit-cache hits as the prompt prefix shared with the previous call
     #: (characters / 4), like Gemini's implicit caching; off by default.
     simulate_cache: bool = False
@@ -304,8 +330,10 @@ class FakeLLM:
         """Produce the next scripted item. Exceptions in a script are raised; transient
         ones go through the same retry loop as the real client (without sleeping)."""
 
-        def attempt() -> str:
-            self.calls.append(request)
+        def attempt(tier: str | None) -> str:
+            # Each attempt is recorded with the tier it was sent on (a fallback is standard).
+            sent = request if tier == request.service_tier else replace(request, service_tier=tier)
+            self.calls.append(sent)
             queue = self._queues[request.prompt_name]
             if queue:
                 item = queue.popleft()
@@ -318,9 +346,11 @@ class FakeLLM:
             produced = item(request) if callable(item) else item
             return produced if isinstance(produced, str) else json.dumps(produced)
 
-        text, retries = call_with_retries(
+        text, retries, fell_back = call_with_flex_fallback(
             attempt,
+            tier=request.service_tier,
             policy=self.retry_policy,
+            flex_policy=self.flex_retry_policy,
             sleep=lambda seconds: None,
             rng=random.Random(0),
             on_retry=on_retry,
@@ -344,6 +374,8 @@ class FakeLLM:
                 output_tokens=len(text) // 4,
                 thinking_tokens=0,
                 cached_tokens=cached,
-                tier=request.service_tier or "standard",
+                tier="standard" if fell_back else (request.service_tier or "standard"),
+                tier_requested=request.service_tier,
+                fell_back=fell_back,
             ),
         )

@@ -100,6 +100,8 @@ class NodeUsage(_Strict):
     cached_tokens: int = 0
     inr_cache_adjusted: float = 0.0
     tiers: dict[str, int] = Field(default_factory=dict)
+    #: Calls served by the standard-tier fallback after Flex was unavailable.
+    fallbacks: int = 0
 
 
 PauseKind = Literal["llm_unavailable", "budget_cap", "billing"]

@@ -327,6 +327,7 @@ class ReactSystem:
             prompt_tokens=sum(r.prompt_tokens for r in records),
             tiers_served=_tiers(records),
             api_seconds=round(session.api_seconds, 2),
+            fallbacks=sum(r.fell_back for r in records),
             calls=len(records),
             retries=sum(r.retries for r in records),
             first_attempt={

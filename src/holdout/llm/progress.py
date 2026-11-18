@@ -131,7 +131,9 @@ class LineProgress:
         )
 
     def retry_waiting(self, node: str, purpose: str, event: RetryEvent) -> None:
-        what = "timeout" if event.kind == "timeout" else f"HTTP {event.status}"
+        what = {"timeout": "timeout", "connection": "dropped connection"}.get(
+            event.kind, f"HTTP {event.status}"
+        )
         hint = " (server Retry-After)" if event.retry_after is not None else ""
         self._line(
             f"  gemini {purpose} [{node}]: {what} on attempt {event.attempt}; "

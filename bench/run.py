@@ -372,6 +372,7 @@ def run_unit(
         api_seconds=round(output.api_seconds, 2),
         compute_seconds=round(max(0.0, wall - output.api_seconds), 2),
         timeouts=output.timeouts,
+        fallbacks=output.fallbacks,
         calls=output.calls,
         retries=output.retries,
         cache_hits=output.cache_hits,

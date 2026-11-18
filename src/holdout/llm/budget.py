@@ -287,8 +287,10 @@ class Budget:
                 "output_tokens": usage.output_tokens,
                 "thinking_tokens": usage.thinking_tokens,
                 "cached_tokens": usage.cached_tokens,
+                "tier_requested": usage.tier_requested,
                 "tier_served": usage.tier,
                 "tier_billed": billing_tier(usage),
+                "fell_back": usage.fell_back,
                 # Both valuations; "inr" (what the caps count) is one of them, chosen by
                 # HOLDOUT_TRUST_CACHE_DISCOUNT.
                 "inr_list": inr_list,

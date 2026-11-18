@@ -894,6 +894,7 @@ def usage_by_node(calls: list[dict[str, Any]]) -> dict[str, NodeUsage]:
                 float(c.get("inr_cache_adjusted", c["inr"])) for c in items if not c["cache_hit"]
             ),
             tiers=_tier_counts(items),
+            fallbacks=sum(bool(c.get("fell_back")) for c in items),
         )
         for node, items in sorted(nodes.items())
     }

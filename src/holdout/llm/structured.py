@@ -70,6 +70,9 @@ class CallRecord:
     #: and the cost with cached tokens at the cached rate (``inr`` is what the caps count).
     cached_tokens: int = 0
     tier: str | None = None
+    tier_requested: str | None = None
+    #: Served by the single standard-tier fallback after Flex was unavailable.
+    fell_back: bool = False
     inr_cache_adjusted: float = 0.0
 
 
@@ -244,6 +247,8 @@ class LLMSession:
                 rejected_text=None if valid else response.text[:REJECTED_TEXT_CHARS],
                 cached_tokens=0 if cached else response.usage.cached_tokens,
                 tier=None if cached else response.usage.tier,
+                tier_requested=request.service_tier,
+                fell_back=False if cached else response.usage.fell_back,
                 inr_cache_adjusted=0.0
                 if cached
                 else cost_inr(

@@ -388,6 +388,8 @@ def report(root: Path, suite: str) -> list[str]:
         "",
         *failure_table(results),
         "",
+        *fallback_table(results),
+        "",
     ]
     return (
         head + body + [""] + outcome_table(results) + [""] + timeout_table(results) + [""]
@@ -411,6 +413,33 @@ def failure_table(results: list[BenchResult]) -> list[str]:
         lines.append(f"| {sy} | {failed} of {total} | {'**' + rate + '**' if failed else rate} |")
     lines += ["", "A failed unit counts as not detected and not remediated, and as a non-pass "
               "(a false alarm) on a clean task."]  # fmt: skip
+    return lines
+
+
+def fallback_table(results: list[BenchResult]) -> list[str]:
+    """Calls served by the standard-tier fallback after Flex was unavailable (prereg
+    Amendment 1): per system, and the units that had any."""
+    llm = [s for s in _systems(results) if any(r.calls for r in results if r.system == s)]
+    lines = ["### Standard-tier fallbacks (Flex unavailable after 10 attempts)", ""]
+    if not llm:
+        return [*lines, "No LLM calls."]
+    lines += ["| system | fallback calls | of paid calls | units with a fallback |",
+              "|---|---|---|---|"]  # fmt: skip
+    for sy in llm:
+        runs = [r for r in results if r.system == sy]
+        fb, calls = sum(r.fallbacks for r in runs), sum(r.calls for r in runs)
+        units = [f"{r.task_id} s{r.seed}" + (f" {r.variant}" if r.variant != "planted" else "")
+                 for r in runs if r.fallbacks]  # fmt: skip
+        lines.append(f"| {sy} | {fb} | {_pct(fb / calls) if calls else '-'} | "
+                     f"{len(units)} of {len(runs)} |")  # fmt: skip
+    per_unit = [(r.system, r.task_id, r.seed, r.variant, r.fallbacks)
+                for r in results if r.fallbacks]  # fmt: skip
+    if per_unit:
+        lines += ["", "Per unit: " + "; ".join(
+            f"{s} {t} s{seed}{'' if v == 'planted' else ' ' + v}: {n}"
+            for s, t, seed, v, n in sorted(per_unit))]  # fmt: skip
+    lines += ["", "Fallback calls are the same request on gemini-3.8-flash, priced at the "
+              "standard rate."]  # fmt: skip
     return lines
 
 

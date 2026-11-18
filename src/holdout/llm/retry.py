@@ -37,12 +37,19 @@ class RetryPolicy:
     max_attempts: int = 6
 
 
+#: Flex requests are served from spare capacity and may be refused with 503/429 while it is
+#: scarce; Google's Flex guidance is to retry with exponential backoff and to allow long
+#: waits. Up to 10 attempts, full jitter from base 5 s, each wait (and Retry-After) capped at
+#: 300 s (prereg Amendment 1). Standard-tier calls keep ``RetryPolicy()``.
+FLEX_RETRY_POLICY: Final = RetryPolicy(base_seconds=5.0, cap_seconds=300.0, max_attempts=10)
+
+
 @dataclass(frozen=True)
 class RetryEvent:
     """One failed attempt that will be retried."""
 
     status: int | None
-    kind: Literal["http", "timeout"]
+    kind: Literal["http", "timeout", "connection"]
     attempt: int  # the attempt that failed (1-based)
     wait_seconds: float
     retry_after: float | None
@@ -82,7 +89,7 @@ _RETRY_DELAY = re.compile(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+(?:\.\d+)?)s")
 class Failure:
     transient: bool
     status: int | None
-    kind: Literal["http", "timeout", "billing"]
+    kind: Literal["http", "timeout", "connection", "billing"]
     retry_after: float | None
 
 
@@ -102,6 +109,8 @@ def classify(exc: BaseException) -> Failure:
         return Failure(True, exc.status, "http", exc.retry_after)
     if _is_timeout(exc):
         return Failure(True, None, "timeout", None)
+    if _is_dropped_connection(exc):
+        return Failure(True, None, "connection", None)
     status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
     status = status if isinstance(status, int) else None
     text = str(exc)
@@ -128,6 +137,26 @@ def _is_timeout(exc: BaseException) -> bool:
     except ImportError:  # pragma: no cover - httpx ships with google-genai
         return isinstance(exc, TimeoutError)
     return isinstance(exc, TimeoutError | httpx.TimeoutException)
+
+
+#: Transport failures with no HTTP response (the server closed or reset the connection);
+#: by class name too, because httpcore's own classes are not httpx's.
+_DROPPED: Final = frozenset({
+    "RemoteProtocolError", "ConnectError", "ReadError", "WriteError", "LocalProtocolError",
+    "ProtocolError", "NetworkError",
+})  # fmt: skip
+
+
+def _is_dropped_connection(exc: BaseException) -> bool:
+    """A connection dropped before any HTTP response (prereg Amendment 1: transient, like a
+    503; seen during the Flex outage as httpx.RemoteProtocolError)."""
+    if isinstance(exc, ConnectionError) or type(exc).__name__ in _DROPPED:
+        return True
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover - httpx ships with google-genai
+        return False
+    return isinstance(exc, httpx.TransportError)
 
 
 def _retry_after(exc: BaseException) -> float | None:
@@ -169,7 +198,9 @@ def call_with_retries[T](
             return fn(), attempt - 1
         except Exception as exc:
             failure = classify(exc)
-            label = "a timeout" if failure.kind == "timeout" else f"HTTP {failure.status}"
+            label = {"timeout": "a timeout", "connection": "a dropped connection"}.get(
+                failure.kind, f"HTTP {failure.status}"
+            )
             if failure.kind == "billing":
                 raise LLMBillingError(
                     f"{what} was refused for billing or quota reasons ({label}); not retried",
@@ -208,3 +239,55 @@ def call_with_retries[T](
                 )
             sleep(wait)
     raise AssertionError("unreachable")
+
+
+def call_with_flex_fallback[T](
+    fn: Callable[[str | None], T],
+    *,
+    tier: str | None,
+    policy: RetryPolicy,
+    flex_policy: RetryPolicy = FLEX_RETRY_POLICY,
+    sleep: Callable[[float], None],
+    rng: random.Random,
+    on_retry: Callable[[RetryEvent], None] | None = None,
+    what: str = "LLM call",
+) -> tuple[T, int, bool]:
+    """Run ``fn(tier)`` with retries; return (result, retries, fell back).
+
+    A Flex request uses ``flex_policy``. If it is still unavailable after every attempt,
+    the SAME request is sent once more on the standard tier with the standard ``policy``
+    (prereg Amendment 1): same model, same prompt, same parameters. Any other tier uses
+    ``policy`` and never falls back. Billing and non-transient failures are never retried
+    and never fall back.
+
+    Raises:
+        LLMUnavailableError: when the standard fallback is unavailable too (``retries``
+            counts every failed attempt on both tiers).
+    """
+    if tier != "flex":
+        result, retries = call_with_retries(
+            lambda: fn(tier), policy=policy, sleep=sleep, rng=rng, on_retry=on_retry, what=what
+        )
+        return result, retries, False
+    try:
+        result, retries = call_with_retries(
+            lambda: fn("flex"), policy=flex_policy, sleep=sleep, rng=rng, on_retry=on_retry,
+            what=f"{what} [flex]",
+        )  # fmt: skip
+        return result, retries, False
+    except LLMUnavailableError as exc:
+        flex_failures = exc.retries + 1
+        _log.warning("%s: Flex unavailable after %d attempts; one fallback to the standard "
+                     "tier", what, flex_failures)  # fmt: skip
+    try:
+        result, retries = call_with_retries(
+            lambda: fn("standard"), policy=policy, sleep=sleep, rng=rng, on_retry=on_retry,
+            what=f"{what} [standard fallback]",
+        )  # fmt: skip
+    except LLMUnavailableError as exc:
+        raise LLMUnavailableError(
+            f"{exc} (after {flex_failures} failed Flex attempts)",
+            status=exc.status,
+            retries=exc.retries + flex_failures,
+        ) from exc
+    return result, retries + flex_failures, True

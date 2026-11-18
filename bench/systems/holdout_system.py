@@ -168,6 +168,7 @@ class HoldoutSystem:
             tiers_served=_merge_tiers(manifests),
             api_seconds=sum(m.agent.api_seconds for m in manifests if m.agent is not None),
             timeouts=_eda_timeouts(manifests),
+            fallbacks=sum(u.fallbacks for u in _nodes(manifests)),
             calls=sum(
                 u.calls for m in manifests if m.agent for u in m.agent.usage_by_node.values()
             ),
