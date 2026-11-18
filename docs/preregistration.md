@@ -236,4 +236,83 @@ plus the 20% margin, × 116 units per system:
 
 ## Amendments
 
-None.
+### Amendment 1 (2026-11-18): run infrastructure after a Flex outage
+
+**Reason.** The final run started on 2026-11-18 and was stopped by hand (Ctrl+C) after
+repeated HTTP 503 responses on the Flex tier.
+- **Observed rates.** Between 11:17 and 15:01 UTC, 73 of 91 Gemini attempts failed (80%),
+  almost all with HTTP 503. 11 of 29 calls failed all 6 attempts (38%).
+- **Why progress stalled.** The runner stopped starting LLM units after the first pause, so
+  LLM progress was near zero: holdout 0, react 0 and llm_judge 1 completed.
+- **What finished.** The CPU-only pass ran: audits_only 76 completed and 4 failed, flaml 72
+  completed and 8 failed.
+- **No final results were analysed** before this amendment. No hypothesis statistic was
+  computed.
+
+**Changes.**
+1. **Flex patience.** A call requested on Flex gets up to **10 attempts** with exponential
+   backoff and full jitter (base 5 s, each wait capped at 300 s), honouring `Retry-After`
+   (capped at 300 s). This follows Google's Flex guidance. Standard-tier calls keep the
+   previous policy (6 attempts, base 2 s, cap 60 s).
+2. **One standard fallback per call.** A Flex call that exhausts its 10 attempts is sent
+   once more, **unchanged**, on the standard tier with the standard policy: same model
+   (`gemini-3.8-flash`, never another), same prompt, same parameters, same seed.
+   - **Recorded per call:** the tier requested, the tier served and whether it fell back.
+   - **Priced** at the tier that served it.
+   - **Reported:** fallback counts per system and per unit in the results and in
+     `bench/analyze.py`.
+3. **Dropped connections are transient.** A connection closed before any HTTP response
+   (`httpx.RemoteProtocolError` and similar) is retried like a 503. Previously it failed the
+   unit at once. One llm_judge unit failed this way during the outage
+   (`direct_leak@qsar_biodeg`, seed 202).
+4. **The runner keeps going.** A unit that still cannot be served pauses only itself; other
+   units keep starting.
+   - **Circuit breaker:** once 3 units have paused within 10 minutes, new LLM units wait
+     10 minutes, then the run continues.
+   - **Final sweep:** after the passes, one sweep resumes every paused unit.
+   - **Exit:** the runner exits with a summary of completed, stopped, paused and failed
+     units. A budget-guard stop still exits 6.
+5. **Budget.** The unit worst case stays at the caps (Rs 15; Rs 30 for holdout and
+   llm_judge), so the unit-start guard is unchanged.
+   - The pre-flight prices the **observed fallback share** at the standard rate, the rest at
+     Flex.
+   - The share is fallback calls ÷ calls over the completed LLM units of the final suites,
+     re-measured at every resume. It is assumed to be 0% until 10 LLM units have completed.
+   - If fallbacks push spend to the Rs 1,000 cap, the guard stops the run (exit 6). The run
+     then resumes only after a top-up recorded as a further amendment, and no hypothesis is
+     judged on a partial run (section 6).
+6. **Harness bug, FLAML column names.** LightGBM inside FLAML refuses feature names with
+   JSON special characters. magic_telescope's columns end in `:`, so all 8 magic_telescope
+   FLAML units failed.
+   - The FLAML adapter now renames such columns for FLAML only, identically at fit and
+     prediction, and records how many it renamed.
+   - The data, the features and FLAML's search are otherwise unchanged.
+
+**Reruns.** Already completed units remain valid and are not rerun. Two groups of failed
+units are rerun, because their failures came from the harness bugs fixed above:
+- the 8 FLAML magic_telescope units (`LightGBMError: Do not support special JSON
+  characters in feature name`);
+- the 1 llm_judge unit (`RemoteProtocolError`).
+
+They are selected by error text with `--retry-failed-matching`, and their failed lines stay
+in the results files. The 4 audits_only failures are **not** rerun. They are genuine node
+timeouts of the deterministic path on house_16h, run alone with no contention: 616–1,023 s
+of compute against the pre-registered 600 s limit. They count as failures as
+pre-registered.
+
+**What this does not change.** These changes affect only retry timing, the billing tier of
+calls that fall back, the runner's scheduling, and two harness defects. They do not change:
+- the model, the prompts, the generation parameters or the outputs a call can return;
+- the suites, the thresholds, the systems' logic, or the scoring and hypotheses
+  (sections 1–5).
+
+The frozen hashes in section 5 are unchanged. `prereg-v1` stays where it is; this amendment
+is tagged `prereg-v1-amend1`.
+
+**Resume command:**
+
+```text
+python -m bench.run --suite final_v1 --purpose benchmark --workers 4 --retry-failed-matching "RemoteProtocolError|special JSON characters in feature name"
+python -m bench.run --suite real_world_v1 --purpose benchmark --workers 4
+python -m bench.analyze --results results --out docs/results.md --charts docs/img
+```

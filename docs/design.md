@@ -733,7 +733,14 @@ cost, so the benchmark runs on Gemini's Flex tier and the ReAct prompt is append
 - **Tier per call.** `LLMSession.service_tier` is sent with every request.
   `bench/config.toml` pins `flex` for holdout, llm_judge and react. Flex requests queue
   (1-15 min), so Flex clients use a 15-minute request timeout. Flex is never upgraded to
-  standard; a Flex 503/429 goes through the normal retry and pause path.
+  standard by Google.
+  - **Retries and fallback (prereg Amendment 1, after an 80% Flex 503 rate).** A Flex
+    call gets 10 attempts: full jitter from 5 s, waits and Retry-After capped at 300 s.
+  - If all 10 fail, the same call is sent once on standard with the standard policy (6
+    attempts), on the same model, and recorded as a fallback.
+  - Dropped connections are retried like a 503.
+  - The runner keeps starting other units when one pauses. A circuit breaker waits 10
+    minutes after 3 pauses within 10 minutes, and a final sweep resumes paused units.
 - **Priced at the tier that served the call.** Each call records the tier the response
   reports. Flex costs 50% of standard. A tier that is not reported, or is unknown, is
   priced as standard.
