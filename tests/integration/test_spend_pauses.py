@@ -126,7 +126,7 @@ def test_the_cli_exits_6_or_7_with_a_message_and_no_traceback(
         client = FakeLLM(default=working.default, scripts={"plan": [BillingLLMError(402)]})
 
     class _Client:  # stands in for GeminiClient(model=...) inside the driver
-        def __new__(cls, model: str) -> FakeLLM:  # type: ignore[misc]
+        def __new__(cls, model: str, **_: object) -> FakeLLM:  # type: ignore[misc]
             return client
 
     monkeypatch.setattr(driver, "GeminiClient", _Client)
@@ -154,7 +154,7 @@ def test_verbose_progress_shows_running_totals_and_threshold_warnings(
     working = fake_for(case, csv)
 
     class _Client:
-        def __new__(cls, model: str) -> FakeLLM:  # type: ignore[misc]
+        def __new__(cls, model: str, **_: object) -> FakeLLM:  # type: ignore[misc]
             return working
 
     monkeypatch.setattr(driver, "GeminiClient", _Client)

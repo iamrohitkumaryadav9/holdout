@@ -105,6 +105,8 @@ class AgentOptions:
     pinned_model: str | None = None
     #: Plan fields the user stated, applied by the offline planner only (see PlanContext).
     plan_overrides: dict[str, Any] = field(default_factory=dict)
+    #: Gemini service tier for every call of the run ("flex", "standard"; None = default).
+    service_tier: str | None = None
 
     @property
     def model_overridden(self) -> bool:
@@ -235,6 +237,16 @@ def _record(decision: Decision, state: AgentState) -> list[dict[str, Any]]:
 # ----------------------------------------------------------------------------- graph
 
 
+def check_node_time(name: str, elapsed: float, api_seconds: float, limit: float) -> None:
+    """Raise if the node's own compute (wall time minus API wait) is over ``limit``."""
+    compute = max(0.0, elapsed - api_seconds)
+    if compute > limit:
+        raise AgentError(
+            f"node {name} used {compute:.0f} s of compute ({api_seconds:.0f} s waiting on the "
+            f"API not counted), over the {limit:.0f} s limit"
+        )
+
+
 def build_graph(deps: AgentDeps) -> AgentGraph:
     planner = deps.planner
 
@@ -246,7 +258,7 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
             start_index = len(session.records) if session is not None else 0
             deps.node_start_index = start_index
             deps.current_node = name
-            waited_before = session.retry_wait_seconds if session is not None else 0.0
+            waited_before = session.api_seconds if session is not None else 0.0
             deps.progress.node_started(name)
             started = time.perf_counter()
             with tracer().start_as_current_span(
@@ -268,13 +280,11 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
                 span.set_attribute("llm.retries", sum(r.retries for r in new))
             elapsed = time.perf_counter() - started
             deps.progress.node_finished(name, elapsed)
-            # Time spent waiting out an outage is not the node's work: it does not count
-            # against the limit (each call's retries are bounded by the retry policy).
-            waited = (session.retry_wait_seconds if session is not None else 0.0) - waited_before
-            if elapsed - waited > deps.timeout_seconds:
-                raise AgentError(
-                    f"node {name} took {elapsed:.0f} s, over the {deps.timeout_seconds:.0f} s limit"
-                )
+            # Only our own compute counts against the limit: time waiting on the API (each
+            # call, its queueing under Flex, its retry waits) is excluded. Each call is
+            # bounded by the request timeout and the retry policy instead.
+            waited = (session.api_seconds if session is not None else 0.0) - waited_before
+            check_node_time(name, elapsed, waited, deps.timeout_seconds)
             if new and name != "report":
                 update["calls"] = [*state.get("calls", []), *(dataclasses.asdict(r) for r in new)]
             update["nodes_done"] = [*state.get("nodes_done", []), name]
@@ -741,6 +751,8 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
         total_inr=sum(c["inr"] for c in spent_calls),
         cache_hits=sum(bool(c["cache_hit"]) for c in spent_calls),
         retries=sum(int(c.get("retries", 0)) for c in spent_calls),
+        api_seconds=round(session.api_seconds, 2) if session is not None else 0.0,
+        service_tier=opts.service_tier,
         quality=None if session is None else llm_quality(spent_calls, len(substitutions)),
         rejected_attempts=rejected_attempts(spent_calls),
         outages=[LLMOutage.model_validate(o) for o in deps.outages],
@@ -853,6 +865,16 @@ def rejected_attempts(calls: list[dict[str, Any]]) -> list[RejectedAttempt]:
     ]
 
 
+def _tier_counts(calls: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for c in calls:
+        if c.get("cache_hit") or c.get("failed"):
+            continue
+        tier = str(c.get("tier") or "unreported")
+        counts[tier] = counts.get(tier, 0) + 1
+    return counts
+
+
 def usage_by_node(calls: list[dict[str, Any]]) -> dict[str, NodeUsage]:
     nodes: dict[str, list[dict[str, Any]]] = {}
     for call in calls:
@@ -866,6 +888,11 @@ def usage_by_node(calls: list[dict[str, Any]]) -> dict[str, NodeUsage]:
             thinking_tokens=sum(c["thinking_tokens"] for c in items),
             inr=sum(c["inr"] for c in items),
             retries=sum(int(c.get("retries", 0)) for c in items),
+            cached_tokens=sum(int(c.get("cached_tokens", 0)) for c in items),
+            inr_cache_adjusted=sum(
+                float(c.get("inr_cache_adjusted", c["inr"])) for c in items if not c["cache_hit"]
+            ),
+            tiers=_tier_counts(items),
         )
         for node, items in sorted(nodes.items())
     }

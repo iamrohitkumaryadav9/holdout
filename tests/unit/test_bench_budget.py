@@ -189,7 +189,7 @@ def test_a_reserve_refusal_pauses_the_agent_with_exit_6(
     fake = fake_for(case, csv)
 
     class _Client:
-        def __new__(cls, model: str) -> object:  # type: ignore[misc]
+        def __new__(cls, model: str, **_: object) -> object:  # type: ignore[misc]
             return fake
 
     monkeypatch.setattr(driver, "GeminiClient", _Client)

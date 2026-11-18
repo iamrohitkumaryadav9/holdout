@@ -96,7 +96,7 @@ def run_agent(
     """
     if not options.offline:
         pinned = options.pinned_model or options.model or llm_config.DEFAULT_MODEL
-        llm_config.require_priced(pinned, date.today())
+        llm_config.require_priced(pinned, date.today(), tier=options.service_tier or "standard")
         llm_config.project_cap_inr()  # a malformed HOLDOUT_PROJECT_CAP_INR fails before the run
         options = replace(options, pinned_model=pinned)
     started = datetime.now(UTC)
@@ -164,7 +164,16 @@ def _deps(
             planner=OfflinePlanner(), session=None, llm_client="none", progress=progress
         )
     model = options.pinned_model or llm_config.DEFAULT_MODEL
-    client = client_factory() if client_factory is not None else GeminiClient(model=model)
+    timeout = (
+        llm_config.FLEX_REQUEST_TIMEOUT_SECONDS
+        if options.service_tier == "flex"
+        else llm_config.REQUEST_TIMEOUT_SECONDS
+    )
+    client = (
+        client_factory()
+        if client_factory is not None
+        else GeminiClient(model=model, timeout_seconds=timeout)
+    )
     if client.model != model:
         raise AgentError(
             f"the LLM client serves {client.model!r} but this run is pinned to {model!r}; "
@@ -189,6 +198,7 @@ def _deps(
         seed=options.seed,
         cache=ResponseCache(enabled=options.use_cache),
         progress=progress,
+        service_tier=options.service_tier,
     )
     standing = balance_warning(session.budget.ledger.balance_left())
     if standing is not None:

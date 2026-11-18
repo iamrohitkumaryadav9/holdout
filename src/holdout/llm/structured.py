@@ -28,7 +28,7 @@ from holdout.core.errors import (
     LLMOutputError,
     LLMUnavailableError,
 )
-from holdout.llm.budget import Budget
+from holdout.llm.budget import Budget, cost_inr
 from holdout.llm.cache import ResponseCache, cache_key
 from holdout.llm.client import LLMClient, LLMRequest, LLMResponse
 from holdout.llm.progress import NullProgress, Progress
@@ -66,6 +66,11 @@ class CallRecord:
     rejected_text: str | None = None
     #: The call never got an answer (service unavailable, billing): not a validity verdict.
     failed: bool = False
+    #: Prompt tokens served from Gemini's implicit cache, the tier that served the call,
+    #: and the cost with cached tokens at the cached rate (``inr`` is what the caps count).
+    cached_tokens: int = 0
+    tier: str | None = None
+    inr_cache_adjusted: float = 0.0
 
 
 @dataclass
@@ -76,8 +81,13 @@ class LLMSession:
     cache: ResponseCache = field(default_factory=ResponseCache)
     records: list[CallRecord] = field(default_factory=list)
     progress: Progress = field(default_factory=NullProgress)
-    #: Seconds spent sleeping between retries (excluded from the node wall-clock limit).
+    #: Seconds spent sleeping between retries.
     retry_wait_seconds: float = 0.0
+    #: Seconds spent waiting on the API (each call, its queueing under Flex and its retry
+    #: waits): excluded from the node wall-clock limit and reported apart from compute.
+    api_seconds: float = 0.0
+    #: Service tier requested for every call ("flex", "standard"; None = API default).
+    service_tier: str | None = None
 
     def call(
         self,
@@ -98,6 +108,7 @@ class LLMSession:
             user=prompt.user,
             response_schema=llm_schema(schema, length_bounds=send_length_bounds),
             seed=self.seed,
+            service_tier=self.service_tier,
         )
         parsed, errors, text = self._attempt(node, prompt, request, schema, check, attempt=1)
         if parsed is not None and not errors:
@@ -117,6 +128,7 @@ class LLMSession:
             ),
             response_schema=request.response_schema,
             seed=self.seed,
+            service_tier=self.service_tier,
         )
         parsed, errors, _ = self._attempt(node, prompt, repair, schema, check, attempt=2)
         if parsed is not None and not errors:
@@ -126,6 +138,17 @@ class LLMSession:
             last_answer=parsed,
             errors=errors,
         )
+
+    def _timed_generate(
+        self, request: LLMRequest, on_retry: Callable[[RetryEvent], None]
+    ) -> LLMResponse:
+        """The API call, its Flex queueing and retry waits count as API time, whatever the
+        outcome (success, outage, or a refused request)."""
+        started = time.perf_counter()
+        try:
+            return self.client.generate(request, on_retry=on_retry)
+        finally:
+            self.api_seconds += time.perf_counter() - started
 
     def _attempt(
         self,
@@ -158,7 +181,7 @@ class LLMSession:
                 self.progress.retry_waiting(node, prompt.name, event)
 
             try:
-                response = self.client.generate(request, on_retry=waiting)
+                response = self._timed_generate(request, waiting)
             except (LLMUnavailableError, LLMBillingError) as exc:
                 exc.node = node
                 self.budget.record_free(
@@ -219,6 +242,13 @@ class LLMSession:
                 errors=tuple(errors),
                 retries=0 if cached else response.retries,
                 rejected_text=None if valid else response.text[:REJECTED_TEXT_CHARS],
+                cached_tokens=0 if cached else response.usage.cached_tokens,
+                tier=None if cached else response.usage.tier,
+                inr_cache_adjusted=0.0
+                if cached
+                else cost_inr(
+                    self.client.model, response.usage, self.budget.today, cache_discount=True
+                ),
             )
         )
         return parsed, errors, response.text

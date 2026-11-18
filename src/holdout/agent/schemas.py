@@ -95,6 +95,11 @@ class NodeUsage(_Strict):
     inr: float
     #: Transient failures retried (429 / 5xx / timeouts); they cost no tokens.
     retries: int = 0
+    #: Prompt tokens served from the implicit cache, the cost with them at the cached rate,
+    #: and the tiers that served the node's calls.
+    cached_tokens: int = 0
+    inr_cache_adjusted: float = 0.0
+    tiers: dict[str, int] = Field(default_factory=dict)
 
 
 PauseKind = Literal["llm_unavailable", "budget_cap", "billing"]
@@ -169,6 +174,9 @@ class AgentRecord(_Strict):
     total_inr: float
     cache_hits: int
     retries: int = 0
+    #: Seconds this process spent waiting on the API (calls, Flex queueing, retry waits).
+    api_seconds: float = 0.0
+    service_tier: str | None = None
     quality: LLMQuality | None = Field(default=None, description="None for offline runs")
     rejected_attempts: list[RejectedAttempt] = Field(default_factory=list)
     outages: list[LLMOutage] = Field(

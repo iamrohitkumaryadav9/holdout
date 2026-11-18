@@ -3,6 +3,10 @@
 
 # The one model every LLM system uses (Holdout, the LLM judge, ReAct).
 model = "gemini-3.8-flash"
+# Gemini service tier for every call of every LLM system (holdout, llm_judge, react): Flex
+# (50% of the standard price; requests may queue for minutes, so the client timeout is 15
+# minutes and time waiting on the API is reported apart from compute time). Pre-registered.
+service_tier = "flex"
 # Per-run budget cap in rupees, the same for every system (holdout.llm.config.RUN_CAP_INR).
 run_cap_inr = 15.0
 # Systems compared, in report order.

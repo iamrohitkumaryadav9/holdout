@@ -50,9 +50,9 @@ def pilot_report(
     lines += [
         "## Units",
         "",
-        "| system | task | seed | status | Rs | seconds | calls | retries "
+        "| system | task | seed | status | Rs | compute s | API wait s | calls | retries "
         "| first-attempt valid | error |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in results:
         firsts = sum(q.first_attempts for q in r.first_attempt.values())
@@ -60,7 +60,7 @@ def pilot_report(
         error = (r.error or "").replace("|", "/")[:120]
         lines.append(
             f"| {r.system} | {r.task_id} | {r.seed} | {r.status} | {r.cost_inr:.3f} | "
-            f"{r.seconds:.0f} | {r.calls} | {r.retries} | "
+            f"{r.time_per_run:.0f} | {r.api_seconds:.0f} | {r.calls} | {r.retries} | "
             f"{f'{valid}/{firsts}' if firsts else '-'} | {error} |"
         )
     # ------------------------------------------------------------------ what consumed it
@@ -95,17 +95,33 @@ def pilot_report(
         f"spending, or other processes): Rs {ledger_spend - attributed:.3f}.",
     ]
     # ------------------------------------------------------------------ per system
-    lines += ["", "## Measured per run", "", "| system | runs | Rs/run (mean) | Rs/run (max) | "
-              "seconds/run (mean) |", "|---|---|---|---|---|"]  # fmt: skip
+    lines += [
+        "",
+        "## Measured per run",
+        "",
+        "| system | runs | Rs/run list (mean) | Rs/run list (max) | Rs/run cache-adjusted | "
+        "cached share of prompt | tiers served | compute s/run | API wait s/run |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
     per_system: dict[str, list] = defaultdict(list)  # type: ignore[type-arg]
     for r in results:
         if r.status == "completed":
             per_system[r.system].append(r)
     for system, runs in sorted(per_system.items()):
         costs = [r.cost_inr for r in runs]
+        prompt = sum(r.prompt_tokens for r in runs)
+        cached = sum(r.cached_tokens for r in runs)
+        tiers: dict[str, int] = defaultdict(int)
+        for r in runs:
+            for tier, n in r.tiers_served.items():
+                tiers[tier] += n
         lines.append(
             f"| {system} | {len(runs)} | {np.mean(costs):.3f} | {max(costs):.3f} | "
-            f"{np.mean([r.seconds for r in runs]):.0f} |"
+            f"{np.mean([r.cost_adjusted for r in runs]):.3f} | "
+            f"{f'{cached / prompt:.1%}' if prompt else '-'} | "
+            f"{', '.join(f'{k} {v}' for k, v in sorted(tiers.items())) or '-'} | "
+            f"{np.mean([r.time_per_run for r in runs]):.0f} | "
+            f"{np.mean([r.api_seconds for r in runs]):.0f} |"
         )
     # ------------------------------------------------------------------ projection
     today = datetime.now(UTC).date()
@@ -117,13 +133,15 @@ def pilot_report(
         f"## Projected full benchmark ({FULL_UNITS} units per system: planted "
         f"{PLANTED_UNITS}, real world {REAL_WORLD_UNITS}; margin {config.cost_margin:.0%})",
         "",
-        "| system | Rs (with ReAct truncation) | Rs (without truncation) | hours |",
-        "|---|---|---|---|",
+        "| system | Rs list (with ReAct truncation) | Rs list (without truncation) | "
+        "Rs cache-adjusted | compute hours |",
+        "|---|---|---|---|---|",
     ]
-    total_with = total_without = 0.0
+    total_with = total_without = total_adjusted = 0.0
     for system, runs in sorted(per_system.items()):
         mean = float(np.mean([r.cost_inr for r in runs]))
         with_trunc = mean * FULL_UNITS * margin
+        adjusted = float(np.mean([r.cost_adjusted for r in runs])) * FULL_UNITS * margin
         if system == "react":
             extra_tokens = np.mean(
                 [
@@ -135,15 +153,19 @@ def pilot_report(
             without = (mean + extra_tokens * input_inr_per_token) * FULL_UNITS * margin
         else:
             without = with_trunc
-        hours = float(np.mean([r.seconds for r in runs])) * FULL_UNITS / 3600
+        hours = float(np.mean([r.time_per_run for r in runs])) * FULL_UNITS / 3600
         total_with += with_trunc
         total_without += without
-        lines.append(f"| {system} | {with_trunc:.2f} | {without:.2f} | {hours:.1f} |")
+        total_adjusted += adjusted
+        lines.append(
+            f"| {system} | {with_trunc:.2f} | {without:.2f} | {adjusted:.2f} | {hours:.1f} |"
+        )
     spent = ledger.total_inr()
     cap = llm_config.project_cap_inr()
     balance = ledger.balance_left()
     lines += [
-        f"| **total** | **{total_with:.2f}** | **{total_without:.2f}** | |",
+        f"| **total** | **{total_with:.2f}** | **{total_without:.2f}** | "
+        f"**{total_adjusted:.2f}** | |",
         "",
         f"- Project spend so far: Rs {spent:.2f}; remaining under the Rs {cap:g} cap "
         f"(benchmark spend may use the reserve): Rs {cap - spent:.2f}.",

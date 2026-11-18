@@ -126,7 +126,7 @@ def test_an_outage_while_verifying_the_model_pauses_before_the_first_node(
     sdk = SimpleNamespace(models=SimpleNamespace(list=listing))
 
     class _Gemini(GeminiClient):
-        def __init__(self, model: str) -> None:
+        def __init__(self, model: str, **_: object) -> None:
             super().__init__(model, sdk_client=sdk, sleep=lambda s: None)
 
     monkeypatch.setattr(driver, "GeminiClient", _Gemini)
@@ -157,7 +157,7 @@ def test_the_smoke_script_reports_what_completed_when_gemini_is_down(
     sdk = SimpleNamespace(models=SimpleNamespace(list=lambda: models))
 
     class _Gemini(GeminiClient):
-        def __init__(self, model: str) -> None:
+        def __init__(self, model: str, **_: object) -> None:
             super().__init__(model, sdk_client=sdk, sleep=lambda s: None)
 
     def fake_run(options: AgentOptions, **kw: Any) -> driver.AgentOutcome:
@@ -194,7 +194,7 @@ def test_the_smoke_script_exits_5_when_the_model_list_is_unavailable(
     sdk = SimpleNamespace(models=SimpleNamespace(list=listing))
 
     class _Gemini(GeminiClient):
-        def __init__(self, model: str) -> None:
+        def __init__(self, model: str, **_: object) -> None:
             super().__init__(model, sdk_client=sdk, sleep=lambda s: None)
 
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
@@ -222,7 +222,7 @@ def test_the_cli_exits_5_with_a_resume_command_and_no_traceback(
     clients = {"current": _down(working)}
 
     class _Client:  # stands in for GeminiClient(model=...) inside the driver
-        def __new__(cls, model: str) -> FakeLLM:  # type: ignore[misc]
+        def __new__(cls, model: str, **_: object) -> FakeLLM:  # type: ignore[misc]
             assert model == clients["current"].model
             return clients["current"]
 

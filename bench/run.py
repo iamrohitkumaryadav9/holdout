@@ -275,6 +275,7 @@ def run_unit(
     run_cap_inr: float,
     progress: Progress | None = None,
     resume: bool = False,
+    service_tier: str | None = None,
     prepare_fn: Callable[[Unit], PreparedUnit] = prepare,
 ) -> BenchResult:
     """Run (or resume) one unit and return its result; never raises for system failures
@@ -305,6 +306,7 @@ def run_unit(
         entity_scope=prepared.entity_scope,
         plan_overrides=prepared.plan_overrides,
         progress=progress or NullProgress(),
+        service_tier=service_tier if system.uses_llm else None,
     )
     metric = benchmark_metric(prepared.task)
     try:
@@ -318,6 +320,7 @@ def run_unit(
     if output.estimator is not None:
         scores = _score_both(seal, output, metric, unit.system, errors)
     dummy = _dummy_scores(seal, dev, prepared.target, prepared.task)
+    wall = time.perf_counter() - clock
     return BenchResult(
         suite=unit.suite,
         task_id=unit.task_id,
@@ -344,7 +347,13 @@ def run_unit(
         # What the ledger recorded during this unit: a unit that fails or pauses after
         # spending (e.g. a plan call before a rejected request) is charged, not shown as Rs 0.
         cost_inr=max(output.cost_inr, ledger.total_inr() - spent_before),
-        seconds=round(time.perf_counter() - clock, 2),
+        cost_cache_adjusted_inr=output.cost_cache_adjusted_inr,
+        cached_tokens=output.cached_tokens,
+        prompt_tokens=output.prompt_tokens,
+        tiers_served=output.tiers_served,
+        seconds=round(wall, 2),
+        api_seconds=round(output.api_seconds, 2),
+        compute_seconds=round(max(0.0, wall - output.api_seconds), 2),
         calls=output.calls,
         retries=output.retries,
         cache_hits=output.cache_hits,
@@ -397,6 +406,7 @@ def run_all(
     max_spend_inr: float | None = None,
     ledger: SpendLedger | None = None,
     retry_failed: bool = False,
+    service_tier: str | None = None,
 ) -> list[BenchResult]:
     """Run every pending unit in order. A pause stops the pass (the cause - an outage, a
     cap, billing - affects every later LLM unit too); rerun the command to continue.
@@ -427,6 +437,7 @@ def run_all(
             progress=progress,
             resume=resume,
             prepare_fn=prepare_fn,
+            service_tier=service_tier,
         )
         append_result(root, result)
         done.append(result)
@@ -497,6 +508,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         progress=progress,
         max_spend_inr=args.max_spend,
         retry_failed=args.retry_failed,
+        service_tier=config.service_tier,
     )
     if args.report is not None:
         from bench.pilot import write_pilot_report

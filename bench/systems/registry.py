@@ -9,12 +9,20 @@ from bench.systems.holdout_system import HoldoutSystem
 from bench.systems.llm_judge import install
 from bench.systems.react import ReactSystem
 from holdout.agent.driver import ClientFactory
+from holdout.llm import config as llm_config
 from holdout.llm.client import GeminiClient, LLMClient
 
 
-def gemini_factory(model: str) -> ClientFactory:
+def gemini_factory(model: str, service_tier: str | None = None) -> ClientFactory:
+    """A verified Gemini client; under Flex with the 15-minute timeout (requests queue)."""
+    timeout = (
+        llm_config.FLEX_REQUEST_TIMEOUT_SECONDS
+        if service_tier == "flex"
+        else llm_config.REQUEST_TIMEOUT_SECONDS
+    )
+
     def make() -> LLMClient:
-        client = GeminiClient(model=model)
+        client = GeminiClient(model=model, timeout_seconds=timeout)
         client.verify_model()
         return client
 
@@ -39,7 +47,7 @@ def build_systems(
             systems[name] = HoldoutSystem("llm_judge", client_factory=factory, customize=install)
         elif name == "react":
             systems[name] = ReactSystem(
-                factory or gemini_factory(config.model),
+                factory or gemini_factory(config.model, config.service_tier),
                 max_steps=config.react_max_steps,
                 observation_chars=config.react_observation_chars,
             )

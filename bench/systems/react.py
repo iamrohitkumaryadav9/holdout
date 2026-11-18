@@ -104,6 +104,15 @@ def _columns_summary(ctx: SystemContext) -> dict[str, Any]:
     }
 
 
+def _tiers(records: list[Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for r in records:
+        if not r.failed and not r.cache_hit:
+            tier = r.tier or "unreported"
+            counts[tier] = counts.get(tier, 0) + 1
+    return counts
+
+
 def _step_check(step: ReactStep) -> list[str]:
     if step.action == "python" and not (step.code and step.code.strip()):
         return ["a python step needs code"]
@@ -134,6 +143,7 @@ class ReactSystem:
             seed=ctx.seed,
             cache=ResponseCache(enabled=False),
             progress=ctx.progress,
+            service_tier=ctx.service_tier,
         )
         workdir = ctx.workdir / "sandbox"
         prepare_workdir(workdir, ctx.dev)
@@ -276,6 +286,11 @@ class ReactSystem:
             report_text=report,
             report_a11_flags=len(check_causal_claims(report)) if report else 0,
             cost_inr=sum(r.inr for r in records),
+            cost_cache_adjusted_inr=sum(r.inr_cache_adjusted for r in records),
+            cached_tokens=sum(r.cached_tokens for r in records),
+            prompt_tokens=sum(r.prompt_tokens for r in records),
+            tiers_served=_tiers(records),
+            api_seconds=round(session.api_seconds, 2),
             calls=len(records),
             retries=sum(r.retries for r in records),
             first_attempt={

@@ -193,9 +193,10 @@ def outcome_table(results: list[BenchResult]) -> list[str]:
         "",
         "### Cost and answer quality (completed runs)",
         "",
-        "| system | cost/run | time/run | calls | retries | first-attempt valid | "
-        "repairs/run | substitutions/run |",
-        "|---|---|---|---|---|---|---|---|",
+        "| system | cost/run (list) | cost/run (cache-adjusted) | compute time/run | "
+        "API wait/run | calls | retries | first-attempt valid | repairs/run | "
+        "substitutions/run |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for sy in systems:
         runs = [r for r in results if r.system == sy and r.status == "completed"]
@@ -206,7 +207,9 @@ def outcome_table(results: list[BenchResult]) -> list[str]:
         lines.append(
             f"| {sy} | "
             f"Rs {np.mean([r.cost_inr for r in runs]):.2f} | "
-            f"{np.mean([r.seconds for r in runs]):.0f} s | "
+            f"Rs {np.mean([r.cost_adjusted for r in runs]):.2f} | "
+            f"{np.mean([r.time_per_run for r in runs]):.0f} s | "
+            f"{np.mean([r.api_seconds for r in runs]):.0f} s | "
             f"{np.mean([r.calls for r in runs]):.1f} | {sum(r.retries for r in runs)} | "
             f"{_pct(valid / firsts) if firsts else '-'} | "
             f"{np.mean([r.repairs for r in runs]):.2f} | "

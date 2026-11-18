@@ -151,8 +151,8 @@ def trust_cache_discount() -> bool:
     return os.environ.get(TRUST_CACHE_DISCOUNT_ENV, "").strip().lower() in {"1", "true", "yes"}
 
 
-def require_priced(model: str, on: date) -> None:
-    """Refuse a model Holdout cannot price (spend must never be computed as zero).
+def require_priced(model: str, on: date, tier: str = "standard") -> None:
+    """Refuse a model (or a tier) Holdout cannot price: spend must never be computed as zero.
 
     Raises:
         LLMConfigError: with the priced models listed.
@@ -160,11 +160,12 @@ def require_priced(model: str, on: date) -> None:
     from holdout.core.errors import LLMConfigError
 
     try:
-        price_for(model, on)
+        price_for(model, on, tier)
     except KeyError as exc:
+        table = FLEX_PRICE_TABLE if tier == "flex" else PRICE_TABLE
         raise LLMConfigError(
-            f"model {model!r} has no price in holdout.llm.config.PRICE_TABLE; "
-            f"priced models: {', '.join(sorted(PRICE_TABLE))}"
+            f"model {model!r} has no price for the {tier} tier in holdout.llm.config; "
+            f"priced models for {tier}: {', '.join(sorted(table))}"
         ) from exc
 
 

@@ -81,7 +81,18 @@ class BenchResult(_Record):
     report_text: str | None = None
     report_a11_flags: int = 0
     cost_inr: float = 0.0
+    #: Cost with cached tokens at the cached-input rate (the list valuation is cost_inr
+    #: unless HOLDOUT_TRUST_CACHE_DISCOUNT is set).
+    cost_cache_adjusted_inr: float | None = None
+    cached_tokens: int = 0
+    prompt_tokens: int = 0
+    #: Tiers that served the unit's calls, with counts (e.g. {"flex": 12}).
+    tiers_served: dict[str, int] = Field(default_factory=dict)
+    #: Wall time of the unit; ``api_seconds`` of it waited on the API (calls, queueing,
+    #: retries); ``compute_seconds`` = seconds - api_seconds is reported as time per run.
     seconds: float = 0.0
+    api_seconds: float = 0.0
+    compute_seconds: float = 0.0
     calls: int = 0
     retries: int = 0
     cache_hits: int = 0
@@ -92,6 +103,20 @@ class BenchResult(_Record):
     extra: dict[str, Any] = Field(default_factory=dict)
     started_at: datetime
     finished_at: datetime
+
+    @property
+    def time_per_run(self) -> float:
+        """Compute seconds; results written before API wait was recorded give wall time."""
+        return self.compute_seconds if (self.compute_seconds or self.api_seconds) else self.seconds
+
+    @property
+    def cost_adjusted(self) -> float:
+        """Cache-adjusted cost; results written before it was recorded give list price."""
+        return (
+            self.cost_cache_adjusted_inr
+            if self.cost_cache_adjusted_inr is not None
+            else (self.cost_inr)
+        )
 
     @property
     def unit_key(self) -> tuple[str, str, str, int, str]:
@@ -117,6 +142,8 @@ class SystemContext:
     #: and the trap needs the stated metric to exist. LLM systems read the goal text.
     plan_overrides: dict[str, Any] = field(default_factory=dict)
     progress: Progress = field(default_factory=NullProgress)
+    #: Gemini service tier for every LLM call of the unit (pinned in bench/config.toml).
+    service_tier: str | None = None
 
 
 @dataclass
@@ -132,6 +159,11 @@ class SystemOutput:
     report_text: str | None = None
     report_a11_flags: int = 0
     cost_inr: float = 0.0
+    cost_cache_adjusted_inr: float | None = None
+    cached_tokens: int = 0
+    prompt_tokens: int = 0
+    tiers_served: dict[str, int] = field(default_factory=dict)
+    api_seconds: float = 0.0
     calls: int = 0
     retries: int = 0
     cache_hits: int = 0

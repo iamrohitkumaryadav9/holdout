@@ -34,6 +34,7 @@ from holdout.agent.driver import (
 )
 from holdout.agent.graph import AgentOptions
 from holdout.agent.report import full_text
+from holdout.agent.schemas import NodeUsage
 from holdout.audit.types import Category, Severity
 from holdout.data.profile import profile_schema
 from holdout.export.manifest import RunManifest
@@ -76,6 +77,7 @@ class HoldoutSystem:
             use_cache=False,
             model=None if not self.uses_llm else ctx.model,
             plan_overrides=dict(ctx.plan_overrides) if not self.uses_llm else {},
+            service_tier=ctx.service_tier if self.uses_llm else None,
         )
         outcome = run_agent(
             options,
@@ -160,6 +162,11 @@ class HoldoutSystem:
                 for f in final.audit.flags
             ),
             cost_inr=sum(m.agent.total_inr for m in manifests if m.agent is not None),
+            cost_cache_adjusted_inr=sum(u.inr_cache_adjusted for u in _nodes(manifests)),
+            cached_tokens=sum(u.cached_tokens for u in _nodes(manifests)),
+            prompt_tokens=sum(u.prompt_tokens for u in _nodes(manifests)),
+            tiers_served=_merge_tiers(manifests),
+            api_seconds=sum(m.agent.api_seconds for m in manifests if m.agent is not None),
             calls=sum(
                 u.calls for m in manifests if m.agent for u in m.agent.usage_by_node.values()
             ),
@@ -213,6 +220,18 @@ def _issues(manifests: list[RunManifest]) -> list[ReportedIssue]:
                 flag.message,
             )
     return issues
+
+
+def _nodes(manifests: list[RunManifest]) -> list[NodeUsage]:
+    return [u for m in manifests if m.agent for u in m.agent.usage_by_node.values()]
+
+
+def _merge_tiers(manifests: list[RunManifest]) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for usage in _nodes(manifests):
+        for tier, n in usage.tiers.items():
+            merged[tier] = merged.get(tier, 0) + n
+    return merged
 
 
 def _inr_by_node(manifests: list[RunManifest]) -> dict[str, float]:
