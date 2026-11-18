@@ -1,9 +1,11 @@
 # Holdout audit thresholds.
 #
-# PROVISIONAL: every value below is a first, hand-set guess. They will be tuned in Week 4
-# on *development* trap tasks only (never on the evaluation tasks of the benchmark), and
-# each run records this file's sha256 in its manifest so results stay attributable to the
-# exact thresholds that produced them.
+# FROZEN for the Week 4 benchmark (2026-11-18). The values were first set by hand, then
+# reviewed once on the *development* trap suite only (dev_v1, audits_only, both seeds;
+# never on evaluation tasks) and left unchanged: the evidence is in docs/design.md, "One-time
+# tuning". Changing any value after the pre-registration (tag prereg-v1) needs a documented
+# amendment. Each run records this file's sha256 in its manifest so results stay
+# attributable to the exact thresholds that produced them.
 #
 # Scores are compared on a metric-independent scale:
 #   lift            = how much better a score is than the dummy baseline (direction-aware)

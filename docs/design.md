@@ -97,10 +97,10 @@ base dataset and seed used during development or tuning is listed in
 any listed base or seed before loading data. The Week 4 benchmark uses held-out OpenML bases and
 seeds never seen during tuning.
 
-**Provisional thresholds.** Every threshold lives in `holdout/audit/thresholds.toml` with a
-comment, loads into strict typed models (a typo fails), and the file's sha256 is recorded in
-every manifest. The values are provisional: they will be tuned in Week 4 on development trap
-tasks only, never on evaluation tasks.
+**Thresholds.** Every threshold lives in `holdout/audit/thresholds.toml` with a comment,
+loads into strict typed models (a typo fails), and the file's sha256 is recorded in every
+manifest. The values were reviewed once in Week 4 on development trap tasks only, never on
+evaluation tasks, and frozen unchanged (see "One-time tuning (Week 4)" below).
 
 ## The agent (Week 3)
 
@@ -804,6 +804,65 @@ cost, so the benchmark runs on Gemini's Flex tier and the ReAct prompt is append
   budget-checked as the whole final benchmark: every pending unit of both suites and every
   configured system, with the in-flight headroom. Checked one suite at a time, each fit
   while the two together did not.
+
+## One-time tuning (Week 4)
+
+The one review allowed before the pre-registration used development data only and no LLM
+spend. **No threshold and no A11 pattern was changed.** The evidence and the reasons follow.
+
+**Thresholds: audits_only on the full dev suite.** Both seeds (11, 12), 24 units, free.
+The results are in `results/tuning/dev_v1/audits_only.jsonl`.
+
+| measure (dev_v1, audits_only) | before | after (frozen) |
+|---|---|---|
+| traps detected at the expected severity (both seeds) | 7 of 9 | 7 of 9 (unchanged) |
+| critical false alarms on clean controls | 0 of 3 | 0 of 3 |
+| clean controls with a warning | 1 of 3 (A1 on credit-approval `A9`) | 1 of 3 |
+| remediation (scorable runs) | 62.5% | 62.5% |
+| step or node timeouts | 0 | 0 |
+
+- **The two misses.**
+  - **`causal_question`:** audits_only cannot read the goal, and A11 runs only on
+    generated reports, so the deterministic path cannot see this trap at any threshold.
+    Holdout's LLM path is what it tests.
+  - **`time_order` (semi-synthetic):** A6 found "no target autocorrelation". The
+    planted trend raises the positive rate from about 24% to 45% across adult's
+    development rows. That moves lag-1 label agreement by only +0.002 to +0.004, or z =
+    0.65 and 1.21 against the shuffled baseline. Those values lie inside the range of the
+    clean frames (z from -2.0 to +1.2). The gate needs z >= 4 and an effect >= 0.05.
+- **A6 with the gate forced open.** A what-if, not committed. The forward-chaining
+  comparison then measured a relative drop of only **7%** on both seeds. The warning
+  threshold is 15% and the critical one 20%; the trap's truth requires critical.
+- **Why A6 stays unchanged.** Catching this trap would mean disabling the gate *and*
+  cutting the critical drop threshold almost threefold, fitted to two dev frames of one
+  synthetic generator. The same generator plants the final suite's `time_order` tasks,
+  so that would tune to the test. The thresholds are kept. The blind spot (a smooth trend
+  is nearly invisible to a lag-1 statistic) is documented in docs/audits.md and stated
+  in the pre-registration as an expected miss for audits_only. A trend-sensitive gate
+  would be a design change to A6, not a threshold value, and is left for after this
+  benchmark.
+- **The clean-control warning** is A1 on credit-approval's `A9` ("prior default"), the
+  known honest strong predictor. "A1 alone is at most a warning" is the intended rule.
+  Loosening A1 to silence it would weaken `noisy_proxy` detection, which also relies on
+  an A1 warning.
+- **Not reviewed further.** A5, A3, A4, A8 and A7 detected their traps in both seeds with
+  no false alarm. With no dev evidence against them, their values stay as set.
+
+**A11 lexicon: the existing dev reports.** These are 14 reports with no new spend: 11 from
+the pilot (holdout, llm_judge, react, audits_only) and 3 from the Flex check.
+
+- **Flags:** none of the 14 reports was flagged.
+- **Missed claims:** every sentence containing a causal-sounding word was read by hand.
+  - The sentences were disclaimers ("does not measure cause and effect") and one modelling
+    statement ("reducing cross-validated MSE").
+  - Neither is a causal claim, so there were no false positives and no misses.
+- **Why the lexicon stays unchanged.** None of these reports came from the
+  `causal_question` task, so there was no true causal claim to measure recall on. The
+  evidence supports leaving the lexicon unchanged and does not support changing it. The
+  final benchmark measures A11's false-positive rate over all reports, as planned.
+
+**Frozen values.** The thresholds file's sha256 is in the pre-registration. Changing a
+threshold or an A11 pattern after the `prereg-v1` tag needs a documented amendment.
 
 ## Environment
 

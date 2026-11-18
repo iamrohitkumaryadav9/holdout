@@ -102,7 +102,7 @@ def test_packaged_thresholds_load_and_hash() -> None:
     assert digest == hashlib.sha256(default_thresholds_bytes()).hexdigest()
     assert thresholds.sampling.max_rows == 20000
     assert thresholds.a04_duplicates.holdout_overlap_invalidate_share == pytest.approx(0.01)
-    assert b"PROVISIONAL" in default_thresholds_bytes()
+    assert b"FROZEN for the Week 4 benchmark" in default_thresholds_bytes()
     assert b"\r\n" not in default_thresholds_bytes()
 
 

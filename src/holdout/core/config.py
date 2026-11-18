@@ -36,7 +36,7 @@ MIN_VALUES_FOR_RATIO_RULES: Final = 50
 #: Pre-seal structural entity detection (profile): a column with at least this many
 #: distinct values, this many rows per value on average, and at least one other column
 #: constant within each value is reported as a likely entity key. The audit (A5) uses its
-#: own, provisional thresholds from holdout/audit/thresholds.toml.
+#: own, frozen thresholds from holdout/audit/thresholds.toml.
 STRUCTURAL_ENTITY_MIN_GROUPS: Final = 20
 STRUCTURAL_ENTITY_MIN_MEAN_ROWS: Final = 2.0
 STRUCTURAL_ENTITY_MAX_CANDIDATES: Final = 3
