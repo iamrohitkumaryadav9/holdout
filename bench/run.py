@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from sklearn.dummy import DummyClassifier, DummyRegressor
@@ -133,6 +133,16 @@ def units_for(
         for variant in variants
         for system in systems
     ]
+
+
+#: The suites of the final benchmark. A run of either is budget-checked as the whole.
+FINAL_SUITES = ("final_v1", REAL_WORLD_SUITE)
+
+
+def benchmark_units(systems: Sequence[str]) -> list[Unit]:
+    """Every unit of the final benchmark: both suites, every system, the pinned seeds."""
+    names = cast(list[SystemName], list(systems))
+    return [u for suite in FINAL_SUITES for u in units_for(suite, names)]
 
 
 def normalise(frame: pd.DataFrame) -> pd.DataFrame:
@@ -622,13 +632,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     units = units_for(args.suite, systems_wanted, seeds=args.seeds, tasks=args.tasks)
     from bench.budget import preflight
 
+    # A final-benchmark run is checked as the whole benchmark: every pending unit of both
+    # suites and every configured system, whatever subset this invocation runs. Otherwise
+    # each suite could fit on its own while the two together do not.
+    whole = args.suite in FINAL_SUITES
     report = preflight(
-        units, args.results, config, purpose=args.purpose, retry_failed=args.retry_failed,
+        benchmark_units(config.systems) if whole else units,
+        args.results, config, purpose=args.purpose, retry_failed=args.retry_failed,
         workers=args.workers,
+        scope=(
+            f"the whole final benchmark ({' + '.join(FINAL_SUITES)}, systems "
+            f"{', '.join(config.systems)})" if whole else f"this invocation ({args.suite})"
+        ),
     )  # fmt: skip
     print(report.render())
     if args.plan:
-        return 0
+        return 0 if report.fits else 6
     if not report.fits:
         print("refusing to start: the estimated cost does not fit (see above)")
         return 6

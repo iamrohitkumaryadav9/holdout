@@ -136,6 +136,7 @@ def test_the_preflight_counts_units_through_the_real_entry_point(home: Path) -> 
     import sys
 
     env = {**os.environ, "HOLDOUT_HOME": str(home)}
+    SpendLedger().record_balance(700.0, datetime.now().astimezone().date())  # so it fits
     out = subprocess.run(
         [sys.executable, "-m", "bench.run", "--suite", "dev_v1", "--tasks", "direct_leak@adult",
          "--seeds", "11", "--systems", "holdout", "flaml", "--results", str(home / "r"),

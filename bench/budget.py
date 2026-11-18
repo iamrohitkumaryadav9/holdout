@@ -116,6 +116,7 @@ class PreflightReport:
     shortfalls: list[str] = field(default_factory=list)
     headroom_inr: float = 0.0
     workers: int = 1
+    scope: str = ""
 
     @property
     def fits(self) -> bool:
@@ -123,6 +124,8 @@ class PreflightReport:
 
     def render(self) -> str:
         lines = [f"Budget pre-flight ({self.purpose} spend)"]
+        if self.scope:
+            lines.append(f"  scope: {self.scope}")
         for e in self.estimates:
             per = "n/a" if e.per_run_inr is None else f"Rs {e.per_run_inr:.3f}"
             lines.append(
@@ -307,8 +310,10 @@ def preflight(
     purpose: str,
     retry_failed: bool = False,
     workers: int = 1,
+    scope: str = "",
 ) -> PreflightReport:
-    """Estimate the pending units of ``units`` (see :func:`estimate`)."""
+    """Estimate the pending units of ``units`` together (see :func:`estimate`); units may
+    span suites. ``scope`` names what was estimated, for the report."""
     from bench.run import pending
 
     # No isinstance check: under ``python -m bench.run`` the units are instances of
@@ -322,4 +327,6 @@ def preflight(
         counts.setdefault(unit.system, 0)
     if not all_units:
         raise ValueError("no units to estimate")
-    return estimate(counts, config, purpose=purpose, workers=workers)
+    report = estimate(counts, config, purpose=purpose, workers=workers)
+    report.scope = scope
+    return report
