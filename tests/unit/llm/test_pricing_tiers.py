@@ -9,7 +9,7 @@ import pytest
 
 from holdout.llm import config
 from holdout.llm.budget import Budget, SpendLedger, billing_tier, cost_inr
-from holdout.llm.client import GeminiClient, LLMRequest, Usage, served_tier
+from holdout.llm.client import GeminiClient, LLMRequest, Usage, parse_response, served_tier
 from holdout.llm.spend import build_report, render
 
 MODEL = "gemini-3.8-flash"
@@ -119,3 +119,35 @@ def test_the_served_tier_and_cached_tokens_are_read_from_the_response() -> None:
     plain = client.generate(LLMRequest("t", "1", "s", "u", {}, seed=1))
     assert plain is not None
     assert configs[1].service_tier is None  # the API default (standard)
+    assert configs[0].should_return_http_response is True  # the raw body has the tier
+
+
+def _raw(usage: dict[str, object], headers: dict[str, str] | None = None) -> object:
+    body = {
+        "candidates": [{"content": {"parts": [
+            {"text": "thinking...", "thought": True}, {"text": '{"a": '}, {"text": "1}"},
+        ]}}],
+        "usageMetadata": usage,
+    }  # fmt: skip
+    return SimpleNamespace(sdk_http_response=SimpleNamespace(body=json.dumps(body),
+                                                             headers=headers or {}))  # fmt: skip
+
+
+def test_the_served_tier_is_read_from_the_raw_gemini_api_body() -> None:
+    """Recorded from a real Flex call on 2026-11-18: google-genai 3.4 drops
+    ``usageMetadata.serviceTier``, so the client reads the raw body."""
+    text, usage = parse_response(_raw({
+        "promptTokenCount": 8, "candidatesTokenCount": 1, "thoughtsTokenCount": 13,
+        "cachedContentTokenCount": 5, "serviceTier": "flex",
+    }))  # fmt: skip
+    assert text == '{"a": 1}'  # thought parts are not the answer
+    assert (usage.prompt_tokens, usage.output_tokens, usage.thinking_tokens) == (8, 1, 13)
+    assert (usage.cached_tokens, usage.tier) == (5, "flex")
+    _, standard = parse_response(_raw({"promptTokenCount": 8, "serviceTier": "standard"}))
+    assert standard.tier == "standard"
+    _, from_header = parse_response(_raw({"promptTokenCount": 8},
+                                         {"X-Gemini-Service-Tier": "flex"}))  # fmt: skip
+    assert from_header.tier == "flex"
+    _, unknown = parse_response(_raw({"promptTokenCount": 8}))
+    assert unknown.tier is None  # priced as standard
+    assert served_tier("SERVICE_TIER_UNSPECIFIED") is None

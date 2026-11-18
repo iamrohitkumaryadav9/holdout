@@ -176,6 +176,9 @@ class GeminiClient:
             service_tier=(
                 types.ServiceTier(request.service_tier) if request.service_tier else None
             ),
+            # The raw body: google-genai 3.4 parses only ``trafficType`` (Vertex AI only)
+            # and drops the Gemini API's ``usageMetadata.serviceTier``, the served tier.
+            should_return_http_response=True,
         )
         response, retries = call_with_retries(
             lambda: self._client.models.generate_content(
@@ -187,35 +190,70 @@ class GeminiClient:
             on_retry=on_retry,
             what=f"Gemini call ({request.prompt_name})",
         )
+        text, usage = parse_response(response)
+        return LLMResponse(text=text, retries=retries, usage=usage)
+
+
+def parse_response(response: Any) -> tuple[str, Usage]:
+    """Text and usage from a ``generate_content`` response.
+
+    With ``should_return_http_response`` the SDK returns only ``sdk_http_response``: the
+    text is the answer's non-thought parts, and usage comes from ``usageMetadata``. The
+    served tier is ``usageMetadata.serviceTier`` (Gemini API), else ``trafficType``
+    (Vertex AI), else a response header naming the tier; None when none is reported
+    (priced as standard). A parsed SDK response (tests, older paths) is read as before.
+    """
+    raw = getattr(response, "sdk_http_response", None)
+    body = getattr(raw, "body", None) if raw is not None else None
+    if body is None:
         usage = getattr(response, "usage_metadata", None)
-        return LLMResponse(
-            text=str(getattr(response, "text", "") or ""),
-            retries=retries,
-            usage=Usage(
-                prompt_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
-                output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
-                thinking_tokens=int(getattr(usage, "thoughts_token_count", 0) or 0),
-                cached_tokens=int(getattr(usage, "cached_content_token_count", 0) or 0),
-                tier=served_tier(getattr(usage, "traffic_type", None)),
+        return str(getattr(response, "text", "") or ""), Usage(
+            prompt_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
+            output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
+            thinking_tokens=int(getattr(usage, "thoughts_token_count", 0) or 0),
+            cached_tokens=int(getattr(usage, "cached_content_token_count", 0) or 0),
+            tier=served_tier(
+                getattr(usage, "service_tier", None) or getattr(usage, "traffic_type", None)
             ),
         )
+    data = json.loads(body) if body else {}
+    candidates = data.get("candidates") or []
+    parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+    text = "".join(str(p.get("text", "")) for p in parts if not p.get("thought"))
+    meta = data.get("usageMetadata") or {}
+    headers = {str(k).lower(): str(v) for k, v in (getattr(raw, "headers", None) or {}).items()}
+    header_tier = next((v for k, v in headers.items() if "tier" in k), None)
+    tier = served_tier(meta.get("serviceTier") or meta.get("trafficType") or header_tier)
+    return text, Usage(
+        prompt_tokens=int(meta.get("promptTokenCount", 0) or 0),
+        output_tokens=int(meta.get("candidatesTokenCount", 0) or 0),
+        thinking_tokens=int(meta.get("thoughtsTokenCount", 0) or 0),
+        cached_tokens=int(meta.get("cachedContentTokenCount", 0) or 0),
+        tier=tier,
+    )
 
 
-#: ``usage_metadata.traffic_type`` (google-genai 3.4) -> the tier that served the call.
-_TRAFFIC_TIERS: dict[str, str] = {
+#: Reported tier names -> the tier that served the call. ``serviceTier`` (Gemini API)
+#: and ``trafficType`` (Vertex AI) spell them differently.
+_TIERS: dict[str, str] = {
     "ON_DEMAND": "standard",
     "ON_DEMAND_FLEX": "flex",
     "ON_DEMAND_PRIORITY": "priority",
+    "STANDARD": "standard",
+    "FLEX": "flex",
+    "PRIORITY": "priority",
 }
 
 
-def served_tier(traffic_type: Any) -> str | None:
-    """The tier from a response's traffic type; None when not reported (priced as
-    standard, the conservative choice)."""
-    if traffic_type is None:
+def served_tier(reported: Any) -> str | None:
+    """The tier from a response's reported tier; None when not reported or unspecified
+    (priced as standard, the conservative choice)."""
+    if reported is None:
         return None
-    name = str(getattr(traffic_type, "value", traffic_type)).upper()
-    return _TRAFFIC_TIERS.get(name, name.lower())
+    name = str(getattr(reported, "value", reported)).upper().removeprefix("SERVICE_TIER_")
+    if name in ("", "UNSPECIFIED", "TRAFFIC_TYPE_UNSPECIFIED"):
+        return None
+    return _TIERS.get(name, name.lower())
 
 
 # --------------------------------------------------------------------------- fakes

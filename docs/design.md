@@ -735,8 +735,17 @@ cost, so the benchmark runs on Gemini's Flex tier and the ReAct prompt is append
   (1-15 min), so Flex clients use a 15-minute request timeout. Flex is never upgraded to
   standard; a Flex 503/429 goes through the normal retry and pause path.
 - **Priced at the tier that served the call.** Each call records the tier the response
-  reports (`traffic_type`: `ON_DEMAND_FLEX` is flex, `ON_DEMAND` is standard). Flex costs
-  50% of standard. A tier that is not reported, or is unknown, is priced as standard.
+  reports. Flex costs 50% of standard. A tier that is not reported, or is unknown, is
+  priced as standard.
+  - **Where the tier comes from.** The Gemini API puts it in `usageMetadata.serviceTier`
+    (`"flex"`, `"standard"`) and in an `x-gemini-service-tier` header. Vertex AI puts it in
+    `trafficType`. google-genai 3.4 parses only `trafficType`, so the client asks for the
+    raw HTTP response and reads the body.
+  - **Paid verification run.** The two units ran before this fix. Their calls requested
+    Flex but were recorded as "unreported" and billed in the ledger at standard, about
+    double the Flex price. The ledger keeps that conservative figure.
+  - **Probe.** A two-call probe on 2026-11-18 confirmed that Flex requests report
+    `serviceTier: "flex"`.
 - **Cached tokens.** Each call records `cached_content_token_count`.
   - The ledger keeps two valuations: list (every prompt token at the input rate) and
     cache-adjusted (cached tokens at the cached-input rate).
