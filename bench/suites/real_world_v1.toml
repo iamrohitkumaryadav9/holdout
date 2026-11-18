@@ -22,6 +22,11 @@
 #   alarm. Their "believed clean" reason is our judgement from the documented nature of
 #   the rows and attributes, not a claim made by the source.
 #
+# - `deploy_holdout` (per case, recorded before any system ran on the suite): how the
+#   deployment-faithful holdout differs from the iid one: `iid` (identical), `time` (the
+#   latest 20% of rows) or `group:COLUMN` (unseen entities). `holdout_scored = false` marks
+#   cases scored on detection and remediation only; `deploy_note` gives the reason.
+#
 # Each case also runs in an ANONYMISED variant (bench/suites/real_world_v1_anonymised.json):
 # columns renamed col_1..col_n in file order, the target renamed "target", and the goal
 # replaced by `anonymised_goal`, which keeps the deployment framing without domain words.
@@ -41,6 +46,9 @@ task = "classification"
 kind = "issues"
 goal = "Predict whether a client will subscribe to a term deposit, so the bank can decide whom to call before calling them."
 anonymised_goal = "Predict target for a new row before its outcome is known, so the decision can be made in advance."
+deploy_holdout = "iid"
+holdout_scored = false
+deploy_note = "Post-outcome case: no cited source prescribes a deployment-time treatment of duration (at prediction time it does not exist yet), so the case is scored on detection and remediation only; its holdout scores are reported but not used. The date ordering (secondary issue) is therefore not turned into a time-block holdout either."
 
 [[case.issue]]
 id = "duration_post_outcome"
@@ -75,6 +83,9 @@ task = "classification"
 kind = "issues"
 goal = "Predict whether a passenger survived from what was known about them at boarding."
 anonymised_goal = "Predict target from what was known about each row before the outcome."
+deploy_holdout = "iid"
+holdout_scored = false
+deploy_note = "Post-outcome case: no cited source prescribes a deployment-time treatment of boat and body, so the case is scored on detection and remediation only; its holdout scores are reported but not used."
 
 [[case.issue]]
 id = "boat_post_outcome"
@@ -109,6 +120,9 @@ kind = "issues"
 entity_scope = "new"
 goal = "Predict whether a hospital encounter of a diabetic patient will be followed by a readmission within 30 days; the model will be used for patients not seen before."
 anonymised_goal = "Predict target for rows of new entities that were not seen before."
+deploy_holdout = "group:patient_nbr"
+holdout_scored = true
+deploy_note = "Deployment is for new patients (the goal) and Strack et al. 2014 keep one encounter per patient so that observations are independent: the deploy holdout holds rows of patients that never occur in development."
 target_note = "binarised as in Strack et al. 2014: readmitted within 30 days = 1, otherwise 0"
 
 [[case.issue]]
@@ -154,6 +168,9 @@ task = "classification"
 kind = "issues"
 goal = "Predict whether the New South Wales electricity price will go up or down, relative to its 24-hour moving average, for future half-hour periods."
 anonymised_goal = "Predict target for future rows; the model will be used on rows that come after the training data."
+deploy_holdout = "time"
+holdout_scored = true
+deploy_note = "Time-ordered (Zliobaite 2013) and the goal predicts future periods: the deploy holdout is the latest 20% of rows."
 
 [[case.issue]]
 id = "temporal_dependence"
@@ -176,6 +193,9 @@ task = "classification"
 kind = "issues"
 goal = "Predict the forest cover type of the next cells in the data stream (new locations) from cartographic variables."
 anonymised_goal = "Predict target for the next rows in the stream; the model will be used on rows that come after the training data."
+deploy_holdout = "time"
+holdout_scored = true
+deploy_note = "Ordered stream with label dependence (Souza et al. 2020) and the goal predicts the next cells: the deploy holdout is the latest 20% of rows."
 note = "The ordering is spatial, not temporal (Souza et al. 2020, Table 1: ordering 'spatial', details 'not provided'). The goal frames deployment as the next cells of the stream, for which a random split leaks neighbouring cells; for an i.i.d. framing it would not be a problem."
 
 [[case.issue]]
@@ -201,6 +221,9 @@ task = "classification"
 kind = "clean"
 goal = "Predict whether a mushroom is edible or poisonous from its physical characteristics."
 anonymised_goal = "Predict target from the characteristics in each row."
+deploy_holdout = "iid"
+holdout_scored = true
+deploy_note = "Clean control: the deploy holdout is identical to the iid holdout."
 citation_url = "https://archive.ics.uci.edu/static/public/73/mushroom.zip"
 citation = "Mushroom (1981), UCI, doi:10.24432/C5959T; agaricus-lepiota.names (rules by W. Duch)"
 summary = "The known honest near-perfect predictor: 'odor=NOT(almond.OR.anise.OR.none)' alone gives 98.52% accuracy and four simple rules give 100%. Believed clean (our judgement): every attribute is a physical characteristic observable before the label; no identifiers, no time; 0 duplicate feature rows. The file is sorted (target lag-1 z = 44), which is not time."
@@ -215,6 +238,9 @@ task = "classification"
 kind = "clean"
 goal = "Predict whether a credit applicant is a good or a bad credit risk from the application."
 anonymised_goal = "Predict target from the information in each row."
+deploy_holdout = "iid"
+holdout_scored = true
+deploy_note = "Clean control: the deploy holdout is identical to the iid holdout."
 citation_url = "https://archive.ics.uci.edu/dataset/144/statlog+german+credit+data"
 citation = "Hofmann (1994), Statlog (German Credit Data), UCI, doi:10.24432/C5NC77"
 summary = "'This dataset classifies people described by a set of attributes as good or bad credit risks.' Believed clean (our judgement): the attributes describe the applicant and the requested credit; no identifiers, no time order (target lag-1 z = -0.7), 0 duplicate feature rows."
@@ -229,6 +255,9 @@ task = "classification"
 kind = "clean"
 goal = "Predict whether White can win a King+Rook versus King+Pawn endgame from the board description."
 anonymised_goal = "Predict target from the description in each row."
+deploy_holdout = "iid"
+holdout_scored = true
+deploy_note = "Clean control: the deploy holdout is identical to the iid holdout."
 citation_url = "https://archive.ics.uci.edu/dataset/22/chess+king+rook+vs+king+pawn"
 citation = "Shapiro (1983), Chess (King-Rook vs. King-Pawn), UCI, doi:10.24432/C5DK5C"
 summary = "Classes 'White-can-win (won) and White-cannot-win (nowin)' for KRKPA7 positions. Believed clean (our judgement): each row describes a distinct board position and the label is a fact about that position; 0 duplicate feature rows. Replaces phoneme (see the note at the end)."
@@ -243,6 +272,9 @@ task = "regression"
 kind = "clean"
 goal = "Predict the number of rings (age) of an abalone from its physical measurements."
 anonymised_goal = "Predict target from the measurements in each row."
+deploy_holdout = "iid"
+holdout_scored = true
+deploy_note = "Clean control: the deploy holdout is identical to the iid holdout."
 citation_url = "https://archive.ics.uci.edu/dataset/1/abalone"
 citation = "Nash, Sellers, Talbot, Cawthorn and Ford (1994), Abalone, UCI, doi:10.24432/C55C7W"
 summary = "'Predict the age of abalone from physical measurements'; rings + 1.5 gives the age in years. Believed clean (our judgement): measurements of each specimen, no identifiers, 0 duplicate feature rows; the file is partly ordered (target lag-1 z = 14), which is not time."

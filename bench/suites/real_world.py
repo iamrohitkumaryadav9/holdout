@@ -60,6 +60,11 @@ class RealCase:
     goal: str
     anonymised_goal: str
     entity_scope: EntityScope | None
+    #: How holdout_deploy differs from holdout_iid: "iid", "time" or "group:COLUMN".
+    deploy_holdout: str = "iid"
+    #: False: scored on detection and remediation only (holdout scores not used).
+    holdout_scored: bool = True
+    deploy_note: str = ""
     issues: tuple[RealIssue, ...] = field(default=())
     citation_url: str = ""
     citation: str = ""
@@ -109,6 +114,13 @@ def load_real_world(
             problems.append(f"{case.id}: OpenML id/version differ from the registry")
         if spec.target != case.target or spec.task is not case.task:
             problems.append(f"{case.id}: target or task differ from the registry")
+        deploy = case.deploy_holdout
+        if not (deploy in {"iid", "time"} or (deploy.startswith("group:") and len(deploy) > 6)):
+            problems.append(f"{case.id}: deploy_holdout must be iid, time or group:COLUMN")
+        if not case.deploy_note:
+            problems.append(f"{case.id}: deploy_note must say why")
+        if case.kind == "clean" and (deploy != "iid" or not case.holdout_scored):
+            problems.append(f"{case.id}: a clean control's deploy holdout is the iid holdout")
         if case.kind == "clean":
             if case.issues:
                 problems.append(f"{case.id}: a clean control has no issues")
@@ -144,6 +156,9 @@ def _case(entry: dict[str, Any]) -> RealCase:
             goal=str(entry["goal"]),
             anonymised_goal=str(entry["anonymised_goal"]),
             entity_scope=EntityScope(scope) if scope else None,
+            deploy_holdout=str(entry["deploy_holdout"]),
+            holdout_scored=bool(entry["holdout_scored"]),
+            deploy_note=str(entry["deploy_note"]),
             issues=tuple(_issue(i) for i in entry.get("issue", [])),
             citation_url=str(entry.get("citation_url", "")),
             citation=str(entry.get("citation", "")),
