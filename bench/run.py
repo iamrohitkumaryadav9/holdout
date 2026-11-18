@@ -25,6 +25,7 @@ from typing import Any
 import pandas as pd
 from sklearn.dummy import DummyClassifier, DummyRegressor
 
+from bench.data.registry import Pool
 from bench.harness import (
     BenchSeal,
     PartitionRule,
@@ -53,6 +54,7 @@ from bench.systems.base import (
 from holdout.core.errors import RunPausingError
 from holdout.core.schemas import EntityScope, Task
 from holdout.llm import config as llm_config
+from holdout.llm.budget import SpendLedger
 from holdout.llm.progress import LineProgress, NullProgress, Progress
 
 RESULTS_DIR = Path("results")
@@ -89,6 +91,8 @@ class PreparedUnit:
     entity_scope: EntityScope | None
     plan_overrides: dict[str, Any]
     rule: PartitionRule
+    #: False for real cases scored on detection and remediation only.
+    holdout_scored: bool = True
 
 
 # ----------------------------------------------------------------------------- units
@@ -151,9 +155,9 @@ def prepare(unit: Unit) -> PreparedUnit:
         frame, target, goal, mapping = case_frame(
             case, "anonymised" if unit.variant == "anonymised" else "original"
         )
-        remediations = [i.remediation for i in case.scored_issues]
-        if mapping is not None:  # the split column is renamed in the anonymised variant
-            remediations = [_rename_remediation(r, mapping.columns) for r in remediations]
+        deploy = case.deploy_holdout
+        if mapping is not None and deploy.startswith("group:"):  # renamed when anonymised
+            deploy = "group:" + mapping.rename(deploy.removeprefix("group:"))
         return PreparedUnit(
             normalise(frame),
             target,
@@ -161,12 +165,13 @@ def prepare(unit: Unit) -> PreparedUnit:
             goal,
             case.entity_scope,
             {},
-            real_world_rule(remediations, case.task),
+            real_world_rule(deploy, case.task),
+            holdout_scored=case.holdout_scored,
         )
     record = next(t for t in suite_tasks(unit.suite) if t["id"] == unit.task_id)
     spec = TaskSpec(record["trap"], record["base"], record["kind"], record["file_order"])
-    pool = "final" if unit.suite == "final_v1" else "dev"
-    built = build_task(spec, unit.seed, pool)  # type: ignore[arg-type]
+    pool: Pool = "final" if unit.suite == "final_v1" else "dev"
+    built = build_task(spec, unit.seed, pool)
     expected = record["frames"][str(unit.seed)]["sha256"]
     if frame_sha256(built.case.df) != expected:
         raise RuntimeError(f"{unit.task_id} seed {unit.seed} differs from the frozen suite")
@@ -177,16 +182,13 @@ def prepare(unit: Unit) -> PreparedUnit:
         built.case.goal_text,
         None,
         dict(built.case.plan_overrides),
-        planted_rule(record["trap"], built.case.task, record["truth"]["affected_columns"]),
+        planted_rule(
+            record["trap"],
+            built.case.task,
+            record["truth"]["affected_columns"],
+            clean=record["kind"] == "clean",
+        ),
     )
-
-
-def _rename_remediation(remedy: str, mapping: dict[str, str]) -> str:
-    for prefix in ("split:group:", "split:time:", "drop:"):
-        if remedy.startswith(prefix):
-            column = remedy.removeprefix(prefix)
-            return prefix + mapping.get(column, column)
-    return remedy
 
 
 # ----------------------------------------------------------------------------- results
@@ -217,17 +219,44 @@ def append_result(root: Path, result: BenchResult) -> None:
 # ----------------------------------------------------------------------------- one unit
 
 
-def _dummy_score(seal: BenchSeal, dev: pd.DataFrame, target: str, task: Task) -> float:
+def _dummy_scores(seal: BenchSeal, dev: pd.DataFrame, target: str, task: Task) -> dict[str, float]:
+    """The dummy's benchmark-metric score on both holdouts (computed once per seal)."""
     cache = seal.directory / "dummy.json"
     if cache.exists():
-        return float(json.loads(cache.read_text(encoding="utf-8"))["score"])
+        scores: dict[str, float] = json.loads(cache.read_text(encoding="utf-8"))
+        return scores
     X, y = dev.drop(columns=[target]), dev[target]
     dummy = (
         DummyClassifier(strategy="prior") if task is Task.CLASSIFICATION else DummyRegressor()
     ).fit(X, y)
-    score = seal.evaluate(dummy, benchmark_metric(task), caller="dummy")
-    cache.write_text(json.dumps({"score": score}), encoding="utf-8")
-    return score
+    scores = {
+        which: seal.evaluate(dummy, benchmark_metric(task), caller="dummy", which=which)
+        for which in ("iid", "deploy")
+    }
+    cache.write_text(json.dumps(scores), encoding="utf-8")
+    return scores
+
+
+def _score_both(
+    seal: BenchSeal, output: SystemOutput, metric: str, caller: str, errors: list[str]
+) -> dict[str, float | None]:
+    """Benchmark-metric and own-metric scores on both holdouts (None where it failed)."""
+    scores: dict[str, float | None] = {}
+    own = output.validation_metric if output.validation_metric else None
+    for which in ("iid", "deploy"):
+        try:
+            value = seal.evaluate(output.estimator, metric, caller=caller, which=which)
+            scores[which] = value
+            scores[f"{which}_own"] = (
+                value
+                if own in (None, metric)
+                else seal.evaluate(output.estimator, own, caller=caller, which=which)
+            )
+        except (SealError, ValueError) as exc:
+            errors.append(f"{which} holdout scoring failed: {exc}")
+            scores.setdefault(which, None)
+            scores.setdefault(f"{which}_own", None)
+    return scores
 
 
 def run_unit(
@@ -248,11 +277,11 @@ def run_unit(
     clock = time.perf_counter()
     prepared = prepare_fn(unit)
     seal_dir = root / "seals" / unit.suite / unit.slug
-    dev, holdout = partition(prepared.frame, prepared.target, prepared.rule, unit.seed)
+    dev, iid, deploy = partition(prepared.frame, prepared.target, prepared.rule, unit.seed)
     seal = (
         BenchSeal.load(seal_dir)
         if (seal_dir / "seal.json").exists()
-        else BenchSeal.create(seal_dir, holdout, prepared.target)
+        else BenchSeal.create(seal_dir, iid, deploy, prepared.target)
     )
     ctx = SystemContext(
         unit_id=f"{unit.suite}/{unit.slug}/{unit.system}",
@@ -275,20 +304,11 @@ def run_unit(
         output = SystemOutput(status="paused", error=f"{type(exc).__name__}: {exc}")
     except Exception as exc:  # recorded, the benchmark continues
         output = SystemOutput(status="failed", error=f"{type(exc).__name__}: {exc}")
-    holdout_score = own_score = None
     errors = [output.error] if output.error else []
+    scores: dict[str, float | None] = {}
     if output.estimator is not None:
-        try:
-            holdout_score = seal.evaluate(output.estimator, metric, caller=unit.system)
-            if output.validation_metric and output.validation_metric != metric:
-                own_score = seal.evaluate(
-                    output.estimator, output.validation_metric, caller=unit.system
-                )
-            else:
-                own_score = holdout_score
-        except (SealError, ValueError) as exc:
-            errors.append(f"holdout scoring failed: {exc}")
-    dummy = _dummy_score(seal, dev, prepared.target, prepared.task)
+        scores = _score_both(seal, output, metric, unit.system, errors)
+    dummy = _dummy_scores(seal, dev, prepared.target, prepared.task)
     return BenchResult(
         suite=unit.suite,
         task_id=unit.task_id,
@@ -301,10 +321,14 @@ def run_unit(
         pipeline=output.pipeline,
         validation_metric=output.validation_metric,
         validation_score=output.validation_score,
-        holdout_score_own_metric=own_score,
         benchmark_metric=metric,
-        holdout_score=holdout_score,
-        dummy_holdout_score=dummy,
+        holdout_iid=scores.get("iid"),
+        holdout_deploy=scores.get("deploy"),
+        holdout_iid_own_metric=scores.get("iid_own"),
+        holdout_deploy_own_metric=scores.get("deploy_own"),
+        dummy_holdout_iid=dummy["iid"],
+        dummy_holdout_deploy=dummy["deploy"],
+        holdout_scored=prepared.holdout_scored,
         partition=prepared.rule.describe(),
         report_text=output.report_text,
         report_a11_flags=output.report_a11_flags,
@@ -317,7 +341,7 @@ def run_unit(
         repairs=output.repairs,
         substitutions=output.substitutions,
         model=model if system.uses_llm else None,
-        extra={**output.extra, "dev_rows": len(dev), "holdout_rows": seal.n_rows},
+        extra={**output.extra, "dev_rows": len(dev), "holdout_rows": seal.rows},
         started_at=started,
         finished_at=datetime.now(UTC),
     )
@@ -353,11 +377,27 @@ def run_all(
     stop_on_pause: bool = True,
     write: Callable[[str], None] = print,
     prepare_fn: Callable[[Unit], PreparedUnit] = prepare,
+    max_spend_inr: float | None = None,
+    ledger: SpendLedger | None = None,
 ) -> list[BenchResult]:
     """Run every pending unit in order. A pause stops the pass (the cause - an outage, a
-    cap, billing - affects every later LLM unit too); rerun the command to continue."""
+    cap, billing - affects every later LLM unit too); rerun the command to continue.
+
+    ``max_spend_inr`` caps this invocation's spend, measured from the ledger (so failed and
+    paused units count too): once it is reached, no further unit starts (the current one
+    finishes; each unit is bounded by its own per-run cap).
+    """
+    ledger = ledger if ledger is not None else SpendLedger()
+    start = ledger.total_inr()
     done = []
     for unit, resume in pending(units, root):
+        spent = ledger.total_inr() - start
+        if max_spend_inr is not None and spent >= max_spend_inr:
+            write(
+                f"spend cap reached: Rs {spent:.2f} of Rs {max_spend_inr:.2f} for this run; "
+                "stopped before the next unit"
+            )
+            break
         write(f"{'resume' if resume else 'run'} {unit.suite} {unit.task_id} {unit.system} "
               f"seed {unit.seed} {unit.variant}")  # fmt: skip
         result = run_unit(
@@ -377,6 +417,13 @@ def run_all(
         if result.status == "paused" and stop_on_pause:
             write("paused: rerun the same command to resume from here")
             break
+        spent = ledger.total_inr() - start
+        if max_spend_inr is not None and spent >= max_spend_inr:
+            write(
+                f"spend cap reached: Rs {spent:.2f} of Rs {max_spend_inr:.2f} for this run "
+                f"after {unit.system} on {unit.task_id}; stopped cleanly"
+            )
+            break
     return done
 
 
@@ -392,6 +439,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--results", type=Path, default=RESULTS_DIR)
     parser.add_argument("--plan", action="store_true", help="estimate cost only (pre-flight)")
     parser.add_argument("--purpose", choices=["general", "benchmark"], default="general")
+    parser.add_argument(
+        "--max-spend",
+        type=float,
+        default=None,
+        help="stop before the next unit once this invocation has spent this many rupees",
+    )
+    parser.add_argument(
+        "--report", type=Path, default=None, help="write the pilot report here when done"
+    )
     args = parser.parse_args(argv)
     config = load_bench_config()
     systems_wanted = args.systems or list(config.systems)
@@ -416,7 +472,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         model=config.model,
         run_cap_inr=config.run_cap_inr,
         progress=progress,
+        max_spend_inr=args.max_spend,
     )
+    if args.report is not None:
+        from bench.pilot import write_pilot_report
+
+        write_pilot_report(args.results, args.suite, args.report, config)
+        print(f"pilot report: {args.report}")
     return 0
 
 

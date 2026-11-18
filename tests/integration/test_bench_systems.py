@@ -31,7 +31,7 @@ def _prepared(unit: Unit) -> PreparedUnit:
         goal=CASE.goal_text,
         entity_scope=None,
         plan_overrides=dict(CASE.plan_overrides),
-        rule=PartitionRule("stratified"),
+        rule=PartitionRule(),
     )
 
 
@@ -175,11 +175,12 @@ def test_every_system_runs_and_never_reads_the_holdout(tmp_path: Path, name: str
     assert result.status == "completed", result.error
     seal_dir = tmp_path / "results" / "seals"
     assert not [p for p in system.opened if Path(p).resolve().is_relative_to(seal_dir.resolve())]
-    assert result.holdout_score is not None
-    assert 0.0 <= result.holdout_score <= 1.0
-    assert result.dummy_holdout_score == pytest.approx(0.5)
+    assert result.holdout_iid is not None
+    assert result.holdout_deploy is not None
+    assert 0.0 <= result.holdout_deploy <= 1.0
+    assert result.dummy_holdout_deploy == pytest.approx(0.5)
     log = [e for e in _seal_log(seal_dir) if e["caller"] == name]
-    assert len(log) == 1  # one evaluation of this system's model (same metric)
+    assert sorted(e["holdout"] for e in log) == ["deploy", "iid"]  # once per holdout
     workdir = tmp_path / "results" / "work"
     for path in workdir.rglob("*"):
         assert "holdout.parquet" not in path.name or "runs" in path.parts  # Holdout's own seal

@@ -169,6 +169,7 @@ class HoldoutSystem:
             repairs=sum(m.agent.quality.repairs for m in manifests if m.agent and m.agent.quality),
             substitutions=sum(len(m.agent.substitutions) for m in manifests if m.agent),
             extra={
+                "inr_by_node": _inr_by_node(manifests),
                 "run_dirs": [str(r.run_dir) for r in runs],
                 "stop_reason": agent.stop_reason if agent is not None else None,
                 "followup": outcome.followup is not None,
@@ -212,6 +213,16 @@ def _issues(manifests: list[RunManifest]) -> list[ReportedIssue]:
                 flag.message,
             )
     return issues
+
+
+def _inr_by_node(manifests: list[RunManifest]) -> dict[str, float]:
+    """Rupees per graph node (plan, audit or judge, explain_and_fix, report), all runs."""
+    totals: dict[str, float] = {}
+    for manifest in manifests:
+        if manifest.agent is not None:
+            for node, usage in manifest.agent.usage_by_node.items():
+                totals[node] = totals.get(node, 0.0) + usage.inr
+    return {k: round(v, 4) for k, v in sorted(totals.items())}
 
 
 def _first_attempt(manifests: list[RunManifest]) -> dict[str, NodeQuality]:

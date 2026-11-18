@@ -127,13 +127,21 @@ def test_clean_alarms_count_a_task_once_if_any_seed_or_variant_alarmed() -> None
 
 
 def test_optimism_gap_and_relative_scores_are_sign_aware() -> None:
-    auc = _result(validation_metric="roc_auc", validation_score=0.9, holdout_score_own_metric=0.8)
-    assert optimism_gap(auc) == pytest.approx(0.1)
-    rmse = _result(validation_metric="rmse", validation_score=1.0, holdout_score_own_metric=1.5)
+    auc = _result(validation_metric="roc_auc", validation_score=0.9,
+                  holdout_deploy_own_metric=0.6, holdout_iid_own_metric=0.85)  # fmt: skip
+    assert optimism_gap(auc) == pytest.approx(0.3)  # deploy is the default
+    assert optimism_gap(auc, "deploy") == pytest.approx(0.3)
+    assert optimism_gap(auc, "iid") == pytest.approx(0.05)
+    rmse = _result(validation_metric="rmse", validation_score=1.0, holdout_deploy_own_metric=1.5)
     assert optimism_gap(rmse) == pytest.approx(0.5)  # holdout error larger: optimistic
-    assert relative_to_dummy(_result(holdout_score=0.75, dummy_holdout_score=0.5)) == 0.5
-    reg = _result(benchmark_metric="rmse", holdout_score=2.0, dummy_holdout_score=4.0)
+    both = _result(holdout_deploy=0.75, dummy_holdout_deploy=0.5, holdout_iid=0.9,
+                   dummy_holdout_iid=0.5)  # fmt: skip
+    assert relative_to_dummy(both) == 0.5
+    assert relative_to_dummy(both, "iid") == pytest.approx(0.8)
+    reg = _result(benchmark_metric="rmse", holdout_deploy=2.0, dummy_holdout_deploy=4.0)
     assert relative_to_dummy(reg) == pytest.approx(0.5)
+    unscored = _result(validation_score=0.9, holdout_deploy_own_metric=0.6, holdout_scored=False)
+    assert optimism_gap(unscored) is None  # detection and remediation only
 
 
 def test_task_scores_keep_seeds_apart() -> None:
@@ -193,7 +201,8 @@ def test_the_analysis_renders_tables_and_charts_from_results_files(tmp_path: Any
                     task_id=trap, system=system, seed=seed, issues=issues,
                     pipeline=FinalPipeline(dropped_columns=["refund_issued"] if caught else []),
                     validation_metric="roc_auc", validation_score=0.8,
-                    holdout_score_own_metric=0.75, holdout_score=0.75, dummy_holdout_score=0.5,
+                    holdout_deploy_own_metric=0.75, holdout_deploy=0.75, dummy_holdout_deploy=0.5,
+                    holdout_iid_own_metric=0.79, holdout_iid=0.79, dummy_holdout_iid=0.5,
                     cost_inr=1.0, report_text="Tenure is associated with the outcome.",
                 ),
             )  # fmt: skip

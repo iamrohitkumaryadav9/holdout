@@ -105,6 +105,13 @@ def test_the_memory_limit_is_enforced(tmp_path: Path) -> None:
     assert result.status in {"memory", "error"}
 
 
+def test_the_react_prompt_is_published_verbatim_in_the_benchmark_docs() -> None:
+    root = Path(__file__).resolve().parents[2]
+    prompt = (root / "bench/systems/prompts/react.md").read_text("utf-8").replace("\r\n", "\n")
+    docs = (root / "docs/benchmark.md").read_text("utf-8").replace("\r\n", "\n")
+    assert prompt.strip() in docs
+
+
 def test_observations_are_truncated_head_and_tail() -> None:
     text = "A" * 3000 + "Z" * 3000
     shown, removed = truncate_observation(text, 2000)

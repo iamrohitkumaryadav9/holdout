@@ -12,7 +12,9 @@ Definitions (docs/benchmark.md):
 * **False alarm** on a clean control: a critical issue (primary); warning or above
   (secondary); any reported issue, info included (tertiary).
 * **Optimism gap**: the system's own validation claim minus its holdout score in the same
-  metric (sign-adjusted so positive means optimistic).
+  metric (sign-adjusted so positive means optimistic), on both holdouts:
+  ``optimism_gap_deploy`` (deployment-faithful; H3's primary) and ``optimism_gap_iid``
+  (leaks intact; secondary). Real cases with ``holdout_scored = false`` have no gap.
 * **Statistics** use the task as the unit: seeds are averaged within a task before the
   paired bootstrap; McNemar pairs are per task ("detected in both seeds", with "either seed"
   as a secondary); anonymised variants are never pooled with originals.
@@ -201,17 +203,29 @@ def false_alarm(result: BenchResult, level: str) -> bool:
     return any(i.severity.at_least(minimum) for i in result.issues)
 
 
-def optimism_gap(result: BenchResult) -> float | None:
-    if result.validation_score is None or result.holdout_score_own_metric is None:
+def holdout_score(result: BenchResult, which: str = "deploy") -> float | None:
+    """The benchmark-metric holdout score; None for real cases scored on detection and
+    remediation only (``holdout_scored = false``)."""
+    if not result.holdout_scored:
         return None
-    gap = result.validation_score - result.holdout_score_own_metric
+    return result.holdout_deploy if which == "deploy" else result.holdout_iid
+
+
+def optimism_gap(result: BenchResult, which: str = "deploy") -> float | None:
+    """The system's own validation claim minus its score on holdout ``which`` (deploy or
+    iid) in the same metric, sign-adjusted so positive means optimistic."""
+    own = result.holdout_deploy_own_metric if which == "deploy" else result.holdout_iid_own_metric
+    if result.validation_score is None or own is None or not result.holdout_scored:
+        return None
+    gap = result.validation_score - own
     return -gap if (result.validation_metric or "") in LOWER_IS_BETTER else gap
 
 
-def relative_to_dummy(result: BenchResult) -> float | None:
+def relative_to_dummy(result: BenchResult, which: str = "deploy") -> float | None:
     """Share of the way from the dummy to a perfect score (roc_auc), or the RMSE reduction
     relative to the dummy (rmse). 0 = dummy, 1 = perfect."""
-    s, d = result.holdout_score, result.dummy_holdout_score
+    s = holdout_score(result, which)
+    d = result.dummy_holdout_deploy if which == "deploy" else result.dummy_holdout_iid
     if s is None or d is None:
         return None
     if result.benchmark_metric in LOWER_IS_BETTER:

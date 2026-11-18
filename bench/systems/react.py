@@ -286,5 +286,8 @@ class ReactSystem:
                 "model_error": model_error,
                 "seconds_in_loop": round(time.perf_counter() - started, 1),
                 "step_statuses": [h["status"] for h in history],
+                # Rupees per LLM step (the history grows, so later steps cost more).
+                "inr_by_step": [round(r.inr, 4) for r in records],
+                "inr_by_node": {"react": round(sum(r.inr for r in records), 4)},
             },
         )

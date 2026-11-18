@@ -66,10 +66,17 @@ class BenchResult(_Record):
     pipeline: FinalPipeline | None = None
     validation_metric: str | None = None
     validation_score: float | None = None
-    holdout_score_own_metric: float | None = None
     benchmark_metric: str
-    holdout_score: float | None = None
-    dummy_holdout_score: float | None = None
+    #: The two holdouts (bench/harness.py): iid (leaks intact) and deployment-faithful.
+    holdout_iid: float | None = None
+    holdout_deploy: float | None = None
+    #: The same, in the system's own validation metric (for the optimism gaps).
+    holdout_iid_own_metric: float | None = None
+    holdout_deploy_own_metric: float | None = None
+    dummy_holdout_iid: float | None = None
+    dummy_holdout_deploy: float | None = None
+    #: False for real cases scored on detection and remediation only (real_world_v1.toml).
+    holdout_scored: bool = True
     partition: str = ""
     report_text: str | None = None
     report_a11_flags: int = 0

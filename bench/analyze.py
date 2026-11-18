@@ -21,6 +21,7 @@ from bench.score import (
     bootstrap_mean,
     clean_alarms,
     clopper_pearson_upper,
+    holdout_score,
     load_results,
     mcnemar,
     optimism_gap,
@@ -152,31 +153,58 @@ def _per_task_mean(results: list[BenchResult], system: str, fn) -> dict[str, flo
 def outcome_table(results: list[BenchResult]) -> list[str]:
     systems = _systems(results)
     lines = [
-        "### Scores, optimism, cost and answer quality (completed runs; task = unit)",
+        "### Scores and optimism on both holdouts (completed runs; task = unit; mean [95% CI])",
         "",
-        "| system | optimism gap (95% CI) | holdout vs dummy | holdout - FLAML | cost/run | "
-        "time/run | calls | retries | first-attempt valid | repairs/run | substitutions/run |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| system | optimism gap deploy | optimism gap iid | holdout_deploy vs dummy | "
+        "holdout_iid vs dummy | holdout_deploy - FLAML |",
+        "|---|---|---|---|---|---|",
     ]
-    flaml = _per_task_mean(results, "flaml", lambda r: r.holdout_score)
+    flaml = _per_task_mean(results, "flaml", lambda r: holdout_score(r, "deploy"))
+
+    def gap_cell(sy: str, which: str) -> str:
+        gaps = list(_per_task_mean(results, sy, lambda r: optimism_gap(r, which)).values())
+        if not gaps:
+            return "-"
+        mean, low, high = bootstrap_mean(gaps)
+        return f"{mean:+.4f} [{low:+.4f}, {high:+.4f}]"
+
+    def rel_cell(sy: str, which: str) -> str:
+        rel = list(_per_task_mean(results, sy, lambda r: relative_to_dummy(r, which)).values())
+        return f"{np.mean(rel):.3f}" if rel else "-"
+
     for sy in systems:
-        runs = [r for r in results if r.system == sy and r.status == "completed"]
-        if not runs:
-            continue
-        gaps = list(_per_task_mean(results, sy, optimism_gap).values())
-        gap = _ci(*bootstrap_mean(gaps)).replace("%", "") if gaps else "-"
-        rel = list(_per_task_mean(results, sy, relative_to_dummy).values())
-        mine = _per_task_mean(results, sy, lambda r: r.holdout_score)
+        mine = _per_task_mean(results, sy, lambda r: holdout_score(r, "deploy"))
         shared = sorted(set(mine) & set(flaml))
         vs_flaml = (
             f"{np.mean([mine[k] - flaml[k] for k in shared]):+.4f}"
             if shared and sy != "flaml"
             else "-"
         )
+        lines.append(
+            f"| {sy} | {gap_cell(sy, 'deploy')} | {gap_cell(sy, 'iid')} | "
+            f"{rel_cell(sy, 'deploy')} | {rel_cell(sy, 'iid')} | {vs_flaml} |"
+        )
+    lines += [
+        "",
+        "Optimism gap: the system's own validation claim minus its holdout score in the same "
+        "metric (positive = optimistic). holdout_deploy is deployment-faithful (leak columns "
+        "unavailable, unseen entities, the future); holdout_iid keeps leaks intact. Real cases "
+        "scored on detection and remediation only are excluded.",
+        "",
+        "### Cost and answer quality (completed runs)",
+        "",
+        "| system | cost/run | time/run | calls | retries | first-attempt valid | "
+        "repairs/run | substitutions/run |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for sy in systems:
+        runs = [r for r in results if r.system == sy and r.status == "completed"]
+        if not runs:
+            continue
         firsts = sum(q.first_attempts for r in runs for q in r.first_attempt.values())
         valid = sum(q.valid for r in runs for q in r.first_attempt.values())
         lines.append(
-            f"| {sy} | {gap} | {np.mean(rel):.3f} | {vs_flaml} | "
+            f"| {sy} | "
             f"Rs {np.mean([r.cost_inr for r in runs]):.2f} | "
             f"{np.mean([r.seconds for r in runs]):.0f} s | "
             f"{np.mean([r.calls for r in runs]):.1f} | {sum(r.retries for r in runs)} | "
@@ -184,8 +212,6 @@ def outcome_table(results: list[BenchResult]) -> list[str]:
             f"{np.mean([r.repairs for r in runs]):.2f} | "
             f"{np.mean([r.substitutions for r in runs]):.2f} |"
         )
-    lines += ["", "Optimism gap: the system's own validation claim minus its holdout score in "
-              "the same metric (positive = optimistic)."]  # fmt: skip
     return lines
 
 
@@ -311,12 +337,15 @@ def charts(
     fig.savefig(path, dpi=120)
     plt.close(fig)
     paths.append(path)
-    gaps = [list(_per_task_mean(results, sy, optimism_gap).values()) for sy in systems]
+    gaps = [
+        list(_per_task_mean(results, sy, lambda r: optimism_gap(r, "deploy")).values())
+        for sy in systems
+    ]
     fig, ax = plt.subplots(figsize=(6, 3))
     ax.boxplot([g or [0.0] for g in gaps], tick_labels=systems)
     ax.axhline(0, color="grey", linewidth=0.8)
     ax.set_ylabel("validation - holdout")
-    ax.set_title("Optimism gap per task")
+    ax.set_title("Optimism gap per task (deployment-faithful holdout)")
     fig.tight_layout()
     path = out / "optimism_gap.png"
     fig.savefig(path, dpi=120)
