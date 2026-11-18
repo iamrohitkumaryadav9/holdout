@@ -1,0 +1,18 @@
+# Benchmark configuration (Week 4). Pinned for every system and every run; recorded, with its
+# sha256, in the pre-registration.
+
+# The one model every LLM system uses (Holdout, the LLM judge, ReAct).
+model = "gemini-3.8-flash"
+# Per-run budget cap in rupees, the same for every system (holdout.llm.config.RUN_CAP_INR).
+run_cap_inr = 15.0
+# Systems compared, in report order.
+systems = ["holdout", "audits_only", "llm_judge", "react", "flaml"]
+# FLAML's fixed time budget per task (seconds).
+flaml_time_budget = 60
+# ReAct: at most this many steps per run; observations shown to the model are truncated.
+react_max_steps = 15
+react_observation_chars = 2000
+# Pre-flight: measured pilot cost per run (results of the pilot on the dev suite) plus this
+# margin must fit the remaining budget before a full run may start.
+cost_margin = 0.20
+pilot_results = "results/pilot"
