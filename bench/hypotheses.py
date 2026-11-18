@@ -10,12 +10,12 @@ variants are never pooled with originals.
   detects more tasks and the Holm-adjusted p < 0.05. Estimate: the mean per-task difference
   in detection rate (seeds averaged) with a paired bootstrap CI.
 * **H2** Holdout's critical false-alarm rate on clean controls is at most 10%. Unit: the
-  clean task (final_v1 clean twins and real-world clean controls; a task alarms if any seed
-  or variant raised a critical issue). Pass: the observed rate <= 10%. Reported with the
-  one-sided 95% Clopper-Pearson upper bound and the exact one-sided binomial p for
-  H0: rate >= 10%. With 16 tasks that p cannot fall below 0.9^16 = 0.185, so H2's decision
-  is the observed-rate rule; its p still enters the Holm family (which makes H1, H3 and H4
-  more conservative, never less).
+  clean task (final_v1 clean twins and real-world clean controls; a task is a non-pass if
+  any seed or variant raised a critical issue **or failed**, so failing cannot shrink the
+  denominator or improve the rate). Pass: the observed rate <= 10% (at most 1 of 16).
+  The exact one-sided binomial p for H0: rate >= 10% and the one-sided 95% Clopper-Pearson
+  upper bound are **descriptive only**: H2 is decided by its rate rule, and its p is not in
+  the Holm family.
 * **H3** Holdout's optimism gap is smaller than ReAct's. Primary: the deploy gap; secondary:
   the iid gap. Per planted final_v1 task with a gap for both systems (seeds averaged), the
   difference Holdout - ReAct; two-sided paired sign-flip permutation test (exact up to 20
@@ -27,7 +27,7 @@ variants are never pooled with originals.
   the paired original - anonymised difference per issue with a bootstrap CI; "no material
   dependence" when the CI lies within +/-0.20.
 
-Holm-Bonferroni over H1-H4 at alpha = 0.05.
+Holm-Bonferroni over H1, H3 and H4 at alpha = 0.05 (H2 is a rate rule; H5 is exploratory).
 """
 
 from collections.abc import Sequence
@@ -40,6 +40,7 @@ from bench.score import (
     TaskTruth,
     clean_alarms,
     clopper_pearson_upper,
+    failed_clean_tasks,
     holm,
     mcnemar,
     optimism_gap,
@@ -133,7 +134,7 @@ def confirmatory(
     real: list[BenchResult],
     real_truth: dict[tuple[str, str], TaskTruth],
 ) -> list[Outcome]:
-    """H1-H4 with Holm-adjusted p-values and decisions, then H5 (exploratory)."""
+    """H1-H4 (Holm over H1, H3, H4; H2 by its rate rule), then H5 (exploratory)."""
     h1, h1_sign = _detection(
         "H1", "Holdout's detection recall on planted traps exceeds ReAct's",
         "holdout", "react", planted, planted_truth,
@@ -142,17 +143,23 @@ def confirmatory(
         "H4", "deterministic audits (holdout) beat the LLM judge (llm_judge) on detection",
         "holdout", "llm_judge", planted, planted_truth,
     )  # fmt: skip
-    # H2: clean tasks of both suites, critical level, any seed or variant.
+    # H2: clean tasks of both suites, critical level, any seed or variant; failed = non-pass.
     real_alarms = clean_alarms(real, real_truth, "critical").get("holdout", {})
     alarms = {**clean_alarms(planted, planted_truth, "critical").get("holdout", {}),
               **{f"real/{k}": v for k, v in real_alarms.items()}}  # fmt: skip
     k, n = sum(alarms.values()), len(alarms)
+    failed = failed_clean_tasks(planted, planted_truth, "holdout") + failed_clean_tasks(
+        real, real_truth, "holdout"
+    )
+    binom_p = float(stats.binom.cdf(k, n, H2_BOUND)) if n else None
     h2 = Outcome(
         "H2", f"Holdout's critical false-alarm rate on clean tasks is at most {H2_BOUND:.0%}",
         n, (k / n) if n else None, (0.0, clopper_pearson_upper(k, n)) if n else None,
-        float(stats.binom.cdf(k, n, H2_BOUND)) if n else None, None, "",
-        f"{k} of {n} clean tasks raised a critical issue; one-sided 95% Clopper-Pearson upper "
-        f"bound {clopper_pearson_upper(k, n):.1%}" if n else "no clean task results",
+        None, None, "",
+        (f"{k} of {n} clean tasks did not pass (critical issue or failed unit; {failed} with a "
+         f"failed unit); descriptive only: one-sided 95% Clopper-Pearson upper bound "
+         f"{clopper_pearson_upper(k, n):.1%}, exact binomial p (H0: rate >= "
+         f"{H2_BOUND:.0%}) {binom_p:.4f}") if n else "no clean task results",
     )  # fmt: skip
     gap_n, gap_mean, gap_ci, gap_p = _gap(planted, "deploy")
     iid_n, iid_mean, iid_ci, iid_p = _gap(planted, "iid")
@@ -164,15 +171,19 @@ def confirmatory(
         f"holdout: {iid_mean:+.4f} [{iid_ci[0]:+.4f}, {iid_ci[1]:+.4f}], sign-flip p "
         f"{iid_p:.4f}, n {iid_n}" if iid_n else "mean per-task difference holdout - react",
     )  # fmt: skip
-    family = {o.name: o.p_value for o in (h1, h2, h3, h4) if o.p_value is not None}
+    family = {o.name: o.p_value for o in (h1, h3, h4) if o.p_value is not None}
     adjusted = holm(family)
     out = []
     for o in (h1, h2, h3, h4):
         p_holm = adjusted.get(o.name)
-        if o.p_value is None or o.estimate is None:
+        if o.name == "H2":
+            decision = (
+                "not evaluable"
+                if o.estimate is None
+                else ("pass" if o.estimate <= H2_BOUND else "fail")
+            )
+        elif o.p_value is None or o.estimate is None:
             decision = "not evaluable"
-        elif o.name == "H2":
-            decision = "pass" if o.estimate <= H2_BOUND else "fail"
         elif o.name == "H3":
             ok = o.estimate < 0 and p_holm is not None and p_holm < ALPHA
             decision = "supported" if ok else "not supported"
@@ -207,7 +218,7 @@ def render(outcomes: list[Outcome]) -> list[str]:
     lines = [
         "## Pre-registered hypotheses",
         "",
-        "| | hypothesis | n (tasks) | estimate [95% CI] | p | p (Holm, H1-H4) | decision |",
+        "| | hypothesis | n (tasks) | estimate [95% CI] | p | p (Holm: H1, H3, H4) | decision |",
         "|---|---|---|---|---|---|---|",
     ]
     for o in outcomes:

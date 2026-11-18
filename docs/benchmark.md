@@ -136,10 +136,14 @@ The rules are in `bench/harness.py` (`DEPLOY_RULES`, `planted_rule`); the tests 
   - *Real world:* one of the issue's categories is reported at severity ≥ its minimum
     (warning) and names one of its columns, when it has any. No source grades the severity
     of these problems, so critical-level detection is a secondary metric.
-- **Failed units** (a crash, or an agent node over its compute limit) count as **not
-  detected and not remediated**, so a crash cannot escape its misses. They are excluded
-  from false-alarm counts, since a crash cannot raise an alarm. Paused units are not
-  results; the run is repeated until none remain.
+- **Failed units** (a crash, or an agent node over its compute limit) count **against**
+  the system everywhere, so failing can never improve a score:
+  - on a trap, as **not detected and not remediated**;
+  - on a clean task, as a **non-pass** (a false alarm) at every false-alarm level, so
+    failing cannot shrink the denominator.
+
+  Each system's unit failure rate is shown near the top of every suite's results. Paused
+  units are not results; the run is repeated until none remain.
 - **Remediation:** the final pipeline actually fixed it.
   - The column is dropped.
   - The split is the required group or time split.
@@ -154,7 +158,7 @@ The rules are in `bench/harness.py` (`DEPLOY_RULES`, `planted_rule`); the tests 
   - *Tertiary:* any issue, info included. Holdout always emits informational flags, such as
     A12's fold spread.
   - *Unit:* the clean **task**. A task is a false alarm if any of its seeds or variants
-    alarmed.
+    alarmed or failed.
 - **Optimism gap:** the system's own validation claim minus its holdout score, in the same
   metric, sign-adjusted so positive means optimistic.
   - **`optimism_gap_deploy`** (H3's primary) uses holdout_deploy.
@@ -179,7 +183,8 @@ The unit of every CI and test is the **task**.
 - Each seed is also reported separately.
 - Anonymised variants are never pooled with originals as independent samples: they are
   shown side by side, and H5 compares them pairwise.
-- Holm's correction covers H1-H4. H5 is exploratory.
+- Holm's correction covers H1, H3 and H4. H2 is decided by its observed-rate rule, and its
+  p and Clopper–Pearson bound are descriptive. H5 is exploratory.
 
 ## Real-world cases and citations
 

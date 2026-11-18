@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from bench.hypotheses import H2_BOUND, confirmatory, render, sign_flip_p
-from bench.score import Expectation, TaskTruth
+from bench.score import Expectation, TaskTruth, clean_alarms, failure_rates
 from bench.systems.base import BenchResult, ReportedIssue
 from holdout.audit.types import Category, Severity
 
@@ -98,13 +98,18 @@ def test_a_clear_win_supports_h1_h3_h4_and_h2_passes() -> None:
     assert out["H3"].estimate < 0  # Holdout's gap smaller
     assert out["H3"].n == N_TRAPS
     assert "secondary, iid holdout" in out["H3"].detail
-    # H2: 0 of 6 clean planted + 1 clean real task.
+    # H2: 0 of 6 clean planted + 1 clean real task; decided by the rate rule alone.
     assert out["H2"].n == N_CLEAN + 1
     assert out["H2"].decision == "pass"
-    assert out["H2"].p_value == pytest.approx(0.9 ** (N_CLEAN + 1))
-    # Holm over the four p-values: monotone and never below the raw p.
-    for name in ("H1", "H2", "H3", "H4"):
+    assert out["H2"].p_value is None  # not in the Holm family
+    assert out["H2"].p_holm is None
+    assert f"exact binomial p (H0: rate >= 10%) {0.9 ** (N_CLEAN + 1):.4f}" in out["H2"].detail
+    assert "descriptive only" in out["H2"].detail
+    # Holm over H1, H3 and H4 only: never below the raw p, and m = 3.
+    for name in ("H1", "H3", "H4"):
         assert out[name].p_holm >= out[name].p_value
+    smallest = min(out[n].p_value for n in ("H1", "H3", "H4"))
+    assert min(out[n].p_holm for n in ("H1", "H3", "H4")) == pytest.approx(3 * smallest)
     assert out["H5"].decision == "no material dependence"
     assert out["H5"].p_holm is None  # exploratory: outside the Holm family
 
@@ -118,7 +123,7 @@ def test_direction_and_the_h2_rule_decide() -> None:
     assert out["H2"].estimate == pytest.approx(2 / (N_CLEAN + 1))
     assert out["H2"].estimate > H2_BOUND
     assert out["H2"].decision == "fail"
-    assert "2 of 7 clean tasks raised a critical issue" in out["H2"].detail
+    assert "2 of 7 clean tasks did not pass" in out["H2"].detail
     h5 = _by_name(confirmatory(_planted(2, 2, 2), _truths(), _real(True, False),
                                _real_truths()))["H5"]  # fmt: skip
     assert h5.estimate == pytest.approx(1.0)
@@ -133,6 +138,17 @@ def test_missing_systems_are_not_evaluable_and_render() -> None:
     text = "\n".join(render(list(out.values())))
     assert "| H1 |" in text
     assert "**not evaluable**" in text
+    assert "p (Holm: H1, H3, H4)" in text
+
+
+def test_the_analysis_shows_unit_failure_rates_prominently() -> None:
+    from bench.analyze import failure_table
+
+    results = [r.model_copy(update={"status": "failed"}) if r.task_id == "t0" else r
+               for r in _planted(5, 5, 5)]  # fmt: skip
+    text = "\n".join(failure_table(results))
+    assert "| react | 2 of 24 | **8.3%** |" in text
+    assert "| llm_judge | 2 of 24 | **8.3%** |" in text
 
 
 def test_failed_units_count_as_misses_and_paused_ones_are_not_results() -> None:
@@ -152,10 +168,24 @@ def test_failed_units_count_as_misses_and_paused_ones_are_not_results() -> None:
     assert _by_name(confirmatory(paused, _truths(), _real(), _real_truths()))["H1"].n == (
         N_TRAPS - 1
     )
-    clean_fail = [r.model_copy(update={"status": "failed"}) if r.task_id == "c0" else r
-                  for r in _planted(12, 2, 2, critical_clean=1)]  # fmt: skip
+    # A failed clean unit counts AGAINST the system: it stays in the denominator as a non-pass.
+    clean_fail = [
+        r.model_copy(update={"status": "failed"}) if (r.task_id, r.seed) == ("c1", 202) else r
+        for r in _planted(12, 2, 2)
+    ]  # fmt: skip
     h2 = _by_name(confirmatory(clean_fail, _truths(), _real(), _real_truths()))["H2"]
-    assert h2.n == N_CLEAN  # a crash cannot raise (or clear) an alarm: excluded
+    assert h2.n == N_CLEAN + 1
+    assert h2.estimate == pytest.approx(1 / (N_CLEAN + 1))
+    assert "1 with a failed unit" in h2.detail
+    failing_more = [r.model_copy(update={"status": "failed"}) if r.task_id in ("c1", "c2") else r
+                    for r in _planted(12, 2, 2)]  # fmt: skip
+    assert _by_name(confirmatory(failing_more, _truths(), _real(),
+                                 _real_truths()))["H2"].decision == "fail"  # fmt: skip
+    for level in ("critical", "warning", "any"):  # every false-alarm metric
+        assert clean_alarms(clean_fail, _truths(), level)["holdout"]["c1"] is True
+    assert failure_rates(clean_fail)["holdout"] == (1, 2 * (N_TRAPS + N_CLEAN))
+    paused_only = [r.model_copy(update={"status": "paused"}) for r in _planted(1, 1, 1)]
+    assert failure_rates(paused_only) == {}  # paused units are not results yet
 
 
 def test_the_sign_flip_test_is_exact_for_small_samples() -> None:

@@ -200,7 +200,11 @@ def remediated(result: BenchResult, expectation: Expectation) -> bool | None:
 
 
 def false_alarm(result: BenchResult, level: str) -> bool:
-    """On a clean control: ``critical`` | ``warning`` (or above) | ``any`` issue."""
+    """On a clean control: ``critical`` | ``warning`` (or above) | ``any`` issue. A failed
+    unit counts against the system at every level (a non-pass): failing must not shrink
+    the denominator or improve the false-alarm rate."""
+    if result.status == "failed":
+        return True
     if level == "any":
         return bool(result.issues)
     minimum = Severity.CRITICAL if level == "critical" else Severity.WARNING
@@ -299,16 +303,39 @@ def task_scores(
 def clean_alarms(
     results: Iterable[BenchResult], truths: dict[tuple[str, str], TaskTruth], level: str
 ) -> dict[str, dict[str, bool]]:
-    """system -> clean task (id/variant) -> any seed or variant raised an alarm (H2's unit:
-    the clean TASK; a task counts as a false alarm if any seed or variant alarmed)."""
+    """system -> clean task -> did not pass (H2's unit: the clean TASK; a task counts as a
+    false alarm if any seed or variant alarmed or failed). Paused units are not results."""
     out: dict[str, dict[str, bool]] = defaultdict(dict)
     for r in results:
         truth = truths.get((r.task_id, r.variant))
-        if truth is None or truth.kind != "clean" or r.status not in ("completed", "stopped"):
+        if truth is None or truth.kind != "clean" or r.status == "paused":
             continue
         key = r.task_id
         out[r.system][key] = out[r.system].get(key, False) or false_alarm(r, level)
     return dict(out)
+
+
+def failed_clean_tasks(
+    results: Iterable[BenchResult], truths: dict[tuple[str, str], TaskTruth], system: str
+) -> int:
+    """Clean tasks where ``system`` has at least one failed unit."""
+    return len({
+        r.task_id for r in results
+        if r.system == system and r.status == "failed"
+        and (t := truths.get((r.task_id, r.variant))) is not None and t.kind == "clean"
+    })  # fmt: skip
+
+
+def failure_rates(results: Iterable[BenchResult]) -> dict[str, tuple[int, int]]:
+    """system -> (failed units, units with a result), latest result per unit; paused units
+    are not results yet."""
+    counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for r in results:
+        if r.status == "paused":
+            continue
+        counts[r.system][1] += 1
+        counts[r.system][0] += r.status == "failed"
+    return {k: (v[0], v[1]) for k, v in counts.items()}
 
 
 # ----------------------------------------------------------------------------- statistics

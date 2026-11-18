@@ -21,6 +21,7 @@ from bench.score import (
     bootstrap_mean,
     clean_alarms,
     clopper_pearson_upper,
+    failure_rates,
     holdout_score,
     load_results,
     mcnemar,
@@ -116,7 +117,8 @@ def false_alarm_table(
 ) -> list[str]:
     systems = _systems(results)
     lines = [
-        "### False alarms on clean controls (task = unit: any seed or variant alarming counts)",
+        "### False alarms on clean controls (task = unit: any seed or variant alarming or "
+        "failing counts)",
         "",
         "| system | critical | one-sided 95% upper bound | warning or above "
         "| any issue (info too) |",
@@ -384,11 +386,32 @@ def report(root: Path, suite: str) -> list[str]:
         *react_timeout_warning(results),
         "Runs: " + ", ".join(f"{k} {v}" for k, v in sorted(statuses.items())),
         "",
+        *failure_table(results),
+        "",
     ]
     return (
         head + body + [""] + outcome_table(results) + [""] + timeout_table(results) + [""]
         + a11_table(results, truths)
     )  # fmt: skip
+
+
+def failure_table(results: list[BenchResult]) -> list[str]:
+    """Unit failure rate per system, shown near the top of every suite: a failed unit is a
+    miss for detection and remediation and a non-pass on clean tasks."""
+    rates = failure_rates(results)
+    lines = [
+        "### Unit failures",
+        "",
+        "| system | failed units | failure rate |",
+        "|---|---|---|",
+    ]
+    for sy in _systems(results):
+        failed, total = rates.get(sy, (0, 0))
+        rate = _pct(failed / total) if total else "-"
+        lines.append(f"| {sy} | {failed} of {total} | {'**' + rate + '**' if failed else rate} |")
+    lines += ["", "A failed unit counts as not detected and not remediated, and as a non-pass "
+              "(a false alarm) on a clean task."]  # fmt: skip
+    return lines
 
 
 def timeout_table(results: list[BenchResult]) -> list[str]:
