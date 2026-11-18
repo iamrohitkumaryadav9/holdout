@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from bench.config import BenchConfig
 from holdout.llm import config as llm_config
@@ -117,6 +117,8 @@ class PreflightReport:
     headroom_inr: float = 0.0
     workers: int = 1
     scope: str = ""
+    fallback_share: float = 0.0
+    fallback_note: str = ""
 
     @property
     def fits(self) -> bool:
@@ -136,6 +138,8 @@ class PreflightReport:
             f"  margin {self.margin:.0%}, price factor {self.price_factor:g}: estimated total "
             f"Rs {self.total_inr:.2f}"
         )
+        if self.fallback_note:
+            lines.append(f"  standard-tier fallback share priced at standard: {self.fallback_note}")
         lines.append(
             f"  headroom for units in flight ({self.workers} worker(s), worst case each): "
             f"Rs {self.headroom_inr:.2f}"
@@ -205,6 +209,8 @@ def estimate(
     measured: dict[str, Measured] | None = None,
     today: date | None = None,
     workers: int = 1,
+    fallback_share: float = 0.0,
+    fallback_note: str = "",
 ) -> PreflightReport:
     """Estimate pending spend and check it, plus the unit-start guard's headroom, against
     the cap for ``purpose`` and the prepaid balance.
@@ -212,7 +218,13 @@ def estimate(
     The guard starts a unit only while every limit covers the worst case of the units in
     flight, so the last ``workers`` LLM units need up to ``workers`` worst cases of room
     beyond what has been spent: that headroom is added to the requirement.
+
+    ``fallback_share`` (Amendment 1) is the share of LLM calls expected to be served by the
+    standard-tier fallback when the configured tier is Flex; that share is priced at the
+    standard rate, the rest at Flex.
     """
+    if not 0.0 <= fallback_share <= 1.0:
+        raise ValueError("fallback_share must be within [0, 1]")
     ledger = ledger if ledger is not None else SpendLedger()
     measured = measured if measured is not None else measured_costs(config.pilot_results)
     today = today if today is not None else datetime.now(UTC).date()
@@ -242,6 +254,10 @@ def estimate(
         system_factor = _price_factor(
             config.model, m.measured_on, today, m.tier, config.service_tier
         )
+        if config.service_tier == "flex" and fallback_share > 0:
+            # Calls served by the standard fallback cost the standard rate (Amendment 1).
+            standard = _price_factor(config.model, m.measured_on, today, m.tier, "standard")
+            system_factor = (1 - fallback_share) * system_factor + fallback_share * standard
         factors.append(system_factor)
         total = units * m.per_run_inr * (1 + config.cost_margin) * system_factor
         source = f"pilot mean of {m.runs} runs, {m.measured_on}, {m.tier} tier"
@@ -299,7 +315,29 @@ def estimate(
         available_inr=available,
         balance_left_inr=balance,
         shortfalls=shortfalls,
+        fallback_share=fallback_share,
+        fallback_note=fallback_note,
     )
+
+
+#: The fallback share is measured only once this many LLM units have completed.
+FALLBACK_MIN_UNITS: Final = 10
+
+
+def observed_fallback_share(results_root: Path, suites: Sequence[str]) -> tuple[float, str]:
+    """Share of LLM calls served by the standard fallback, over the completed LLM units of
+    ``suites`` (latest result per unit). 0 until ``FALLBACK_MIN_UNITS`` have completed."""
+    from bench.score import load_results
+
+    runs = [r for s in suites for r in load_results(results_root, s)
+            if r.system in LLM_SYSTEMS and r.status == "completed"]  # fmt: skip
+    calls = sum(r.calls for r in runs)
+    fallbacks = sum(r.fallbacks for r in runs)
+    if len(runs) < FALLBACK_MIN_UNITS or calls == 0:
+        return 0.0, (f"0% assumed: {len(runs)} completed LLM unit(s), measured from "
+                     f"{FALLBACK_MIN_UNITS}")  # fmt: skip
+    share = fallbacks / calls
+    return share, f"{share:.1%} measured: {fallbacks} of {calls} calls in {len(runs)} LLM units"
 
 
 def preflight(
@@ -329,6 +367,12 @@ def preflight(
         counts.setdefault(unit.system, 0)
     if not all_units:
         raise ValueError("no units to estimate")
-    report = estimate(counts, config, purpose=purpose, workers=workers)
+    share, note = (
+        observed_fallback_share(results_root, sorted({u.suite for u in all_units}))
+        if config.service_tier == "flex"
+        else (0.0, "")
+    )
+    report = estimate(counts, config, purpose=purpose, workers=workers, fallback_share=share,
+                      fallback_note=note)  # fmt: skip
     report.scope = scope
     return report
