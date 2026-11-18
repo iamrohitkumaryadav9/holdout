@@ -142,8 +142,10 @@ def test_the_preflight_counts_units_through_the_real_entry_point(home: Path) -> 
         capture_output=True, text=True, env=env, check=True,
         cwd=Path(__file__).resolve().parents[2],
     ).stdout  # fmt: skip
-    assert "holdout         1 pending units x Rs 15.000" in out
-    assert "estimated total Rs 15.00" in out
+    # Counted and priced (measured by the committed pilot, or the worst case without it).
+    assert "holdout         1 pending units x Rs " in out
+    total = float(out.split("estimated total Rs ")[1].split()[0])
+    assert total > 0
 
 
 # ------------------------------------------------------------------ the reserve
