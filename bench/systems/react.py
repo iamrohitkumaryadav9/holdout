@@ -26,6 +26,7 @@ from bench.systems.base import (
     SystemName,
     SystemOutput,
 )
+from bench.systems.metric_names import normalise_claim
 from bench.systems.sandbox import (
     MODEL_FILE,
     prepare_workdir,
@@ -236,6 +237,10 @@ class ReactSystem:
         else:
             model_error = "no model was submitted"
         report = final.report if final is not None else None
+        claim_metric, claim_score, claim_note = normalise_claim(
+            final.validation_metric if final else None,
+            final.validation_score if final else None,
+        )
         issues = (
             [
                 ReportedIssue(
@@ -266,8 +271,8 @@ class ReactSystem:
                 else None
             ),
             estimator=estimator,
-            validation_metric=final.validation_metric if final else None,
-            validation_score=final.validation_score if final else None,
+            validation_metric=claim_metric,
+            validation_score=claim_score,
             report_text=report,
             report_a11_flags=len(check_causal_claims(report)) if report else 0,
             cost_inr=sum(r.inr for r in records),
@@ -288,6 +293,9 @@ class ReactSystem:
                 "output_tokens": sum(r.output_tokens for r in records),
                 "thinking_tokens": sum(r.thinking_tokens for r in records),
                 "model_error": model_error,
+                "claimed_metric": final.validation_metric if final else None,
+                "claimed_score": final.validation_score if final else None,
+                "metric_note": claim_note,
                 "seconds_in_loop": round(time.perf_counter() - started, 1),
                 "step_statuses": [h["status"] for h in history],
                 # Rupees per LLM step (the history grows, so later steps cost more).

@@ -52,7 +52,7 @@ from bench.systems.base import (
     Variant,
 )
 from holdout.core.errors import RunPausingError
-from holdout.core.schemas import EntityScope, Task
+from holdout.core.schemas import EntityScope, MetricName, Task
 from holdout.llm import config as llm_config
 from holdout.llm.budget import SpendLedger
 from holdout.llm.progress import LineProgress, NullProgress, Progress
@@ -242,20 +242,27 @@ def _score_both(
 ) -> dict[str, float | None]:
     """Benchmark-metric and own-metric scores on both holdouts (None where it failed)."""
     scores: dict[str, float | None] = {}
-    own = output.validation_metric if output.validation_metric else None
+    own = output.validation_metric or None
+    known = {m.value for m in MetricName}
+    if own is not None and own not in known:
+        errors.append(f"own metric {own!r} is not a benchmark metric: no own-metric score")
+        own = "__unknown__"
     for which in ("iid", "deploy"):
+        scores[which] = scores[f"{which}_own"] = None
         try:
-            value = seal.evaluate(output.estimator, metric, caller=caller, which=which)
-            scores[which] = value
-            scores[f"{which}_own"] = (
-                value
-                if own in (None, metric)
-                else seal.evaluate(output.estimator, own, caller=caller, which=which)
-            )
+            scores[which] = seal.evaluate(output.estimator, metric, caller=caller, which=which)
         except (SealError, ValueError) as exc:
             errors.append(f"{which} holdout scoring failed: {exc}")
-            scores.setdefault(which, None)
-            scores.setdefault(f"{which}_own", None)
+            continue
+        if own in (None, metric):
+            scores[f"{which}_own"] = scores[which]
+        elif own != "__unknown__":
+            try:
+                scores[f"{which}_own"] = seal.evaluate(
+                    output.estimator, own, caller=caller, which=which
+                )
+            except (SealError, ValueError) as exc:
+                errors.append(f"{which} own-metric scoring failed: {exc}")
     return scores
 
 
@@ -275,6 +282,8 @@ def run_unit(
     pause (they are turned into a paused result)."""
     started = datetime.now(UTC)
     clock = time.perf_counter()
+    ledger = SpendLedger()
+    spent_before = ledger.total_inr()
     prepared = prepare_fn(unit)
     seal_dir = root / "seals" / unit.suite / unit.slug
     dev, iid, deploy = partition(prepared.frame, prepared.target, prepared.rule, unit.seed)
@@ -332,7 +341,9 @@ def run_unit(
         partition=prepared.rule.describe(),
         report_text=output.report_text,
         report_a11_flags=output.report_a11_flags,
-        cost_inr=output.cost_inr,
+        # What the ledger recorded during this unit: a unit that fails or pauses after
+        # spending (e.g. a plan call before a rejected request) is charged, not shown as Rs 0.
+        cost_inr=max(output.cost_inr, ledger.total_inr() - spent_before),
         seconds=round(time.perf_counter() - clock, 2),
         calls=output.calls,
         retries=output.retries,
