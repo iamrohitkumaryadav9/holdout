@@ -36,6 +36,9 @@ class LLMRequest:
     temperature: float = config.TEMPERATURE
     max_output_tokens: int = config.MAX_OUTPUT_TOKENS
     thinking_level: str = config.THINKING_LEVEL
+    #: Requested service tier ("standard" or "flex"; None = the API default, standard). It
+    #: changes price and latency, not the answer, so it is not part of the cache key.
+    service_tier: str | None = None
 
     def parameters(self) -> dict[str, Any]:
         return {
@@ -51,6 +54,10 @@ class Usage:
     prompt_tokens: int
     output_tokens: int
     thinking_tokens: int
+    #: Prompt tokens served from a context cache (a subset of ``prompt_tokens``).
+    cached_tokens: int = 0
+    #: The tier that actually served the call ("standard", "flex", ...; None = not reported).
+    tier: str | None = None
 
     @property
     def total(self) -> int:
@@ -166,6 +173,9 @@ class GeminiClient:
             thinking_config=types.ThinkingConfig(
                 thinking_level=types.ThinkingLevel(request.thinking_level.upper())
             ),
+            service_tier=(
+                types.ServiceTier(request.service_tier) if request.service_tier else None
+            ),
         )
         response, retries = call_with_retries(
             lambda: self._client.models.generate_content(
@@ -185,8 +195,27 @@ class GeminiClient:
                 prompt_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
                 output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
                 thinking_tokens=int(getattr(usage, "thoughts_token_count", 0) or 0),
+                cached_tokens=int(getattr(usage, "cached_content_token_count", 0) or 0),
+                tier=served_tier(getattr(usage, "traffic_type", None)),
             ),
         )
+
+
+#: ``usage_metadata.traffic_type`` (google-genai 3.4) -> the tier that served the call.
+_TRAFFIC_TIERS: dict[str, str] = {
+    "ON_DEMAND": "standard",
+    "ON_DEMAND_FLEX": "flex",
+    "ON_DEMAND_PRIORITY": "priority",
+}
+
+
+def served_tier(traffic_type: Any) -> str | None:
+    """The tier from a response's traffic type; None when not reported (priced as
+    standard, the conservative choice)."""
+    if traffic_type is None:
+        return None
+    name = str(getattr(traffic_type, "value", traffic_type)).upper()
+    return _TRAFFIC_TIERS.get(name, name.lower())
 
 
 # --------------------------------------------------------------------------- fakes
@@ -210,8 +239,12 @@ class FakeLLM:
     model_name: str = config.DEFAULT_MODEL
     calls: list[LLMRequest] = field(default_factory=list)
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
+    #: Report implicit-cache hits as the prompt prefix shared with the previous call
+    #: (characters / 4), like Gemini's implicit caching; off by default.
+    simulate_cache: bool = False
 
     def __post_init__(self) -> None:
+        self._previous_prompt: str | None = None
         self._queues: dict[str, deque[ScriptItem]] = defaultdict(deque)
         for name, items in self.scripts.items():
             self._queues[name].extend(items)
@@ -255,12 +288,24 @@ class FakeLLM:
             on_retry=on_retry,
             what=f"fake call ({request.prompt_name})",
         )
+        prompt = request.system + request.user
+        cached = 0
+        if self.simulate_cache and self._previous_prompt is not None:
+            shared = 0
+            for a, b in zip(self._previous_prompt, prompt, strict=False):
+                if a != b:
+                    break
+                shared += 1
+            cached = shared // 4
+        self._previous_prompt = prompt
         return LLMResponse(
             text=text,
             retries=retries,
             usage=Usage(
-                prompt_tokens=(len(request.system) + len(request.user)) // 4,
+                prompt_tokens=len(prompt) // 4,
                 output_tokens=len(text) // 4,
                 thinking_tokens=0,
+                cached_tokens=cached,
+                tier=request.service_tier or "standard",
             ),
         )

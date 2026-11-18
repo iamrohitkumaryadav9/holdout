@@ -98,23 +98,57 @@ PRICE_NOTE: Final = (
 
 @dataclass(frozen=True)
 class Price:
-    """USD per 1M tokens from ``effective_from`` (output includes thinking tokens)."""
+    """USD per 1M tokens from ``effective_from`` (output includes thinking tokens).
+
+    ``cached_input_usd_per_million`` is the price of prompt tokens served from a context
+    cache (implicit caching); None when not recorded (cached tokens are then priced as
+    ordinary input, never cheaper than known).
+    """
 
     effective_from: date
     input_usd_per_million: float
     output_usd_per_million: float
+    cached_input_usd_per_million: float | None = None
 
 
+#: Standard tier. Source: https://aistudio.google.com/docs/pricing, read 2026-11-18 (cached
+#: input "Context caching: $0.075 through December 31, 2026 / $0.15 starting January 1, 2027").
 PRICE_TABLE: Final[dict[str, tuple[Price, ...]]] = {
     "gemini-3.8-flash": (
-        Price(date(2026, 1, 1), 0.75, 3.75),
-        Price(date(2027, 1, 1), 1.50, 7.50),
+        Price(date(2026, 1, 1), 0.75, 3.75, 0.075),
+        Price(date(2027, 1, 1), 1.50, 7.50, 0.15),
     ),
     # Alternative for ``--model`` (same pricing page, same day). No price change is
     # announced; add a dated entry here when one is. (gemini-3-flash-preview was removed: it
-    # returns 404 for this project's key, so it cannot be pinged or used.)
+    # returns 404 for this project's key, so it cannot be pinged or used.) Its cached-input
+    # price was not checked, so cached tokens are priced as input.
     "gemini-3.6-flash": (Price(date(2026, 1, 1), 0.75, 3.75),),
 }
+
+#: Flex tier (50% of standard). Sources, read 2026-11-18: the pricing page lists Flex for
+#: gemini-3.8-flash at input $0.375 / output $1.875 / context caching $0.0375 through
+#: 2026-12-31 and $0.75 / $3.75 / $0.075 from 2027-01-01; the Flex inference page
+#: (https://aistudio.google.com/docs/flex-inference) says Flex is "priced at 50% of the
+#: standard API". A model without an entry here cannot be run on Flex.
+FLEX_PRICE_TABLE: Final[dict[str, tuple[Price, ...]]] = {
+    "gemini-3.8-flash": (
+        Price(date(2026, 1, 1), 0.375, 1.875, 0.0375),
+        Price(date(2027, 1, 1), 0.75, 3.75, 0.075),
+    ),
+}
+
+#: Service tiers a call may request (``GenerateContentConfig.service_tier``).
+SERVICE_TIERS: Final = ("standard", "flex")
+#: Client timeout under Flex: requests may queue for minutes ("1-15 min target"; the Flex
+#: page recommends "10 minutes or more").
+FLEX_REQUEST_TIMEOUT_SECONDS: Final = 900
+#: Use the cached-input price for caps and charges. Off until the discount is confirmed on
+#: Google's bill; until then cached tokens are charged at the full input price (list).
+TRUST_CACHE_DISCOUNT_ENV: Final = "HOLDOUT_TRUST_CACHE_DISCOUNT"
+
+
+def trust_cache_discount() -> bool:
+    return os.environ.get(TRUST_CACHE_DISCOUNT_ENV, "").strip().lower() in {"1", "true", "yes"}
 
 
 def require_priced(model: str, on: date) -> None:
@@ -134,13 +168,17 @@ def require_priced(model: str, on: date) -> None:
         ) from exc
 
 
-def price_for(model: str, on: date) -> Price:
-    """The price in force for ``model`` on day ``on``.
+def price_for(model: str, on: date, tier: str = "standard") -> Price:
+    """The price in force for ``model`` on day ``on`` in service ``tier``.
 
     Raises:
-        KeyError: for a model without a price, so spend can never be computed as zero.
+        KeyError: for a model (or tier) without a price, so spend can never be computed as
+            zero.
     """
-    entries = [p for p in PRICE_TABLE[model] if p.effective_from <= on]
+    table = FLEX_PRICE_TABLE if tier == "flex" else PRICE_TABLE
+    if tier not in SERVICE_TIERS:
+        raise KeyError(f"unknown service tier {tier!r}")
+    entries = [p for p in table[model] if p.effective_from <= on]
     if not entries:
         raise KeyError(f"no price for {model!r} on {on}")
     return max(entries, key=lambda p: p.effective_from)

@@ -52,6 +52,13 @@ class SpendReport(_Record):
     today_inr: float
     last_7_days_inr: float
     all_time_inr: float
+    #: All-time spend valued at list price (cached tokens at the full input rate) and with
+    #: the implicit-cache discount; ``all_time_inr`` is what the caps count.
+    all_time_list_inr: float = 0.0
+    all_time_cache_adjusted_inr: float = 0.0
+    cached_tokens: int = 0
+    prompt_tokens: int = 0
+    trust_cache_discount: bool = False
     runs: list[RunSpend]
     models: dict[str, ModelSpend]
     calls: int
@@ -122,6 +129,11 @@ def build_report(ledger: SpendLedger | None = None, today: date | None = None) -
         today_inr=spent(today),
         last_7_days_inr=spent(today - timedelta(days=6)),
         all_time_inr=total,
+        all_time_list_inr=ledger.total_list_inr(),
+        all_time_cache_adjusted_inr=ledger.total_cache_adjusted_inr(),
+        cached_tokens=sum(int(e.get("cached_tokens", 0)) for e in calls),
+        prompt_tokens=sum(int(e.get("prompt_tokens", 0)) for e in calls),
+        trust_cache_discount=config.trust_cache_discount(),
         runs=runs,
         models=dict(sorted(models.items())),
         calls=len(calls),
@@ -175,6 +187,17 @@ def render(report: SpendReport) -> list[str]:
         f"  today ({report.today})   Rs {report.today_inr:9.2f}",
         f"  last 7 days         Rs {report.last_7_days_inr:9.2f}",
         f"  all time            Rs {report.all_time_inr:9.2f}",
+        f"    at list price     Rs {report.all_time_list_inr:9.2f} (cached tokens at the "
+        "full input rate)",
+        f"    cache-adjusted    Rs {report.all_time_cache_adjusted_inr:9.2f} (cached tokens at "
+        f"the cached rate; {report.cached_tokens} of {report.prompt_tokens} prompt tokens "
+        "cached)",
+        "    caps count: "
+        + (
+            "cache-adjusted (HOLDOUT_TRUST_CACHE_DISCOUNT is set)"
+            if report.trust_cache_discount
+            else "list price (set HOLDOUT_TRUST_CACHE_DISCOUNT once the discount is on the bill)"
+        ),
         "",
         f"  project cap         Rs {report.project_cap_inr:9.2f}{cap_from}; "
         f"used {report.project_used_fraction:.1%}, remaining Rs {report.project_remaining_inr:.2f}",

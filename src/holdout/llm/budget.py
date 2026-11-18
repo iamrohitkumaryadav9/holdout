@@ -29,18 +29,39 @@ from holdout.llm.client import LLMRequest, Usage
 _log = logging.getLogger("holdout.llm")
 
 
-def cost_inr(model: str, usage: Usage, on: date) -> float:
-    """Rupees for a call; thinking tokens are billed at the output rate."""
-    price = config.price_for(model, on)
+def billing_tier(usage: Usage) -> str:
+    """The tier a call is priced at: the tier that served it when reported as standard or
+    flex; anything else (not reported, priority, ...) is priced as standard - the
+    conservative choice for a spend guard."""
+    return usage.tier if usage.tier in ("standard", "flex") else "standard"
+
+
+def cost_inr(model: str, usage: Usage, on: date, *, cache_discount: bool | None = None) -> float:
+    """Rupees for a call at the tier that served it; thinking is billed at the output rate.
+
+    ``cache_discount`` (default: ``HOLDOUT_TRUST_CACHE_DISCOUNT``) prices the prompt
+    tokens served from a context cache at the cached-input rate; otherwise every prompt
+    token is priced at the full input rate (the list price, used for caps until the
+    discount is confirmed on Google's bill).
+    """
+    if cache_discount is None:
+        cache_discount = config.trust_cache_discount()
+    price = config.price_for(model, on, billing_tier(usage))
+    cached = min(max(usage.cached_tokens, 0), usage.prompt_tokens)
+    cached_rate = price.cached_input_usd_per_million
+    if not cache_discount or cached_rate is None:
+        cached_rate = price.input_usd_per_million
     usd = (
-        usage.prompt_tokens * price.input_usd_per_million
+        (usage.prompt_tokens - cached) * price.input_usd_per_million
+        + cached * cached_rate
         + (usage.output_tokens + usage.thinking_tokens) * price.output_usd_per_million
     ) / 1_000_000
     return usd * config.USD_TO_INR
 
 
 def estimate_inr(model: str, request: LLMRequest, on: date) -> float:
-    """Worst-case cost before sending: every allowed output token is used."""
+    """Worst-case cost before sending: every allowed output token is used, no cache hit,
+    at the standard rate (a Flex request is never cheaper than this)."""
     worst = Usage(
         prompt_tokens=(len(request.system) + len(request.user)) // 4 + 1,
         output_tokens=request.max_output_tokens,
@@ -80,6 +101,16 @@ class SpendLedger:
 
     def total_inr(self) -> float:
         return sum(float(e["inr"]) for e in self.calls())
+
+    def total_list_inr(self) -> float:
+        """Every call at the list price (cached tokens at the full input rate). Entries from
+        before cached tokens were recorded count at what they were charged (list)."""
+        return sum(float(e.get("inr_list", e["inr"])) for e in self.calls())
+
+    def total_cache_adjusted_inr(self) -> float:
+        """Every call with cached tokens at the cached-input rate (what Google should bill
+        if the implicit-cache discount applies)."""
+        return sum(float(e.get("inr_cache_adjusted", e["inr"])) for e in self.calls())
 
     def append(self, entry: dict[str, object]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -232,6 +263,8 @@ class Budget:
         by the call that crosses it, so each is printed once.
         """
         inr = cost_inr(self.model, usage, self.today)
+        inr_list = cost_inr(self.model, usage, self.today, cache_discount=False)
+        inr_cached = cost_inr(self.model, usage, self.today, cache_discount=True)
         project_before = self.ledger.total_inr()
         left_before = self.ledger.balance_left()
         self.spent_run_inr += inr
@@ -246,6 +279,13 @@ class Budget:
                 "prompt_tokens": usage.prompt_tokens,
                 "output_tokens": usage.output_tokens,
                 "thinking_tokens": usage.thinking_tokens,
+                "cached_tokens": usage.cached_tokens,
+                "tier_served": usage.tier,
+                "tier_billed": billing_tier(usage),
+                # Both valuations; "inr" (what the caps count) is one of them, chosen by
+                # HOLDOUT_TRUST_CACHE_DISCOUNT.
+                "inr_list": inr_list,
+                "inr_cache_adjusted": inr_cached,
                 "retries": retries,
                 "purpose": self.purpose,
                 "inr": inr,
