@@ -15,14 +15,15 @@ import argparse
 import functools
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import pandas as pd
 from sklearn.dummy import DummyClassifier, DummyRegressor
@@ -390,7 +391,11 @@ def run_unit(
 
 
 def pending(
-    units: Iterable[Unit], root: Path, *, retry_failed: bool = False
+    units: Iterable[Unit],
+    root: Path,
+    *,
+    retry_failed: bool = False,
+    retry_failed_matching: str | None = None,
 ) -> list[tuple[Unit, bool]]:
     """Units still to run, each with ``resume`` (True when its latest result is paused).
     ``retry_failed`` reruns units whose latest result is failed (e.g. after fixing a
@@ -406,7 +411,13 @@ def pending(
             todo.append((unit, False))
         elif latest.status == "paused":
             todo.append((unit, True))
-        elif latest.status == "failed" and retry_failed:
+        elif latest.status == "failed" and (
+            retry_failed
+            or (
+                retry_failed_matching is not None
+                and re.search(retry_failed_matching, latest.error or "") is not None
+            )
+        ):
             todo.append((unit, False))
     return todo
 
@@ -510,6 +521,43 @@ def _work(job: _Job) -> BenchResult:
     )
 
 
+#: Circuit breaker (prereg Amendment 1): this many pauses within the window ...
+BREAKER_PAUSES: Final = 3
+BREAKER_WINDOW_SECONDS: Final = 600.0
+#: ... hold new starts for this long, then continue.
+BREAKER_WAIT_SECONDS: Final = 600.0
+
+
+@dataclass
+class CircuitBreaker:
+    """Holds new unit starts for ``wait`` seconds once ``pauses`` units have paused within
+    ``window`` seconds (an outage would otherwise pause every unit in turn), then lets the
+    run continue. Paused units are not lost: the final sweep resumes them."""
+
+    clock: Callable[[], float] = time.monotonic
+    sleep: Callable[[float], None] = time.sleep
+    pauses: int = BREAKER_PAUSES
+    window: float = BREAKER_WINDOW_SECONDS
+    wait: float = BREAKER_WAIT_SECONDS
+    paused_at: list[float] = field(default_factory=list)
+    trips: int = 0
+
+    def record_pause(self) -> None:
+        self.paused_at.append(self.clock())
+
+    def before_start(self, write: Callable[[str], None]) -> None:
+        now = self.clock()
+        recent = [t for t in self.paused_at if now - t <= self.window]
+        self.paused_at = recent
+        if len(recent) >= self.pauses:
+            self.trips += 1
+            write(f"circuit breaker: {len(recent)} units paused within "
+                  f"{self.window / 60:.0f} min; waiting {self.wait / 60:.0f} min before "
+                  "starting new units")  # fmt: skip
+            self.sleep(self.wait)
+            self.paused_at = []
+
+
 def run_all(
     units: Sequence[Unit],
     systems: dict[str, System],
@@ -518,7 +566,7 @@ def run_all(
     model: str,
     run_cap_inr: float,
     progress: Progress | None = None,
-    stop_on_pause: bool = True,
+    stop_on_pause: bool = False,
     write: Callable[[str], None] = print,
     prepare_fn: Callable[[Unit], PreparedUnit] = prepare,
     max_spend_inr: float | None = None,
@@ -528,12 +576,19 @@ def run_all(
     workers: int = 1,
     system_factory: Callable[[list[str]], dict[str, System]] | None = None,
     purpose: str | None = None,
+    breaker: CircuitBreaker | None = None,
+    outcome: dict[str, Any] | None = None,
+    retry_failed_matching: str | None = None,
 ) -> list[BenchResult]:
     """Run every pending unit in order, up to ``workers`` at a time.
 
-    A pause stops the pass (the cause - an outage, a cap, billing - affects every later
-    LLM unit too): no further unit starts, running units finish, and rerunning the command
-    continues.
+    A unit that pauses (Gemini unavailable after the Flex attempts and the standard
+    fallback, billing, a cap) pauses only itself; other units keep starting (prereg
+    Amendment 1). The :class:`CircuitBreaker` holds new starts for 10 minutes once 3 units
+    have paused within 10 minutes. After the passes, one final sweep resumes every unit
+    still paused; whatever is still paused after it stays paused for the next invocation.
+    ``stop_on_pause=True`` restores the old behaviour (stop starting units after a pause).
+    ``outcome`` (if given) receives ``budget_stopped`` and the final status ``counts``.
 
     The unit-start guard: a unit starts only if every applicable limit (the project cap,
     the benchmark reserve for general spend, ``max_spend_inr`` for this invocation, the
@@ -558,34 +613,66 @@ def run_all(
         raise ValueError("workers must be at least 1")
     if workers > 1 and system_factory is None:
         raise ValueError("several workers need a picklable system_factory")
-    todo = pending(units, root, retry_failed=retry_failed)
+    todo = pending(units, root, retry_failed=retry_failed,
+                   retry_failed_matching=retry_failed_matching)  # fmt: skip
     if workers > 1:
         passes = [
-            ([t for t in todo if t[0].system in LLM_SYSTEMS], workers),
-            ([t for t in todo if t[0].system not in LLM_SYSTEMS], 1),
-        ]
+            ([t for t in todo if t[0].system in LLM_SYSTEMS], workers, "LLM units"),
+            ([t for t in todo if t[0].system not in LLM_SYSTEMS], 1,
+             "CPU-only units, one at a time"),
+        ]  # fmt: skip
     else:
-        passes = [(todo, 1)]
+        passes = [(todo, 1, "units")]
     ledger = ledger if ledger is not None else SpendLedger()
     purpose = purpose or llm_config.spend_purpose()
+    breaker = breaker if breaker is not None else CircuitBreaker()
     start = ledger.total_inr()
     done: list[BenchResult] = []
-    for batch, n in passes:
+    budget_stopped = False
+
+    def run(batch: list[tuple[Unit, bool]], n: int, label: str) -> None:
+        nonlocal budget_stopped
         if not batch:
-            continue
-        if len(passes) > 1:
-            kind = "LLM units" if n > 1 else "CPU-only units, one at a time"
-            write(f"pass: {len(batch)} {kind} ({n} worker(s))")
-        errors = _run_pass(
+            return
+        if len(passes) > 1 or label.startswith("final sweep"):
+            write(f"pass: {len(batch)} {label} ({n} worker(s))")
+        errors, stopped = _run_pass(
             batch, n, systems, root, done, ledger=ledger, start=start, purpose=purpose,
             model=model, run_cap_inr=run_cap_inr, progress=progress,
             stop_on_pause=stop_on_pause, write=write, prepare_fn=prepare_fn,
             max_spend_inr=max_spend_inr, service_tier=service_tier,
-            system_factory=system_factory,
+            system_factory=system_factory, breaker=breaker,
         )  # fmt: skip
+        budget_stopped = budget_stopped or stopped
         if errors:
             raise errors[0]
+
+    for batch, n, label in passes:
+        run(batch, n, label)
+    if not budget_stopped and not stop_on_pause:
+        # One final sweep: resume every unit of this invocation that is still paused.
+        sweep: list[tuple[Unit, bool]] = [(u, r) for u, r in pending(units, root) if r]
+        llm_sweep = [t for t in sweep if t[0].system in LLM_SYSTEMS or workers == 1]
+        run(llm_sweep, workers, "final sweep of paused units")
+        run([t for t in sweep if t not in llm_sweep], 1, "final sweep of paused CPU units")
+    counts = status_counts(units, root)
+    write("summary: " + ", ".join(f"{k} {v}" for k, v in counts.items())
+          + (" (stopped by the budget guard)" if budget_stopped else ""))  # fmt: skip
+    if outcome is not None:
+        outcome.update({"budget_stopped": budget_stopped, "counts": counts})
     return done
+
+
+def status_counts(units: Iterable[Unit], root: Path) -> dict[str, int]:
+    """Latest status of each unit: completed, stopped, paused, failed, not started."""
+    counts = dict.fromkeys(("completed", "stopped", "paused", "failed", "not started"), 0)
+    cache: dict[tuple[str, str], dict[tuple[Any, ...], BenchResult]] = {}
+    for unit in units:
+        latest = cache.setdefault(
+            (unit.suite, unit.system), latest_results(root, unit.suite, unit.system)
+        ).get(unit.key)
+        counts["not started" if latest is None else latest.status] += 1
+    return counts
 
 
 def _run_pass(
@@ -607,16 +694,19 @@ def _run_pass(
     max_spend_inr: float | None,
     service_tier: str | None,
     system_factory: Callable[[list[str]], dict[str, System]] | None,
-) -> list[BaseException]:
-    """One pass of :func:`run_all` with ``workers`` processes (1: in this process)."""
+    breaker: CircuitBreaker,
+) -> tuple[list[BaseException], bool]:
+    """One pass of :func:`run_all` with ``workers`` processes (1: in this process).
+    Returns harness errors and whether the budget guard stopped the pass."""
     import concurrent.futures as cf
     import multiprocessing
 
-    from bench.budget import limits_left, start_refusal, unit_worst_case
+    from bench.budget import LLM_SYSTEMS, limits_left, start_refusal, unit_worst_case
 
     running: dict[cf.Future[BenchResult], Unit] = {}
     errors: list[BaseException] = []
     stopping = False
+    budget_stopped = False
     threads = threads_per_worker(workers) if workers > 1 else None
     setting = {"workers": workers, "threads_per_worker": threads,
                "logical_cores": logical_cores()}  # fmt: skip
@@ -665,9 +755,11 @@ def _run_pass(
                   f"{result.time_per_run:.0f} s compute + {result.api_seconds:.0f} s API, "
                   f"Rs {result.cost_inr:.2f}"
                   + (f" ({result.error})" if result.error else ""))  # fmt: skip
-            if result.status == "paused" and stop_on_pause and not stopping:
-                stopping = True
-                write("paused: no further unit starts; rerun the same command to resume")
+            if result.status == "paused":
+                breaker.record_pause()
+                if stop_on_pause and not stopping:
+                    stopping = True
+                    write("paused: no further unit starts; rerun the same command to resume")
 
     try:
         for unit, resume in todo:
@@ -688,11 +780,14 @@ def _run_pass(
                         f"{refusal}. Spent Rs {ledger.total_inr() - start:.2f} in this run; "
                         "stopped cleanly"
                     )
-                    stopping = True
+                    stopping = budget_stopped = True
                     break
                 collect(block=True)
             if stopping:
                 break
+            if unit.system in LLM_SYSTEMS:  # an outage pauses LLM units only
+                collect(block=False)
+                breaker.before_start(write)
             write(f"{'resume' if resume else 'run'} {unit.suite} {unit.task_id} {unit.system} "
                   f"seed {unit.seed} {unit.variant}")  # fmt: skip
             if pool is None:
@@ -719,7 +814,7 @@ def _run_pass(
                 pool.shutdown(wait=True, cancel_futures=True)
         finally:
             limits.__exit__(None, None, None)
-    return errors
+    return errors, budget_stopped
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -736,6 +831,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--purpose", choices=["general", "benchmark"], default="general")
     parser.add_argument(
         "--retry-failed", action="store_true", help="rerun units whose latest result failed"
+    )
+    parser.add_argument(
+        "--retry-failed-matching",
+        default=None,
+        metavar="REGEX",
+        help="rerun only failed units whose recorded error matches REGEX (an amendment for a "
+        "harness bug; the failed line stays in the results file)",
     )
     parser.add_argument(
         "--max-spend",
@@ -764,7 +866,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report = preflight(
         benchmark_units(config.systems) if whole else units,
         args.results, config, purpose=args.purpose, retry_failed=args.retry_failed,
-        workers=args.workers,
+        retry_failed_matching=args.retry_failed_matching, workers=args.workers,
         scope=(
             f"the whole final benchmark ({' + '.join(FINAL_SUITES)}, systems "
             f"{', '.join(config.systems)})" if whole else f"this invocation ({args.suite})"
@@ -780,6 +882,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     os.environ[llm_config.SPEND_PURPOSE_ENV] = args.purpose
     systems = build_systems(systems_wanted, config)
     progress = LineProgress(lambda line: print(line, flush=True))
+    outcome: dict[str, Any] = {}
     run_all(
         units,
         systems,
@@ -793,13 +896,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         workers=args.workers,
         system_factory=functools.partial(build_systems, config=config),
         purpose=args.purpose,
+        outcome=outcome,
+        retry_failed_matching=args.retry_failed_matching,
     )
     if args.report is not None:
         from bench.pilot import write_pilot_report
 
         write_pilot_report(args.results, args.suite, args.report, config)
         print(f"pilot report: {args.report}")
-    return 0
+    return 6 if outcome.get("budget_stopped") else 0
 
 
 if __name__ == "__main__":

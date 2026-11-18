@@ -258,11 +258,14 @@ def test_the_runner_resumes_paused_units_skips_done_ones_and_records_failures(
     systems: dict[str, Any] = {"audits_only": flaky, "flaml": _Broken()}
     root = tmp_path / "res"
     lines: list[str] = []
+    # stop_on_pause=True: the pre-amendment behaviour, still available.
     first = run_all(
-        units, systems, root, model="m", run_cap_inr=15.0, write=lines.append, prepare_fn=_prepared
-    )
+        units, systems, root, model="m", run_cap_inr=15.0, write=lines.append,
+        prepare_fn=_prepared, stop_on_pause=True,
+    )  # fmt: skip
     assert [r.status for r in first] == ["paused"]  # a pause stops the pass
-    assert "rerun the same command" in lines[-1]
+    assert "rerun the same command" in "\n".join(lines)
+    # The default (prereg Amendment 1): later units keep starting, then a sweep resumes.
     second = run_all(
         units, systems, root, model="m", run_cap_inr=15.0, write=lines.append, prepare_fn=_prepared
     )

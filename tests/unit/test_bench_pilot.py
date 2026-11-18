@@ -75,9 +75,10 @@ def test_the_spend_cap_never_starts_a_unit_it_could_not_cover(
     )
     assert spender.runs == 2  # 30 left >= 15: run; 18 left >= 15: run; 6 left < 15: stop
     assert len(done) == 2
-    assert "not starting react on t2" in lines[-1]
-    assert "this run's spend cap: Rs 6.00 left" in lines[-1]
-    assert "stopped cleanly" in lines[-1]
+    assert "not starting react on t2" in lines[-2]
+    assert "this run's spend cap: Rs 6.00 left" in lines[-2]
+    assert "stopped cleanly" in lines[-2]
+    assert "(stopped by the budget guard)" in lines[-1]
     assert ledger.total_inr() <= 30.0  # the cap is never overshot
 
 

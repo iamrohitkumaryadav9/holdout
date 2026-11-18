@@ -165,7 +165,7 @@ def test_workers_run_units_in_parallel_within_every_limit(tmp_path: Path) -> Non
     assert spent <= 40.0  # never overshot, although two units were running at a time
     assert len(done) == spent / SPEND_PER_UNIT
     assert len(done) >= 4
-    assert "stopped cleanly" in lines[-1]
+    assert "stopped cleanly" in lines[-2]
     assert len({r.extra["pid"] for r in done}) == 2  # separate worker processes
     assert {r.extra["workers"] for r in done} == {2}
     spans = sorted((r.extra["t0"], r.extra["t1"]) for r in done)

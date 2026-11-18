@@ -309,6 +309,7 @@ def preflight(
     *,
     purpose: str,
     retry_failed: bool = False,
+    retry_failed_matching: str | None = None,
     workers: int = 1,
     scope: str = "",
 ) -> PreflightReport:
@@ -321,7 +322,8 @@ def preflight(
     # and estimated Rs 0 (found by the pilot's pre-flight). Units are duck-typed.
     all_units = list(units)
     counts: dict[str, int] = {}
-    for unit, _ in pending(all_units, results_root, retry_failed=retry_failed):
+    for unit, _ in pending(all_units, results_root, retry_failed=retry_failed,
+                           retry_failed_matching=retry_failed_matching):  # fmt: skip
         counts[unit.system] = counts.get(unit.system, 0) + 1
     for unit in all_units:
         counts.setdefault(unit.system, 0)
