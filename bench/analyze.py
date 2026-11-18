@@ -433,6 +433,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--charts", type=Path, default=None)
     args = parser.parse_args(argv)
     lines = ["# Benchmark results", ""]
+    if {"final_v1", "real_world_v1"} <= set(args.suites):
+        from bench.hypotheses import confirmatory, render
+
+        outcomes = confirmatory(
+            load_results(args.results, "final_v1"), planted_truths("final_v1"),
+            load_results(args.results, "real_world_v1"), real_world_truths(),
+        )  # fmt: skip
+        lines += [*render(outcomes), ""]
     for suite in args.suites:
         lines += [*report(args.results, suite), ""]
         if args.charts is not None and suite != "real_world_v1":
