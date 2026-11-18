@@ -26,6 +26,64 @@ from holdout.llm import config as llm_config
 from holdout.llm.budget import SpendLedger
 
 LLM_SYSTEMS = frozenset({"holdout", "llm_judge", "react"})
+#: Holdout-family systems may start exactly one follow-up agent run (corrected split) with
+#: its own per-run cap, so one unit can spend up to two caps.
+FOLLOWUP_SYSTEMS = frozenset({"holdout", "llm_judge"})
+
+
+def unit_worst_case(system: str, run_cap_inr: float) -> float:
+    """The most one unit of ``system`` can spend: no call past a per-run cap is sent."""
+    if system not in LLM_SYSTEMS:
+        return 0.0
+    return run_cap_inr * (2 if system in FOLLOWUP_SYSTEMS else 1)
+
+
+def limits_left(
+    ledger: SpendLedger,
+    *,
+    purpose: str,
+    invocation_start_inr: float | None = None,
+    max_spend_inr: float | None = None,
+) -> dict[str, float]:
+    """Rupees left under every limit that applies to spend of this ``purpose``.
+
+    * project cap: cap - spent (every purpose);
+    * benchmark reserve: cap - reserve - spent (general spend may not enter it);
+    * this invocation's cap (``--max-spend``, e.g. the pilot cap), when set;
+    * the prepaid balance left, when recorded.
+    """
+    spent = ledger.total_inr()
+    cap = llm_config.project_cap_inr()
+    left = {"project cap": cap - spent}
+    if purpose != "benchmark":
+        left["benchmark reserve"] = cap - llm_config.BENCHMARK_RESERVE_INR - spent
+    if max_spend_inr is not None:
+        start = invocation_start_inr if invocation_start_inr is not None else spent
+        left["this run's spend cap"] = max_spend_inr - (spent - start)
+    balance = ledger.balance_left()
+    if balance is not None:
+        left["prepaid balance"] = balance
+    return left
+
+
+def start_refusal(
+    worst_case_inr: float,
+    in_flight_worst_inr: float,
+    left: dict[str, float],
+) -> str | None:
+    """Why a unit may not start, or None: every limit must still cover this unit's worst
+    case on top of the worst case of every unit already running (their spend is not in
+    the ledger yet). A unit that cannot spend (no LLM) always starts."""
+    if worst_case_inr <= 0:
+        return None
+    needed = worst_case_inr + in_flight_worst_inr
+    short = [f"{name}: Rs {value:.2f} left" for name, value in left.items() if value < needed]
+    if not short:
+        return None
+    return (
+        f"needs Rs {needed:.2f} (Rs {worst_case_inr:.2f} worst case for this unit + Rs "
+        f"{in_flight_worst_inr:.2f} for units still running), but " + "; ".join(short)
+    )
 
 
 @dataclass(frozen=True)
@@ -33,6 +91,8 @@ class Measured:
     per_run_inr: float
     runs: int
     measured_on: date
+    #: "flex" only if every paid call of every measured run was served by Flex.
+    tier: str = "standard"
 
 
 @dataclass(frozen=True)
@@ -54,6 +114,8 @@ class PreflightReport:
     available_inr: float
     balance_left_inr: float | None
     shortfalls: list[str] = field(default_factory=list)
+    headroom_inr: float = 0.0
+    workers: int = 1
 
     @property
     def fits(self) -> bool:
@@ -70,6 +132,10 @@ class PreflightReport:
         lines.append(
             f"  margin {self.margin:.0%}, price factor {self.price_factor:g}: estimated total "
             f"Rs {self.total_inr:.2f}"
+        )
+        lines.append(
+            f"  headroom for units in flight ({self.workers} worker(s), worst case each): "
+            f"Rs {self.headroom_inr:.2f}"
         )
         lines.append(f"  available under the cap for this purpose: Rs {self.available_inr:.2f}")
         balance = (
@@ -88,6 +154,7 @@ def measured_costs(pilot_root: Path) -> dict[str, Measured]:
     """Mean cost per completed run, per system, from the pilot's results files."""
     costs: dict[str, list[float]] = {}
     dates: dict[str, date] = {}
+    tiers: dict[str, set[str]] = {}
     for path in sorted(pilot_root.glob("*/*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
@@ -95,18 +162,30 @@ def measured_costs(pilot_root: Path) -> dict[str, Measured]:
             result = json.loads(line)
             if result["status"] != "completed":
                 continue
-            costs.setdefault(result["system"], []).append(float(result["cost_inr"]))
+            system = result["system"]
+            costs.setdefault(system, []).append(float(result["cost_inr"]))
             day = datetime.fromisoformat(result["started_at"]).date()
-            dates[result["system"]] = min(dates.get(result["system"], day), day)
+            dates[system] = min(dates.get(system, day), day)
+            served = result.get("tiers_served") or {"standard": 1}  # older results: standard
+            tiers.setdefault(system, set()).update(served)
     return {
-        system: Measured(sum(values) / len(values), len(values), dates[system])
+        system: Measured(
+            sum(values) / len(values),
+            len(values),
+            dates[system],
+            "flex" if tiers.get(system) == {"flex"} else "standard",
+        )
         for system, values in costs.items()
     }
 
 
-def _price_factor(model: str, measured_on: date, today: date) -> float:
-    then = llm_config.price_for(model, measured_on)
-    now = llm_config.price_for(model, today)
+def _price_factor(
+    model: str, measured_on: date, today: date, measured_tier: str = "standard",
+    tier: str = "standard",
+) -> float:  # fmt: skip
+    """Today's price at the configured tier over the price the measurement was made at."""
+    then = llm_config.price_for(model, measured_on, measured_tier)
+    now = llm_config.price_for(model, today, tier)
     # Input and output prices change together in the table; use the larger ratio (worst case).
     return max(
         now.input_usd_per_million / then.input_usd_per_million,
@@ -122,49 +201,72 @@ def estimate(
     ledger: SpendLedger | None = None,
     measured: dict[str, Measured] | None = None,
     today: date | None = None,
+    workers: int = 1,
 ) -> PreflightReport:
+    """Estimate pending spend and check it, plus the unit-start guard's headroom, against
+    the cap for ``purpose`` and the prepaid balance.
+
+    The guard starts a unit only while every limit covers the worst case of the units in
+    flight, so the last ``workers`` LLM units need up to ``workers`` worst cases of room
+    beyond what has been spent: that headroom is added to the requirement.
+    """
     ledger = ledger if ledger is not None else SpendLedger()
     measured = measured if measured is not None else measured_costs(config.pilot_results)
     today = today if today is not None else datetime.now(UTC).date()
     shortfalls: list[str] = []
     estimates: list[SystemEstimate] = []
-    factor = 1.0
+    factors: list[float] = []
     for system, units in pending_by_system.items():
         if system not in LLM_SYSTEMS:
             estimates.append(SystemEstimate(system, units, 0.0, "no LLM calls", 0.0))
             continue
         m = measured.get(system)
         if m is None:
-            # No measurement (the pilot itself): bound it by the hard per-run cap. A call
-            # past that cap is never sent, so this is a true worst case, not a guess.
+            # No measurement (the pilot itself): bound it by the hard per-run cap(s). A call
+            # past a cap is never sent, so this is a true worst case, not a guess.
+            worst = unit_worst_case(system, config.run_cap_inr)
             estimates.append(
                 SystemEstimate(
                     system,
                     units,
-                    config.run_cap_inr,
-                    "not measured: worst case = per-run cap",
-                    units * config.run_cap_inr,
+                    worst,
+                    "not measured: worst case = per-run cap"
+                    + (" x 2 (follow-up run)" if system in FOLLOWUP_SYSTEMS else ""),
+                    units * worst,
                 )
             )
             continue
-        system_factor = _price_factor(config.model, m.measured_on, today)
-        factor = max(factor, system_factor)
-        total = units * m.per_run_inr * (1 + config.cost_margin) * system_factor
-        estimates.append(
-            SystemEstimate(
-                system, units, m.per_run_inr, f"pilot mean of {m.runs} runs, {m.measured_on}", total
-            )
+        system_factor = _price_factor(
+            config.model, m.measured_on, today, m.tier, config.service_tier
         )
+        factors.append(system_factor)
+        total = units * m.per_run_inr * (1 + config.cost_margin) * system_factor
+        source = f"pilot mean of {m.runs} runs, {m.measured_on}, {m.tier} tier"
+        estimates.append(SystemEstimate(system, units, m.per_run_inr, source, total))
     total = sum(e.total_inr for e in estimates)
+    llm_units = sorted(
+        (unit_worst_case(s, config.run_cap_inr) for s, n in pending_by_system.items()
+         for _ in range(n) if s in LLM_SYSTEMS),
+        reverse=True,
+    )  # fmt: skip
+    headroom = sum(llm_units[: max(1, workers)])
     spent = ledger.total_inr()
     cap = llm_config.project_cap_inr()
     reserve = 0.0 if purpose == "benchmark" else llm_config.BENCHMARK_RESERVE_INR
     available = cap - reserve - spent
+    where = "the project cap" if purpose == "benchmark" else "the cap minus the reserve"
     if total > available:
-        where = "the project cap" if purpose == "benchmark" else "the cap minus the reserve"
         shortfalls.append(
             f"estimated Rs {total:.2f} exceeds the Rs {available:.2f} left under {where} "
             f"(short by Rs {total - available:.2f})"
+        )
+    elif total + headroom > available:
+        shortfalls.append(
+            f"estimated Rs {total:.2f} plus Rs {headroom:.2f} of headroom for the units in "
+            f"flight ({max(1, workers)} worker(s) x worst case) exceeds the Rs "
+            f"{available:.2f} left under {where} (short by Rs "
+            f"{total + headroom - available:.2f}): the unit-start guard would stop the run "
+            "before the end"
         )
     balance = ledger.balance_left()
     if total > 0:
@@ -177,12 +279,20 @@ def estimate(
                 f"estimated Rs {total:.2f} exceeds the prepaid balance left, about Rs "
                 f"{balance:.2f} (short by Rs {total - balance:.2f}): top up first"
             )
+        elif total + headroom > balance:
+            shortfalls.append(
+                f"estimated Rs {total:.2f} plus Rs {headroom:.2f} of headroom for the units "
+                f"in flight exceeds the prepaid balance left, about Rs {balance:.2f}: top up "
+                "first"
+            )
     return PreflightReport(
         purpose=purpose,
         estimates=estimates,
         margin=config.cost_margin,
-        price_factor=factor,
+        price_factor=max(factors) if factors else 1.0,
         total_inr=total,
+        headroom_inr=headroom if total > 0 else 0.0,
+        workers=max(1, workers),
         available_inr=available,
         balance_left_inr=balance,
         shortfalls=shortfalls,
@@ -196,6 +306,7 @@ def preflight(
     *,
     purpose: str,
     retry_failed: bool = False,
+    workers: int = 1,
 ) -> PreflightReport:
     """Estimate the pending units of ``units`` (see :func:`estimate`)."""
     from bench.run import pending
@@ -211,4 +322,4 @@ def preflight(
         counts.setdefault(unit.system, 0)
     if not all_units:
         raise ValueError("no units to estimate")
-    return estimate(counts, config, purpose=purpose)
+    return estimate(counts, config, purpose=purpose, workers=workers)

@@ -12,6 +12,7 @@ it is used.
 """
 
 import argparse
+import functools
 import json
 import os
 import sys
@@ -392,6 +393,59 @@ def pending(
     return todo
 
 
+def ensure_seal(unit: Unit, root: Path, prepare_fn: Callable[[Unit], PreparedUnit]) -> None:
+    """Create the unit's seal and dummy scores if missing. With several workers this runs
+    in the parent before dispatch, so units of different systems that share a seal never
+    race to create it."""
+    seal_dir = root / "seals" / unit.suite / unit.slug
+    if (seal_dir / "seal.json").exists() and (seal_dir / "dummy.json").exists():
+        return
+    prepared = prepare_fn(unit)
+    dev, iid, deploy = partition(prepared.frame, prepared.target, prepared.rule, unit.seed)
+    seal = (
+        BenchSeal.load(seal_dir)
+        if (seal_dir / "seal.json").exists()
+        else BenchSeal.create(seal_dir, iid, deploy, prepared.target)
+    )
+    _dummy_scores(seal, dev, prepared.target, prepared.task)
+
+
+@dataclass(frozen=True)
+class _Job:
+    """Everything a worker process needs to run one unit (all picklable)."""
+
+    unit: Unit
+    resume: bool
+    root: Path
+    model: str
+    run_cap_inr: float
+    service_tier: str | None
+    system_factory: Callable[[list[str]], dict[str, System]]
+    prepare_fn: Callable[[Unit], PreparedUnit]
+
+
+_WORKER_SYSTEMS: dict[str, System] = {}
+
+
+def _work(job: _Job) -> BenchResult:
+    """Run one unit in a worker process; systems are built once per process."""
+    if job.unit.system not in _WORKER_SYSTEMS:
+        _WORKER_SYSTEMS.update(job.system_factory([job.unit.system]))
+    tag = f"[{job.unit.system} {job.unit.task_id} s{job.unit.seed} {job.unit.variant}]"
+    progress = LineProgress(lambda line: print(f"{tag} {line}", flush=True))
+    return run_unit(
+        job.unit,
+        _WORKER_SYSTEMS[job.unit.system],
+        job.root,
+        model=job.model,
+        run_cap_inr=job.run_cap_inr,
+        progress=progress,
+        resume=job.resume,
+        prepare_fn=job.prepare_fn,
+        service_tier=job.service_tier,
+    )
+
+
 def run_all(
     units: Sequence[Unit],
     systems: dict[str, System],
@@ -407,52 +461,129 @@ def run_all(
     ledger: SpendLedger | None = None,
     retry_failed: bool = False,
     service_tier: str | None = None,
+    workers: int = 1,
+    system_factory: Callable[[list[str]], dict[str, System]] | None = None,
+    purpose: str | None = None,
 ) -> list[BenchResult]:
-    """Run every pending unit in order. A pause stops the pass (the cause - an outage, a
-    cap, billing - affects every later LLM unit too); rerun the command to continue.
+    """Run every pending unit in order, up to ``workers`` at a time.
 
-    ``max_spend_inr`` caps this invocation's spend, measured from the ledger (so failed and
-    paused units count too): once it is reached, no further unit starts (the current one
-    finishes; each unit is bounded by its own per-run cap).
+    A pause stops the pass (the cause - an outage, a cap, billing - affects every later
+    LLM unit too): no further unit starts, running units finish, and rerunning the command
+    continues.
+
+    The unit-start guard: a unit starts only if every applicable limit (the project cap,
+    the benchmark reserve for general spend, ``max_spend_inr`` for this invocation, the
+    prepaid balance when recorded) still has at least the unit's worst case (per-run cap,
+    twice for Holdout-family systems, which may start one follow-up run) on top of the
+    worst case of every unit still running. If not, it waits for running units to finish
+    (their actual spend is usually far below the worst case) and checks again; with
+    nothing running, the pass stops cleanly. Spend is read from the ledger, so failed and
+    paused units count too.
+
+    With ``workers`` > 1, units run in separate processes; ``system_factory`` builds the
+    systems there and must be picklable, like ``prepare_fn``. Seals and dummy scores are
+    created here first; results are appended here, in completion order.
     """
+    import concurrent.futures as cf
+    import multiprocessing
+
+    from bench.budget import limits_left, start_refusal, unit_worst_case
+
+    if workers < 1:
+        raise ValueError("workers must be at least 1")
+    if workers > 1 and system_factory is None:
+        raise ValueError("several workers need a picklable system_factory")
     ledger = ledger if ledger is not None else SpendLedger()
+    purpose = purpose or llm_config.spend_purpose()
     start = ledger.total_inr()
-    done = []
-    for unit, resume in pending(units, root, retry_failed=retry_failed):
-        spent = ledger.total_inr() - start
-        if max_spend_inr is not None and spent >= max_spend_inr:
-            write(
-                f"spend cap reached: Rs {spent:.2f} of Rs {max_spend_inr:.2f} for this run; "
-                "stopped before the next unit"
-            )
-            break
-        write(f"{'resume' if resume else 'run'} {unit.suite} {unit.task_id} {unit.system} "
-              f"seed {unit.seed} {unit.variant}")  # fmt: skip
-        result = run_unit(
-            unit,
-            systems[unit.system],
-            root,
-            model=model,
-            run_cap_inr=run_cap_inr,
-            progress=progress,
-            resume=resume,
-            prepare_fn=prepare_fn,
-            service_tier=service_tier,
+    done: list[BenchResult] = []
+    running: dict[cf.Future[BenchResult], Unit] = {}
+    errors: list[BaseException] = []
+    stopping = False
+    pool = (
+        cf.ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"))
+        if workers > 1
+        else None
+    )
+
+    def worst(unit: Unit) -> float:
+        return unit_worst_case(unit.system, run_cap_inr)
+
+    def collect(block: bool) -> None:
+        nonlocal stopping
+        finished, _ = cf.wait(
+            list(running), timeout=None if block else 0, return_when=cf.FIRST_COMPLETED
         )
-        append_result(root, result)
-        done.append(result)
-        write(f"  -> {result.status} in {result.seconds:.0f} s, Rs {result.cost_inr:.2f}"
-              + (f" ({result.error})" if result.error else ""))  # fmt: skip
-        if result.status == "paused" and stop_on_pause:
-            write("paused: rerun the same command to resume from here")
-            break
-        spent = ledger.total_inr() - start
-        if max_spend_inr is not None and spent >= max_spend_inr:
-            write(
-                f"spend cap reached: Rs {spent:.2f} of Rs {max_spend_inr:.2f} for this run "
-                f"after {unit.system} on {unit.task_id}; stopped cleanly"
-            )
-            break
+        for future in finished:
+            unit = running.pop(future)
+            error = future.exception()
+            if error is not None:  # a harness error, not a system failure: stop, keep others
+                write(f"  -> {unit.system} {unit.task_id}: harness error {error!r}; stopping")
+                errors.append(error)
+                stopping = True
+                continue
+            result = future.result()
+            # Units share the CPU under several workers (FLAML's wall-clock budget): record it.
+            result = result.model_copy(update={"extra": {**result.extra, "workers": workers}})
+            append_result(root, result)
+            done.append(result)
+            write(f"  -> {unit.system} {unit.task_id} seed {unit.seed}: {result.status} in "
+                  f"{result.time_per_run:.0f} s compute + {result.api_seconds:.0f} s API, "
+                  f"Rs {result.cost_inr:.2f}"
+                  + (f" ({result.error})" if result.error else ""))  # fmt: skip
+            if result.status == "paused" and stop_on_pause and not stopping:
+                stopping = True
+                write("paused: no further unit starts; rerun the same command to resume")
+
+    try:
+        for unit, resume in pending(units, root, retry_failed=retry_failed):
+            while running and len(running) >= workers and not stopping:
+                collect(block=True)
+            while not stopping:
+                left = limits_left(
+                    ledger, purpose=purpose, invocation_start_inr=start,
+                    max_spend_inr=max_spend_inr,
+                )  # fmt: skip
+                in_flight = sum(worst(u) for u in running.values())
+                refusal = start_refusal(worst(unit), in_flight, left)
+                if refusal is None:
+                    break
+                if not running:
+                    write(
+                        f"not starting {unit.system} on {unit.task_id} seed {unit.seed}: "
+                        f"{refusal}. Spent Rs {ledger.total_inr() - start:.2f} in this run; "
+                        "stopped cleanly"
+                    )
+                    stopping = True
+                    break
+                collect(block=True)
+            if stopping:
+                break
+            write(f"{'resume' if resume else 'run'} {unit.suite} {unit.task_id} {unit.system} "
+                  f"seed {unit.seed} {unit.variant}")  # fmt: skip
+            if pool is None:
+                result = run_unit(
+                    unit, systems[unit.system], root, model=model, run_cap_inr=run_cap_inr,
+                    progress=progress, resume=resume, prepare_fn=prepare_fn,
+                    service_tier=service_tier,
+                )  # fmt: skip
+                future: cf.Future[BenchResult] = cf.Future()
+                future.set_result(result)
+                running[future] = unit
+                collect(block=True)
+            else:
+                assert system_factory is not None
+                ensure_seal(unit, root, prepare_fn)
+                job = _Job(unit, resume, root, model, run_cap_inr, service_tier,
+                           system_factory, prepare_fn)  # fmt: skip
+                running[pool.submit(_work, job)] = unit
+        while running:
+            collect(block=True)
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=True, cancel_futures=True)
+    if errors:
+        raise errors[0]
     return done
 
 
@@ -480,15 +611,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--report", type=Path, default=None, help="write the pilot report here when done"
     )
+    parser.add_argument(
+        "--workers", type=int, default=1, help="units run at once, in separate processes"
+    )
     args = parser.parse_args(argv)
+    if args.workers < 1:
+        parser.error("--workers must be at least 1")
     config = load_bench_config()
     systems_wanted = args.systems or list(config.systems)
     units = units_for(args.suite, systems_wanted, seeds=args.seeds, tasks=args.tasks)
     from bench.budget import preflight
 
     report = preflight(
-        units, args.results, config, purpose=args.purpose, retry_failed=args.retry_failed
-    )
+        units, args.results, config, purpose=args.purpose, retry_failed=args.retry_failed,
+        workers=args.workers,
+    )  # fmt: skip
     print(report.render())
     if args.plan:
         return 0
@@ -509,6 +646,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_spend_inr=args.max_spend,
         retry_failed=args.retry_failed,
         service_tier=config.service_tier,
+        workers=args.workers,
+        system_factory=functools.partial(build_systems, config=config),
+        purpose=args.purpose,
     )
     if args.report is not None:
         from bench.pilot import write_pilot_report

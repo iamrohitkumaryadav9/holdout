@@ -29,10 +29,10 @@ def _spent(inr: float) -> None:
     )
 
 
-MEASURED = {
-    "holdout": Measured(1.0, 3, date(2026, 11, 20)),
-    "llm_judge": Measured(0.8, 3, date(2026, 11, 20)),
-    "react": Measured(6.0, 3, date(2026, 11, 20)),
+MEASURED = {  # measured on the tier the config pins (Flex): no tier rescaling
+    "holdout": Measured(1.0, 3, date(2026, 11, 20), "flex"),
+    "llm_judge": Measured(0.8, 3, date(2026, 11, 20), "flex"),
+    "react": Measured(6.0, 3, date(2026, 11, 20), "flex"),
 }
 
 
@@ -95,8 +95,9 @@ def test_unmeasured_systems_are_bounded_by_the_cap_and_a_missing_balance_refuses
         {"holdout": 5, "flaml": 5}, load_bench_config(), purpose="benchmark", measured={},
         today=date(2026, 11, 20),
     )  # fmt: skip
-    assert report.total_inr == 5 * 15.0  # worst case: the per-run cap for every unit
-    assert "worst case = per-run cap" in report.render()
+    # Worst case: the per-run cap for every unit, twice for Holdout (one follow-up run).
+    assert report.total_inr == 5 * 30.0
+    assert "worst case = per-run cap x 2 (follow-up run)" in report.render()
     measured_only = estimate(
         {"holdout": 5}, load_bench_config(), purpose="benchmark", measured=MEASURED,
         today=date(2026, 11, 20),

@@ -727,6 +727,66 @@ fix were discarded and rerun.
   measurement, such as during the pilot itself, is bounded by its hard worst case, the per-run
   cap.
 
+**Flex tier and implicit caching.** The pilot showed ReAct's resent history dominating the
+cost, so the benchmark runs on Gemini's Flex tier and the ReAct prompt is append-only.
+
+- **Tier per call.** `LLMSession.service_tier` is sent with every request.
+  `bench/config.toml` pins `flex` for holdout, llm_judge and react. Flex requests queue
+  (1-15 min), so Flex clients use a 15-minute request timeout. Flex is never upgraded to
+  standard; a Flex 503/429 goes through the normal retry and pause path.
+- **Priced at the tier that served the call.** Each call records the tier the response
+  reports (`traffic_type`: `ON_DEMAND_FLEX` is flex, `ON_DEMAND` is standard). Flex costs
+  50% of standard. A tier that is not reported, or is unknown, is priced as standard.
+- **Cached tokens.** Each call records `cached_content_token_count`.
+  - The ledger keeps two valuations: list (every prompt token at the input rate) and
+    cache-adjusted (cached tokens at the cached-input rate).
+  - Caps, the per-call check and the pre-flight use list price until
+    `HOLDOUT_TRUST_CACHE_DISCOUNT=true`, which should be set only once Google's bill
+    confirms the discount.
+  - `holdout spend` shows both totals.
+  - The pre-call worst-case estimate always uses the standard rate, with no cache.
+- **Compute time, not queue time.** Time spent in the API (the call itself, Flex queueing
+  and retry waits, including refused requests) is accumulated per session.
+  - The per-node 600 s limit counts only compute, the node's wall time minus its API time.
+    Each call is bounded by the request timeout and the retry policy instead.
+  - Results record `api_seconds` and `compute_seconds` separately. The analysis reports
+    compute as "time per run".
+- **Pre-flight rescaling.** A measurement made at standard and run on Flex is rescaled by
+  the price ratio (0.5). A system's measurement counts as Flex only if every paid call of
+  every measured run was served by Flex.
+
+**Parallel units (`bench.run --workers N`).**
+
+- **Processes.** Each unit runs in a separate process (spawn), with its systems built once
+  per process. The parent creates the seals and dummy scores before dispatch, so units of
+  different systems never race to create a shared seal. The parent also appends every
+  result.
+- **Locked files.** The spend ledger and each seal's access log hold a cross-process lock
+  (`<file>.lock`, `msvcrt.locking` or `fcntl.flock`) on every append and every read. No
+  process sees a torn line.
+- **Unit-start guard.** A unit starts only if every applicable limit still covers its worst
+  case on top of the worst case of every unit already running.
+  - The limits: the project cap, the reserve (general spend), this invocation's
+    `--max-spend` (the pilot cap) and the prepaid balance when recorded.
+  - The balance is not in the spec's list. It is included as the more rigorous option.
+  - If a unit is refused, the runner waits for running units to finish and checks again.
+    With nothing running, it stops cleanly.
+  - This replaces the old between-units check, which let the pilot reach Rs 32.16 against
+    a Rs 30 cap.
+  - Concurrent per-call checks in different processes cannot overshoot a cap. Every running
+    unit's worst case is already reserved.
+- **Worst case per unit.** ReAct's worst case is one per-run cap (Rs 15). Holdout and
+  llm_judge are **two** caps (Rs 30): autopilot may start exactly one follow-up run with
+  a corrected split, and that run has its own per-run cap. This is the more rigorous choice:
+  the guard never under-reserves. Systems without LLM calls always start.
+- **Pre-flight headroom.** The pre-flight requires the estimate plus `workers` times the
+  largest worst case among pending LLM units. Otherwise the guard would stop the run before
+  its last units.
+- **Not supported.** Two `bench.run` invocations on the same results directory at once.
+- **FLAML contention.** FLAML's 60 s budget is wall-clock, so with several workers sharing
+  the CPU it searches less than it would alone. See the limitations in
+  docs/benchmark.md.
+
 ## Environment
 
 The numeric stack is pinned to mature releases (numpy 2.3, pandas 2.3, scikit-learn 1.7,

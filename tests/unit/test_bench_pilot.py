@@ -54,15 +54,16 @@ def _prepared(unit: Unit) -> Any:
     )
 
 
-def test_the_spend_cap_stops_after_the_unit_that_reaches_it(
+def test_the_spend_cap_never_starts_a_unit_it_could_not_cover(
     tmp_path: Path, ledger: SpendLedger
 ) -> None:
     spender = _Spender(ledger, 12.0)
-    units = [Unit("dev_v1", f"t{i}", "holdout", 11, "planted") for i in range(5)]
+    spender.name = "react"  # worst case: one per-run cap, Rs 15
+    units = [Unit("dev_v1", f"t{i}", "react", 11, "planted") for i in range(5)]
     lines: list[str] = []
     done = run_all(
         units,
-        {"holdout": spender},
+        {"react": spender},
         tmp_path / "r",
         model="m",
         run_cap_inr=15.0,
@@ -70,11 +71,14 @@ def test_the_spend_cap_stops_after_the_unit_that_reaches_it(
         prepare_fn=_prepared,
         max_spend_inr=30.0,
         ledger=ledger,
+        purpose="benchmark",
     )
-    assert spender.runs == 3  # 12, 24 (< 30: continue), 36 (>= 30: stop after this unit)
-    assert len(done) == 3
-    assert "spend cap reached: Rs 36.00 of Rs 30.00" in lines[-1]
+    assert spender.runs == 2  # 30 left >= 15: run; 18 left >= 15: run; 6 left < 15: stop
+    assert len(done) == 2
+    assert "not starting react on t2" in lines[-1]
+    assert "this run's spend cap: Rs 6.00 left" in lines[-1]
     assert "stopped cleanly" in lines[-1]
+    assert ledger.total_inr() <= 30.0  # the cap is never overshot
 
 
 def test_retry_failed_reruns_failed_units_only_when_asked(tmp_path: Path) -> None:

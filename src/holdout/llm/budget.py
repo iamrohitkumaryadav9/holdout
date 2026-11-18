@@ -16,6 +16,7 @@ before kinds existed are paid calls.
 import json
 import logging
 import math
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -25,6 +26,7 @@ from typing import Any
 from holdout.core.errors import BudgetExceededError
 from holdout.llm import config
 from holdout.llm.client import LLMRequest, Usage
+from holdout.llm.filelock import locked
 
 _log = logging.getLogger("holdout.llm")
 
@@ -90,7 +92,9 @@ class SpendLedger:
     def entries(self) -> Iterator[dict[str, Any]]:
         if not self.path.exists():
             return
-        for line in self.path.read_text(encoding="utf-8").splitlines():
+        with locked(self.path):  # another process may be appending (bench.run --workers)
+            text = self.path.read_text(encoding="utf-8")
+        for line in text.splitlines():
             if line.strip():
                 entry: dict[str, Any] = json.loads(line)
                 entry.setdefault("kind", "call")
@@ -114,8 +118,11 @@ class SpendLedger:
 
     def append(self, entry: dict[str, object]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(json.dumps(entry, sort_keys=True) + "\n")
+        line = json.dumps(entry, sort_keys=True) + "\n"
+        with locked(self.path), self.path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())
 
     # ------------------------------------------------------------------ prepaid balance
 

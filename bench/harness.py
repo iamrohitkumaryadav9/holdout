@@ -38,6 +38,7 @@ import pandas as pd
 from holdout.core import portable
 from holdout.core.schemas import Task
 from holdout.core.seeds import derive_seed
+from holdout.llm.filelock import locked
 
 HOLDOUT_FRACTION = 0.2
 
@@ -233,7 +234,9 @@ class BenchSeal:
         path = self.directory / "access.jsonl"
         if not path.exists():
             return []
-        return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
+        with locked(path):
+            text = path.read_text("utf-8")
+        return [json.loads(line) for line in text.splitlines() if line]
 
     def _log(
         self, caller: str, which: str, metric: str, value: float | None, error: str | None
@@ -246,5 +249,7 @@ class BenchSeal:
             "score": value,
             "error": error,
         }
-        with (self.directory / "access.jsonl").open("a", encoding="utf-8") as handle:
+        path = self.directory / "access.jsonl"
+        # Units of different systems share a seal and may score at once (--workers).
+        with locked(path), path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(entry) + "\n")

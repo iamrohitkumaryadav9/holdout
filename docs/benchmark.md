@@ -48,7 +48,10 @@ hook proves no system opens them.
 - **Observations.** ReAct's tool observations are truncated to 2,000 characters (head and
   tail, with a `[truncated N chars]` marker), as is standard. Earlier steps are never
   summarised or dropped. The observation tokens sent per run are recorded, so the cost of
-  the history is visible.
+  the history is visible. The prompt grows append-only (see the prompt section), so
+  Gemini's implicit cache can serve the history. The model sees the same content.
+- **Same tier.** Holdout, llm_judge and ReAct all request the Flex tier
+  (`bench/config.toml`). Every call records the tier that served it.
 - **Stated metric.** The deterministic `audits_only` path cannot read the goal, so it
   receives the task's stated metric (e.g. accuracy for the imbalance trap) as a plan
   override. LLM systems read it from the goal text.
@@ -199,7 +202,10 @@ system can test.
 - **Oracle holdouts follow the frozen ground truth.** A system is scored against the
   deployment framing in the goal, which it must infer itself.
 - **FLAML's time budget is not deterministic.** How far the search gets depends on machine
-  speed.
+  speed. With `--workers N`, units share the CPU, so FLAML's 60 s wall-clock budget buys
+  less search than it would alone. The worker count used is recorded with the results.
+- **Flex tier.** LLM systems run on Gemini's Flex tier. Its queueing changes latency, not
+  the model. Time per run is reported as compute time; API wait is reported separately.
 
 ## The ReAct prompt (published in full)
 
