@@ -23,6 +23,12 @@ SystemName = Literal["holdout", "audits_only", "llm_judge", "react", "flaml"]
 Variant = Literal["original", "anonymised", "planted"]
 UnitStatus = Literal["completed", "paused", "failed", "stopped"]
 
+#: Kinds of timeout a unit records:
+#: ``react_step`` ReAct sandbox step killed at 20 s; ``react_fit_step`` a model-fitting
+#: step killed at 60 s; ``eda_step`` Holdout's EDA sandbox; ``node:<name>`` an agent node
+#: over its compute limit (the run fails).
+TIMEOUT_KINDS = ("react_step", "react_fit_step", "eda_step", "node:<name>")
+
 
 class _Record(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -93,6 +99,8 @@ class BenchResult(_Record):
     seconds: float = 0.0
     api_seconds: float = 0.0
     compute_seconds: float = 0.0
+    #: Timeouts during the unit, by kind (see ``TIMEOUT_KINDS``); empty when none.
+    timeouts: dict[str, int] = Field(default_factory=dict)
     calls: int = 0
     retries: int = 0
     cache_hits: int = 0
@@ -164,6 +172,7 @@ class SystemOutput:
     prompt_tokens: int = 0
     tiers_served: dict[str, int] = field(default_factory=dict)
     api_seconds: float = 0.0
+    timeouts: dict[str, int] = field(default_factory=dict)
     calls: int = 0
     retries: int = 0
     cache_hits: int = 0

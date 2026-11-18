@@ -52,6 +52,29 @@ hook proves no system opens them.
   Gemini's implicit cache can serve the history. The model sees the same content.
 - **Same tier.** Holdout, llm_judge and ReAct all request the Flex tier
   (`bench/config.toml`). Every call records the tier that served it.
+- **CPU fairness under parallel workers.** The LLM systems (holdout, llm_judge, react) run
+  with `--workers 4`. They spend most of their time waiting on the API.
+  - **Thread limits.** Each worker process is limited to `cores // workers` native threads
+    (2 on the 8-core benchmark machine), so the total never exceeds the logical cores.
+    - This covers `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`,
+      `NUMEXPR_NUM_THREADS` and `VECLIB_MAXIMUM_THREADS`.
+    - It also covers `LOKY_MAX_CPU_COUNT`, which caps joblib's `n_jobs=-1`, and
+      threadpoolctl for libraries already loaded.
+    - LightGBM and scikit-learn follow these limits. ReAct's sandbox processes inherit
+      them.
+    - Holdout's own estimators use a fixed `n_jobs=2`, within the limit.
+  - **CPU-only pass.** The CPU-only systems (flaml, audits_only) run afterwards in a
+    separate pass with one worker, alone on the machine. FLAML's 60 s wall-clock budget and
+    the audits_only timings are therefore not reduced by contention.
+  - **Recorded per result:** the worker count, the thread limit (none in the CPU pass) and
+    the logical core count.
+- **Timeouts are recorded.** Every unit records its timeouts by kind:
+  - ReAct sandbox steps, including the 60 s model-fitting steps;
+  - Holdout's EDA sandbox steps;
+  - agent nodes over their compute limit.
+
+  The analysis reports the counts per system. If any ReAct step timed out in the final
+  run, the report says so at the top as a possible handicap.
 - **Stated metric.** The deterministic `audits_only` path cannot read the goal, so it
   receives the task's stated metric (e.g. accuracy for the imbalance trap) as a plan
   override. LLM systems read it from the goal text.
@@ -202,8 +225,8 @@ system can test.
 - **Oracle holdouts follow the frozen ground truth.** A system is scored against the
   deployment framing in the goal, which it must infer itself.
 - **FLAML's time budget is not deterministic.** How far the search gets depends on machine
-  speed. With `--workers N`, units share the CPU, so FLAML's 60 s wall-clock budget buys
-  less search than it would alone. The worker count used is recorded with the results.
+  speed. It runs alone on the machine (see "CPU fairness" above), so parallel LLM units do
+  not shorten its search.
 - **Flex tier.** LLM systems run on Gemini's Flex tier. Its queueing changes latency, not
   the model. Time per run is reported as compute time; API wait is reported separately.
 

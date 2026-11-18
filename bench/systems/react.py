@@ -32,6 +32,7 @@ from bench.systems.base import (
 from bench.systems.metric_names import normalise_claim
 from bench.systems.sandbox import (
     MODEL_FILE,
+    is_fitting_step,
     prepare_workdir,
     run_step,
     truncate_observation,
@@ -192,6 +193,7 @@ class ReactSystem:
         )
         transcript = opening.user  # grows by appending only
         history: list[dict[str, Any]] = []
+        timeouts: dict[str, int] = {}
         raw_chars = shown_chars = 0
         sent_chars = raw_sent_chars = 0  # observations re-sent with the history, all steps
         raw_lengths: list[int] = []
@@ -228,6 +230,9 @@ class ReactSystem:
                 break
             assert step.code is not None
             result = run_step(step.code, workdir)
+            if result.status == "timeout":  # 60 s for fitting steps, 20 s otherwise
+                kind = "react_fit_step" if is_fitting_step(step.code) else "react_step"
+                timeouts[kind] = timeouts.get(kind, 0) + 1
             text = (
                 result.output
                 if result.status == "ok"
@@ -245,6 +250,7 @@ class ReactSystem:
         output = self._output(
             ctx, session, final, stop, workdir, raw_chars, shown_chars, history, started
         )
+        output.timeouts = timeouts
         output.extra["observation_tokens_sent_estimate"] = sent_chars // 4
         # What the history would have cost without truncation (same steps, same code).
         output.extra["observation_tokens_sent_untruncated_estimate"] = raw_sent_chars // 4

@@ -53,7 +53,7 @@ from bench.systems.base import (
     SystemOutput,
     Variant,
 )
-from holdout.core.errors import RunPausingError
+from holdout.core.errors import NodeTimeoutError, RunPausingError
 from holdout.core.schemas import EntityScope, MetricName, Task
 from holdout.llm import config as llm_config
 from holdout.llm.budget import SpendLedger
@@ -325,6 +325,11 @@ def run_unit(
         output = system.resume(ctx) if resume else system.run(ctx)
     except RunPausingError as exc:
         output = SystemOutput(status="paused", error=f"{type(exc).__name__}: {exc}")
+    except NodeTimeoutError as exc:  # an agent node over its compute limit: the unit fails
+        output = SystemOutput(
+            status="failed", error=f"{type(exc).__name__}: {exc}",
+            timeouts={f"node:{exc.node}": 1},
+        )  # fmt: skip
     except Exception as exc:  # recorded, the benchmark continues
         output = SystemOutput(status="failed", error=f"{type(exc).__name__}: {exc}")
     errors = [output.error] if output.error else []
@@ -366,6 +371,7 @@ def run_unit(
         seconds=round(wall, 2),
         api_seconds=round(output.api_seconds, 2),
         compute_seconds=round(max(0.0, wall - output.api_seconds), 2),
+        timeouts=output.timeouts,
         calls=output.calls,
         retries=output.retries,
         cache_hits=output.cache_hits,

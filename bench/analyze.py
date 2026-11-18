@@ -381,10 +381,48 @@ def report(root: Path, suite: str) -> list[str]:
     head = [
         f"## {suite}",
         "",
+        *react_timeout_warning(results),
         "Runs: " + ", ".join(f"{k} {v}" for k, v in sorted(statuses.items())),
         "",
     ]
-    return head + body + [""] + outcome_table(results) + [""] + a11_table(results, truths)
+    return (
+        head + body + [""] + outcome_table(results) + [""] + timeout_table(results) + [""]
+        + a11_table(results, truths)
+    )  # fmt: skip
+
+
+def timeout_table(results: list[BenchResult]) -> list[str]:
+    """Timeouts per system and kind: units affected and total timeouts."""
+    kinds = sorted({k for r in results for k in r.timeouts})
+    lines = ["### Timeouts", ""]
+    if not kinds:
+        return [*lines, "No step or node timed out."]
+    lines += ["| system | units | " + " | ".join(kinds) + " |",
+              "|---|---|" + "---|" * len(kinds)]  # fmt: skip
+    for sy in _systems(results):
+        runs = [r for r in results if r.system == sy]
+        counts = [sum(r.timeouts.get(k, 0) for r in runs) for k in kinds]
+        hit = sum(bool(r.timeouts) for r in runs)
+        lines.append(f"| {sy} | {hit} of {len(runs)} | " + " | ".join(map(str, counts)) + " |")
+    lines += ["", "Cells: total timeouts; units: runs with at least one timeout."]
+    return lines
+
+
+def react_timeout_warning(results: list[BenchResult]) -> list[str]:
+    """A prominent note when any ReAct sandbox step timed out (a possible handicap)."""
+    react = [r for r in results if r.system == "react"]
+    fit = sum(r.timeouts.get("react_fit_step", 0) for r in react)
+    other = sum(r.timeouts.get("react_step", 0) for r in react)
+    if not fit + other:
+        return []
+    units = sum(bool(r.timeouts) for r in react)
+    return [
+        f"> **Warning: ReAct sandbox steps timed out** in {units} of {len(react)} ReAct runs "
+        f"({fit} model-fitting steps at the 60 s limit, {other} other steps at 20 s). "
+        "Timeouts may have handicapped ReAct: its results here may understate what it "
+        "could do with more time per step.",
+        "",
+    ]
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -122,5 +122,13 @@ class AgentError(HoldoutError):
     """The agent stopped: a loop guard tripped, a node timed out, or a plan was rejected."""
 
 
+class NodeTimeoutError(AgentError):
+    """A graph node used more compute than its limit (API wait not counted)."""
+
+    def __init__(self, message: str, *, node: str) -> None:
+        super().__init__(message)
+        self.node = node
+
+
 class ExportError(HoldoutError):
     """An artifact (pipeline script, manifest, report) could not be produced."""

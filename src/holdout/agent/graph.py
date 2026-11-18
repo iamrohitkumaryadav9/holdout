@@ -56,7 +56,7 @@ from holdout.audit.gate import UnsealDecision, decide_unseal
 from holdout.audit.runner import run_audits, write_audit
 from holdout.audit.thresholds import load_thresholds
 from holdout.audit.types import AuditFlag, AuditReport, ChangeSplit, CheckId, CheckRun, Severity
-from holdout.core.errors import AgentError, RunPausingError
+from holdout.core.errors import AgentError, NodeTimeoutError, RunPausingError
 from holdout.core.schemas import CVResult, DataType, EntityScope, HoldoutResult, Task
 from holdout.core.state import RunState
 from holdout.data.load import LoadedData, load_dataset
@@ -241,9 +241,10 @@ def check_node_time(name: str, elapsed: float, api_seconds: float, limit: float)
     """Raise if the node's own compute (wall time minus API wait) is over ``limit``."""
     compute = max(0.0, elapsed - api_seconds)
     if compute > limit:
-        raise AgentError(
+        raise NodeTimeoutError(
             f"node {name} used {compute:.0f} s of compute ({api_seconds:.0f} s waiting on the "
-            f"API not counted), over the {limit:.0f} s limit"
+            f"API not counted), over the {limit:.0f} s limit",
+            node=name,
         )
 
 

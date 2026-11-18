@@ -167,6 +167,7 @@ class HoldoutSystem:
             prompt_tokens=sum(u.prompt_tokens for u in _nodes(manifests)),
             tiers_served=_merge_tiers(manifests),
             api_seconds=sum(m.agent.api_seconds for m in manifests if m.agent is not None),
+            timeouts=_eda_timeouts(manifests),
             calls=sum(
                 u.calls for m in manifests if m.agent for u in m.agent.usage_by_node.values()
             ),
@@ -220,6 +221,12 @@ def _issues(manifests: list[RunManifest]) -> list[ReportedIssue]:
                 flag.message,
             )
     return issues
+
+
+def _eda_timeouts(manifests: list[RunManifest]) -> dict[str, int]:
+    """EDA sandbox snippets killed at their time limit, all runs."""
+    n = sum(r.status == "timeout" for m in manifests if m.agent is not None for r in m.agent.eda)
+    return {"eda_step": n} if n else {}
 
 
 def _nodes(manifests: list[RunManifest]) -> list[NodeUsage]:
