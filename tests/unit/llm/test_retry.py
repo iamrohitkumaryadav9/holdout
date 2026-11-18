@@ -123,6 +123,16 @@ def test_permanent_errors_are_never_retried(status: int) -> None:
     assert (len(calls), sleeps) == (1, [])
 
 
+def test_a_rejected_request_carries_the_api_reason() -> None:
+    error = genai_errors.APIError(
+        400, {"error": {"code": 400, "message": "The specified schema produces a constraint "
+                                                "that has too many states for serving."}}
+    )  # fmt: skip
+    _, fn = _failing([error])
+    with pytest.raises(LLMRequestError, match="too many states for serving"):
+        call_with_retries(fn, policy=POLICY, sleep=lambda s: None, rng=random.Random(0))  # type: ignore[arg-type]
+
+
 def test_schema_and_programming_errors_are_not_transient() -> None:
     assert not classify(ValueError("bad schema")).transient
 

@@ -215,6 +215,7 @@ class Judge:
             prompt=prompt,
             schema=JudgeVerdict,
             check=lambda v: verdict_problems(v, columns, inputs.plan.task),
+            send_length_bounds=False,  # Gemini: "too many states" otherwise (HTTP 400)
         )
         return AuditReport(
             flags=to_flags(verdict, inputs.spec.seed),
@@ -235,6 +236,7 @@ class Judge:
             check=lambda v: [
                 f"not a sentence of the report: {s!r}" for s in v.causal_statements if s not in text
             ],
+            send_length_bounds=False,
         )
         if not verdict.causal_statements:
             return []

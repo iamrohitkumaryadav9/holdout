@@ -86,13 +86,17 @@ class LLMSession:
         prompt: RenderedPrompt,
         schema: type[T],
         check: Callable[[T], list[str]] | None = None,
+        send_length_bounds: bool = True,
     ) -> T:
+        """``send_length_bounds=False`` leaves string and array length limits out of the
+        schema sent to the model (still validated): Gemini refuses schemas whose nested
+        limits make "too many states for serving" (HTTP 400)."""
         request = LLMRequest(
             prompt_name=prompt.name,
             prompt_version=prompt.version,
             system=prompt.system,
             user=prompt.user,
-            response_schema=llm_schema(schema),
+            response_schema=llm_schema(schema, length_bounds=send_length_bounds),
             seed=self.seed,
         )
         parsed, errors, text = self._attempt(node, prompt, request, schema, check, attempt=1)
@@ -224,7 +228,10 @@ class LLMSession:
 REJECTED_TEXT_CHARS = 4000
 
 
-def llm_schema(schema: type[BaseModel]) -> dict[str, Any]:
+_LENGTH_BOUNDS = frozenset({"maxItems", "minItems", "maxLength", "minLength"})
+
+
+def llm_schema(schema: type[BaseModel], *, length_bounds: bool = True) -> dict[str, Any]:
     """The JSON schema sent to the model, in the subset Gemini's structured output documents.
 
     Pydantic writes tagged unions as ``oneOf`` + ``discriminator`` with each tag as a
@@ -233,18 +240,29 @@ def llm_schema(schema: type[BaseModel]) -> dict[str, Any]:
     ``HistGradientBoostingClassifier``) instead of ``hist_gb``. This rewrites the schema into
     an equivalent form (tags are disjoint, so ``anyOf`` = ``oneOf``; ``enum: [x]`` =
     ``const: x``). Validation still uses the full Pydantic model, so nothing is loosened.
+
+    ``length_bounds=False`` also leaves out string and array length limits. Gemini refused
+    the benchmark's judge and ReAct schemas (nested lists of length-bounded strings) with
+    HTTP 400 "too many states for serving" in the pilot; the limits are still validated,
+    with one repair, exactly as before. Keys inside ``properties`` are property names, never
+    keywords, so a property that happens to be called ``maxLength`` is kept.
     """
 
-    def rewrite(node: Any) -> Any:
+    def rewrite(node: Any, names: bool = False) -> Any:
         if isinstance(node, dict):
             out: dict[str, Any] = {}
             for key, value in node.items():
+                if names:  # a ``properties`` mapping: keys are field names
+                    out[key] = rewrite(value)
+                    continue
                 if key == "discriminator":
+                    continue
+                if not length_bounds and key in _LENGTH_BOUNDS:
                     continue
                 if key == "const":
                     out["enum"] = [value]
                     continue
-                out["anyOf" if key == "oneOf" else key] = rewrite(value)
+                out["anyOf" if key == "oneOf" else key] = rewrite(value, names=key == "properties")
             return out
         if isinstance(node, list):
             return [rewrite(item) for item in node]

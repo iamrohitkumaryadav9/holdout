@@ -77,6 +77,41 @@ def test_the_spend_cap_stops_after_the_unit_that_reaches_it(
     assert "stopped cleanly" in lines[-1]
 
 
+def test_retry_failed_reruns_failed_units_only_when_asked(tmp_path: Path) -> None:
+    from bench.run import pending
+
+    root = tmp_path / "r"
+    units = [Unit("dev_v1", "t", "holdout", 11, "planted")]
+    append_result(root, _result(status="failed", error="HTTP 400"))
+    assert pending(units, root) == []
+    assert pending(units, root, retry_failed=True) == [(units[0], False)]
+    append_result(root, _result(status="completed"))
+    assert pending(units, root, retry_failed=True) == []
+
+
+def test_bench_schemas_are_sent_without_length_bounds_but_still_validated() -> None:
+    import json
+
+    from pydantic import BaseModel, Field, ValidationError
+
+    from bench.systems.llm_judge import JudgeVerdict
+    from bench.systems.react import ReactStep
+    from holdout.llm.structured import llm_schema
+
+    for schema in (JudgeVerdict, ReactStep):
+        sent = json.dumps(llm_schema(schema, length_bounds=False))
+        for keyword in ('"maxItems"', '"minItems"', '"maxLength"', '"minLength"'):
+            assert keyword not in sent
+        assert '"maxLength"' in json.dumps(llm_schema(schema))  # default keeps them
+    with pytest.raises(ValidationError):
+        ReactStep.model_validate({"thought": "", "action": "python", "code": "x"})
+
+    class Odd(BaseModel):
+        maxLength: int = Field(max_length=None)  # noqa: N815 - a property with a keyword name
+
+    assert "maxLength" in llm_schema(Odd, length_bounds=False)["properties"]
+
+
 def _result(**kw: Any) -> BenchResult:
     now = datetime.now(UTC)
     base: dict[str, Any] = {

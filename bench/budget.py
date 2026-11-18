@@ -190,7 +190,12 @@ def estimate(
 
 
 def preflight(
-    units: Sequence[Any], results_root: Path, config: BenchConfig, *, purpose: str
+    units: Sequence[Any],
+    results_root: Path,
+    config: BenchConfig,
+    *,
+    purpose: str,
+    retry_failed: bool = False,
 ) -> PreflightReport:
     """Estimate the pending units of ``units`` (see :func:`estimate`)."""
     from bench.run import pending
@@ -200,7 +205,7 @@ def preflight(
     # and estimated Rs 0 (found by the pilot's pre-flight). Units are duck-typed.
     all_units = list(units)
     counts: dict[str, int] = {}
-    for unit, _ in pending(all_units, results_root):
+    for unit, _ in pending(all_units, results_root, retry_failed=retry_failed):
         counts[unit.system] = counts.get(unit.system, 0) + 1
     for unit in all_units:
         counts.setdefault(unit.system, 0)

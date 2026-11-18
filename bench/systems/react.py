@@ -160,7 +160,11 @@ class ReactSystem:
             )
             try:
                 step = session.call(
-                    node="react", prompt=prompt, schema=ReactStep, check=_step_check
+                    node="react",
+                    prompt=prompt,
+                    schema=ReactStep,
+                    check=_step_check,
+                    send_length_bounds=False,  # Gemini: "too many states" otherwise (HTTP 400)
                 )
             except BudgetExceededError as exc:
                 if exc.scope == "project":

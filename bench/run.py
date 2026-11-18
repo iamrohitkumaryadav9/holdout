@@ -350,8 +350,12 @@ def run_unit(
 # ----------------------------------------------------------------------------- the loop
 
 
-def pending(units: Iterable[Unit], root: Path) -> list[tuple[Unit, bool]]:
-    """Units still to run, each with ``resume`` (True when its latest result is paused)."""
+def pending(
+    units: Iterable[Unit], root: Path, *, retry_failed: bool = False
+) -> list[tuple[Unit, bool]]:
+    """Units still to run, each with ``resume`` (True when its latest result is paused).
+    ``retry_failed`` reruns units whose latest result is failed (e.g. after fixing a
+    harness bug); the failed result stays in the file, a new one is appended."""
     cache: dict[tuple[str, str], dict[tuple[Any, ...], BenchResult]] = {}
     todo = []
     for unit in units:
@@ -363,6 +367,8 @@ def pending(units: Iterable[Unit], root: Path) -> list[tuple[Unit, bool]]:
             todo.append((unit, False))
         elif latest.status == "paused":
             todo.append((unit, True))
+        elif latest.status == "failed" and retry_failed:
+            todo.append((unit, False))
     return todo
 
 
@@ -379,6 +385,7 @@ def run_all(
     prepare_fn: Callable[[Unit], PreparedUnit] = prepare,
     max_spend_inr: float | None = None,
     ledger: SpendLedger | None = None,
+    retry_failed: bool = False,
 ) -> list[BenchResult]:
     """Run every pending unit in order. A pause stops the pass (the cause - an outage, a
     cap, billing - affects every later LLM unit too); rerun the command to continue.
@@ -390,7 +397,7 @@ def run_all(
     ledger = ledger if ledger is not None else SpendLedger()
     start = ledger.total_inr()
     done = []
-    for unit, resume in pending(units, root):
+    for unit, resume in pending(units, root, retry_failed=retry_failed):
         spent = ledger.total_inr() - start
         if max_spend_inr is not None and spent >= max_spend_inr:
             write(
@@ -440,6 +447,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--plan", action="store_true", help="estimate cost only (pre-flight)")
     parser.add_argument("--purpose", choices=["general", "benchmark"], default="general")
     parser.add_argument(
+        "--retry-failed", action="store_true", help="rerun units whose latest result failed"
+    )
+    parser.add_argument(
         "--max-spend",
         type=float,
         default=None,
@@ -454,7 +464,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     units = units_for(args.suite, systems_wanted, seeds=args.seeds, tasks=args.tasks)
     from bench.budget import preflight
 
-    report = preflight(units, args.results, config, purpose=args.purpose)
+    report = preflight(
+        units, args.results, config, purpose=args.purpose, retry_failed=args.retry_failed
+    )
     print(report.render())
     if args.plan:
         return 0
@@ -473,6 +485,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_cap_inr=config.run_cap_inr,
         progress=progress,
         max_spend_inr=args.max_spend,
+        retry_failed=args.retry_failed,
     )
     if args.report is not None:
         from bench.pilot import write_pilot_report

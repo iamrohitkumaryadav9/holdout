@@ -113,6 +113,15 @@ def classify(exc: BaseException) -> Failure:
     return Failure(status in TRANSIENT_STATUS, status, "http", _retry_after(exc))
 
 
+def _reason(exc: BaseException) -> str:
+    """The API's own explanation of a rejected request (it never contains the API key),
+    truncated: without it a 400 cannot be diagnosed from the results."""
+    message = getattr(exc, "message", None)
+    if not message:
+        return ""
+    return f": {' '.join(str(message).split())[:300]}"
+
+
 def _is_timeout(exc: BaseException) -> bool:
     try:
         import httpx
@@ -169,7 +178,8 @@ def call_with_retries[T](
                 ) from exc
             if not failure.transient:
                 raise LLMRequestError(
-                    f"{what} failed with {label} ({type(exc).__name__}); not retried",
+                    f"{what} failed with {label} ({type(exc).__name__}); not retried"
+                    + _reason(exc),
                     status=failure.status,
                 ) from exc
             if attempt == policy.max_attempts:
