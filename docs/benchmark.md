@@ -50,8 +50,12 @@ hook proves no system opens them.
   summarised or dropped. The observation tokens sent per run are recorded, so the cost of
   the history is visible. The prompt grows append-only (see the prompt section), so
   Gemini's implicit cache can serve the history. The model sees the same content.
-- **Same tier.** Holdout, llm_judge and ReAct all request the Flex tier
-  (`bench/config.toml`). Every call records the tier that served it.
+- **Tiers.** The run started with Holdout, llm_judge and ReAct all on Flex. After the Flex
+  outage (prereg Amendment 2), the remaining units run holdout and llm_judge on Standard
+  and ReAct on Flex, with ReAct's per-call Standard fallback (Amendment 1).
+  - Every call uses the same model, prompts and parameters, records the tier that served
+    it, and is priced at that tier.
+  - Time per run is compute time only, so the tier does not affect timing comparisons.
 - **CPU fairness under parallel workers.** The LLM systems (holdout, llm_judge, react) run
   with `--workers 4`. They spend most of their time waiting on the API.
   - **Thread limits.** Each worker process is limited to `cores // workers` native threads

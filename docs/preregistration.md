@@ -316,3 +316,66 @@ python -m bench.run --suite final_v1 --purpose benchmark --workers 4 --retry-fai
 python -m bench.run --suite real_world_v1 --purpose benchmark --workers 4
 python -m bench.analyze --results results --out docs/results.md --charts docs/img
 ```
+
+Superseded in part by Amendment 2: the tiers and the cap changed. The commands are
+unchanged.
+
+### Amendment 2 (2026-11-18): service tier per system
+
+**Reason.** Flex was unavailable for most requests. During the stopped run, 73 of 91 Gemini
+attempts (80%) failed, almost all with HTTP 503. With Amendment 1's patience, a Flex call
+that keeps failing waits up to about 20 minutes of backoff before its standard fallback.
+holdout and llm_judge make several short calls per unit, so on Flex most of their units
+would wait out the full backoff on most calls. No final results had been analysed when this
+amendment was made.
+
+**Change.** The Gemini service tier is now set per system for the remaining
+final-benchmark units (`bench/config.toml`, `service_tiers`):
+
+| system | tier | retries |
+|---|---|---|
+| holdout | **Standard** | 6 attempts, base 2 s, cap 60 s |
+| llm_judge | **Standard** | as holdout |
+| react | **Flex** | Amendment 1: 10 attempts, base 5 s, cap 300 s, then one Standard fallback per call |
+
+- **Unchanged:** the same model (`gemini-3.8-flash`), prompts, generation parameters and
+  seeds, suites, thresholds, scoring and hypotheses. The tier changes latency and price
+  only, not model outputs, so completed units stay valid and are not rerun.
+- **Per-call records:** every call still records the tier requested and served and is
+  priced at the serving tier.
+- **Timing:** time per run stays compute time only, with API wait reported separately, so
+  the different tiers do not distort timing comparisons.
+- **Pre-flight:** each system is priced at its own tier. The observed fallback share
+  (Amendment 1) is measured over the Flex systems only (react) and priced at Standard.
+
+**Cost impact** (pilot basis, +20%, 2026-11-18, whole pending benchmark):
+
+| system | Amendment 1 (all Flex) | Amendment 2 |
+|---|---|---|
+| holdout (116 units) | Rs 75.44 | **Rs 150.88** (Standard) |
+| llm_judge (115 pending) | Rs 81.33 | **Rs 162.67** (Standard) |
+| react (116 units) | Rs 563.78 | Rs 563.78 (Flex; 0% fallback assumed until 10 react units complete) |
+| **total** | Rs 720.55 | **Rs 877.33** |
+
+- **Cap and balance.** The project cap is raised to **Rs 1,150** (`HOLDOUT_PROJECT_CAP_INR=1150`).
+  The pre-flight requires Rs 877.33 plus Rs 120 of headroom for 4 units in flight, which
+  is Rs 997.33. Available is Rs 1,104.39 under the cap and about Rs 1,150.39 of prepaid
+  balance, so it fits.
+- **Sensitivity.** Each 10% of ReAct calls served by the Standard fallback adds about
+  Rs 56. The pre-flight stops fitting at a fallback share of about 19%. If that happens,
+  the unit-start guard ends the run at the cap (exit 6) and a further amendment is needed
+  to continue (section 6).
+
+**Frozen values.** This changes `bench/config.toml`. Its sha256 (LF) is now
+`1d233cfa20422d6412b0c8c7f3a470dd681ea8073318a86c4079ca450f7d2936`, replacing the hash in
+section 5 for the remaining units. Every other hash in section 5 is unchanged. This
+amendment is tagged `prereg-v1-amend2`; `prereg-v1` and `prereg-v1-amend1` stay where they
+are.
+
+**Resume command** (environment as in section 6, but with `HOLDOUT_PROJECT_CAP_INR=1150`):
+
+```text
+python -m bench.run --suite final_v1 --purpose benchmark --workers 4 --retry-failed-matching "RemoteProtocolError|special JSON characters in feature name"
+python -m bench.run --suite real_world_v1 --purpose benchmark --workers 4
+python -m bench.analyze --results results --out docs/results.md --charts docs/img
+```
