@@ -22,9 +22,12 @@ runner = CliRunner()
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A private ledger: these tests fill it close to the cap."""
+    """A private ledger: these tests fill it close to the cap. They test the project cap
+    itself, so their spend is benchmark spend (general spend stops at the reserve first;
+    the reserve has its own tests)."""
     monkeypatch.setenv("HOLDOUT_HOME", str(tmp_path / "home"))
     monkeypatch.delenv(config.PROJECT_CAP_ENV, raising=False)
+    monkeypatch.setenv(config.SPEND_PURPOSE_ENV, "benchmark")
     return tmp_path / "home"
 
 

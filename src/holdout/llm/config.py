@@ -39,11 +39,32 @@ REQUEST_TIMEOUT_SECONDS: Final = 90
 RUN_CAP_INR: Final = 15.0
 PROJECT_CAP_INR: Final = 750.0
 PROJECT_CAP_ENV: Final = "HOLDOUT_PROJECT_CAP_INR"
+#: Rupees of the project cap kept for the final benchmark run. Spend of any other purpose
+#: (dev, tuning, smoke, ping, ordinary agent runs) may not go into it.
+BENCHMARK_RESERVE_INR: Final = 600.0
+#: The purpose of a process's spend: "general" unless this is "benchmark" (set only by
+#: ``python -m bench.run --purpose benchmark``).
+SPEND_PURPOSE_ENV: Final = "HOLDOUT_SPEND_PURPOSE"
+SPEND_PURPOSES: Final = ("general", "benchmark")
 #: Fractions of the project cap at which a one-time warning is printed.
 PROJECT_WARN_FRACTIONS: Final = (0.50, 0.75, 0.90)
 #: Remaining prepaid balance (rupees) below which Holdout warns.
 BALANCE_TOP_UP_SOON_INR: Final = 150.0
 BALANCE_TOP_UP_NOW_INR: Final = 50.0
+
+
+def spend_purpose() -> str:
+    """``HOLDOUT_SPEND_PURPOSE`` (default "general").
+
+    Raises:
+        LLMConfigError: for an unknown purpose.
+    """
+    value = os.environ.get(SPEND_PURPOSE_ENV, "general").strip() or "general"
+    if value not in SPEND_PURPOSES:
+        from holdout.core.errors import LLMConfigError
+
+        raise LLMConfigError(f"{SPEND_PURPOSE_ENV} must be one of {SPEND_PURPOSES}, got {value!r}")
+    return value
 
 
 def project_cap_inr() -> float:

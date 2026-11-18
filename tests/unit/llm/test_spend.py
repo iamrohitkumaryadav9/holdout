@@ -66,6 +66,7 @@ def test_the_project_cap_defaults_to_750_and_only_the_env_var_overrides_it(
 def test_a_call_that_could_cross_the_project_cap_is_refused(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv(config.SPEND_PURPOSE_ENV, "benchmark")  # past the reserve: cap only
     ledger = SpendLedger()
     _spent(ledger, 749.9)
     budget = Budget(run_id="r", model=MODEL)

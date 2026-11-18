@@ -179,6 +179,9 @@ class Budget:
     ledger: SpendLedger = field(default_factory=SpendLedger)
     spent_run_inr: float = 0.0
     today: date = field(default_factory=lambda: datetime.now(UTC).date())
+    #: "general" spend may not go into the benchmark reserve; "benchmark" spend may.
+    purpose: str = field(default_factory=lambda: config.spend_purpose())
+    reserve_inr: float = field(default_factory=lambda: config.BENCHMARK_RESERVE_INR)
 
     def check(self, request: LLMRequest, node: str) -> float:
         """Raise before a call that could exceed a cap; return the worst-case estimate."""
@@ -200,6 +203,19 @@ class Budget:
                 f"could cost up to Rs {estimate:.2f}, cap Rs {self.project_cap_inr:.2f}",
                 scope="project",
                 cap_inr=self.project_cap_inr,
+                run_spent_inr=self.spent_run_inr,
+                project_spent_inr=project,
+                estimate_inr=estimate,
+            )
+        general_cap = self.project_cap_inr - self.reserve_inr
+        if self.purpose != "benchmark" and project + estimate > general_cap:
+            raise BudgetExceededError(
+                f"benchmark reserve: Rs {project:.2f} spent across runs, the next call "
+                f"({node}) could cost up to Rs {estimate:.2f}; spend that is not the "
+                f"benchmark may not exceed Rs {general_cap:.2f} (cap Rs "
+                f"{self.project_cap_inr:g} minus the Rs {self.reserve_inr:g} benchmark reserve)",
+                scope="reserve",
+                cap_inr=general_cap,
                 run_spent_inr=self.spent_run_inr,
                 project_spent_inr=project,
                 estimate_inr=estimate,
@@ -231,6 +247,7 @@ class Budget:
                 "output_tokens": usage.output_tokens,
                 "thinking_tokens": usage.thinking_tokens,
                 "retries": retries,
+                "purpose": self.purpose,
                 "inr": inr,
             }
         )
@@ -250,6 +267,7 @@ class Budget:
                 "prompt": prompt_name,
                 "model": self.model,
                 "retries": retries,
+                "purpose": self.purpose,
                 "inr": 0.0,
             }
         )
