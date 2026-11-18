@@ -5,7 +5,9 @@ same issue categories and severity scale, a fuller sandbox (scikit-learn, LightG
 for model-fitting steps. Up to 15 steps; each step is one structured LLM call through
 Holdout's ``LLMSession`` (same caps, retries, ledger). The full history is sent every step
 (never summarised); each tool observation is truncated to 2,000 characters, head and tail,
-and observation sizes are recorded so the cost of the history is visible.
+and observation sizes are recorded so the cost of the history is visible. The prompt grows
+append-only (``ReactPrompt``), so each step's prompt begins with the whole previous one and
+Gemini's implicit cache can serve that prefix.
 
 The prompt (``prompts/react.md``) is published in full in docs/benchmark.md.
 """
@@ -13,6 +15,7 @@ The prompt (``prompts/react.md``) is published in full in docs/benchmark.md.
 import hashlib
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -34,7 +37,7 @@ from bench.systems.sandbox import (
     truncate_observation,
 )
 from bench.systems.unpickle import UnsafePickleError, restricted_loads
-from holdout.agent.prompts import PromptTemplate
+from holdout.agent.prompts import PromptTemplate, data_section
 from holdout.audit.checks.a11_causal import check_causal_claims
 from holdout.audit.types import Category, Severity
 from holdout.core.errors import BudgetExceededError, LLMOutputError, RunPausingError
@@ -76,18 +79,51 @@ class ReactStep(_Strict):
     final: ReactFinal | None = None
 
 
-def load_template(max_steps: int = MAX_STEPS) -> PromptTemplate:
+@dataclass(frozen=True)
+class ReactPrompt:
+    """The ReAct prompt, built append-only so Gemini's implicit cache can reuse it.
+
+    Step k's prompt is step k-1's prompt followed by step k-1's record (its thought, code
+    and truncated output) and the request for step k. Nothing earlier ever changes: no
+    trailing counter, no re-serialised history, so every prompt starts with the whole
+    previous prompt.
+    """
+
+    template: PromptTemplate
+    request: str
+    record: str
+    max_steps: int
+
+    def opening(self, **data: Any) -> RenderedPrompt:
+        """The stable prefix: system section and the task (goal, target, columns)."""
+        return self.template.render(**data)
+
+    def ask(self, step: int) -> str:
+        return "\n\n" + self.request.replace("{{step}}", str(step)).replace(
+            "{{max_steps}}", str(self.max_steps)
+        )
+
+    def done(self, step: int, entry: dict[str, Any], output: str) -> str:
+        filled = (
+            self.record.replace("{{step}}", str(step))
+            .replace("{{data.step}}", data_section(f"step_{step}", entry))
+            .replace("{{data.output}}", data_section(f"output_{step}", output))
+        )
+        return "\n\n" + filled
+
+
+def load_template(max_steps: int = MAX_STEPS) -> ReactPrompt:
     raw = PROMPT_PATH.read_bytes()
     text = raw.decode("utf-8").replace("\r\n", "\n")
     header = re.match(r"\A---\n(?P<h>.*?)\n---\n", text, re.DOTALL)
-    sections = dict(re.findall(r"<(system|user)>\n(.*?)\n</\1>", text, re.DOTALL))
-    if header is None or set(sections) != {"system", "user"}:
+    sections = dict(re.findall(r"<(system|user|request|record)>\n(.*?)\n</\1>", text, re.DOTALL))
+    if header is None or set(sections) != {"system", "user", "request", "record"}:
         raise ValueError("react prompt: missing header or sections")
     fields = {
         k.strip(): v.strip()
         for k, v in (line.split(":", 1) for line in header.group("h").splitlines() if ":" in line)
     }
-    return PromptTemplate(
+    template = PromptTemplate(
         name=fields["name"],
         version=fields["version"],
         purpose=fields["purpose"],
@@ -95,6 +131,7 @@ def load_template(max_steps: int = MAX_STEPS) -> PromptTemplate:
         system=sections["system"].replace("{{max_steps}}", str(max_steps)),
         user=sections["user"],
     )
+    return ReactPrompt(template, sections["request"], sections["record"], max_steps)
 
 
 def _columns_summary(ctx: SystemContext) -> dict[str, Any]:
@@ -148,6 +185,12 @@ class ReactSystem:
         workdir = ctx.workdir / "sandbox"
         prepare_workdir(workdir, ctx.dev)
         template = load_template(self.max_steps)
+        opening = template.opening(
+            goal=ctx.goal,
+            target={"target": ctx.target, "task": ctx.task.value},
+            columns=_columns_summary(ctx),
+        )
+        transcript = opening.user  # grows by appending only
         history: list[dict[str, Any]] = []
         raw_chars = shown_chars = 0
         sent_chars = raw_sent_chars = 0  # observations re-sent with the history, all steps
@@ -158,16 +201,9 @@ class ReactSystem:
         for step_no in range(1, self.max_steps + 1):
             sent_chars += sum(len(h["observation"]) for h in history)
             raw_sent_chars += sum(raw_lengths)
-            rendered = template.render(
-                goal=ctx.goal,
-                target={"target": ctx.target, "task": ctx.task.value},
-                columns=_columns_summary(ctx),
-                history=history or "none yet",
-                step=str(step_no),
-                max_steps=str(self.max_steps),
-            )
+            transcript += template.ask(step_no)
             prompt = RenderedPrompt(
-                rendered.name, rendered.version, rendered.sha256, rendered.system, rendered.user
+                opening.name, opening.version, opening.sha256, opening.system, transcript
             )
             try:
                 step = session.call(
@@ -201,15 +237,9 @@ class ReactSystem:
             raw_chars += len(text)
             shown_chars += len(shown)
             raw_lengths.append(len(text))
-            history.append(
-                {
-                    "step": step_no,
-                    "thought": step.thought,
-                    "code": step.code,
-                    "status": result.status,
-                    "observation": shown,
-                }
-            )
+            entry = {"thought": step.thought, "code": step.code, "status": result.status}
+            transcript += template.done(step_no, entry, shown)
+            history.append({"step": step_no, **entry, "observation": shown})
         else:
             stop = f"no final answer within {self.max_steps} steps"
         output = self._output(

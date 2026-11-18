@@ -206,10 +206,23 @@ system can test.
 The file `bench/systems/prompts/react.md`, verbatim. `{{max_steps}}` is replaced by 15 and
 each `{{data.x}}` by a delimited data section.
 
+**The prompt is append-only.** The `<system>` and `<user>` sections form a stable prefix
+that is identical for every step of a run. For step k the runner appends the `<request>`
+text, and after the step's code has run it appends the `<record>` text for that step: the
+thought, the code and its status in one data section, and the truncated output in its own
+data section. It then appends the request for step k+1. Nothing already sent is ever
+changed, re-serialised or followed by a changing counter, so each step's prompt begins with
+the whole previous prompt, and Gemini's implicit cache can serve that prefix at the cached
+rate. Version 1 sent the same information but re-rendered the history as one JSON list
+followed by "This is step k of N", which broke the shared prefix at the end of the history.
+The model sees the same content: the task, every earlier step in full (observations
+truncated as before), and the step number. A test checks that consecutive step prompts share
+the full previous prompt as a prefix.
+
 ```text
 ---
 name: react
-version: 1
+version: 2
 purpose: ReAct baseline - a data scientist with a Python sandbox who must audit its own methodology and report issues in Holdout's categories.
 ---
 <system>
@@ -281,9 +294,16 @@ Target column and task:
 The development data (shape and columns with types, computed by code):
 {{data.columns}}
 
-Steps so far (your thoughts, your code, and the truncated output of each step):
-{{data.history}}
-
-This is step {{data.step}} of {{data.max_steps}}. Return the next step as JSON.
+The steps follow, oldest first. Each request names the step number; after it come your
+step (your thought and your code) and the truncated output of that code.
 </user>
+<request>
+Step {{step}} of {{max_steps}}: return the next step as JSON.
+</request>
+<record>
+Your step {{step}}:
+{{data.step}}
+Its output:
+{{data.output}}
+</record>
 ```

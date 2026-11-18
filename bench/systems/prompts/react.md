@@ -1,6 +1,6 @@
 ---
 name: react
-version: 1
+version: 2
 purpose: ReAct baseline - a data scientist with a Python sandbox who must audit its own methodology and report issues in Holdout's categories.
 ---
 <system>
@@ -72,8 +72,15 @@ Target column and task:
 The development data (shape and columns with types, computed by code):
 {{data.columns}}
 
-Steps so far (your thoughts, your code, and the truncated output of each step):
-{{data.history}}
-
-This is step {{data.step}} of {{data.max_steps}}. Return the next step as JSON.
+The steps follow, oldest first. Each request names the step number; after it come your
+step (your thought and your code) and the truncated output of that code.
 </user>
+<request>
+Step {{step}} of {{max_steps}}: return the next step as JSON.
+</request>
+<record>
+Your step {{step}}:
+{{data.step}}
+Its output:
+{{data.output}}
+</record>
