@@ -80,10 +80,20 @@ def _integral(values: pd.Series) -> bool:
 
 
 def _constant_share(frame: pd.DataFrame, column: str, excluded: set[str]) -> float:
+    constant = _constant_columns(frame, column, excluded)
+    return float(constant.mean()) if len(constant) else 0.0
+
+
+def constant_feature_count(frame: pd.DataFrame, column: str, exclude: list[str]) -> int:
+    """How many other (varying) columns are constant within every value of ``column``: the
+    evidence that ``column`` keys an entity whose attributes repeat with it."""
+    return int(_constant_columns(frame, column, set(exclude)).sum())
+
+
+def _constant_columns(frame: pd.DataFrame, column: str, excluded: set[str]) -> pd.Series:
     others = [str(c) for c in frame.columns if str(c) != column and str(c) not in excluded]
     others = others[:_MAX_OTHER_COLUMNS]
     if not others:
-        return 0.0
+        return pd.Series(dtype=bool)
     per_group = frame.groupby(column, sort=False)[others].nunique(dropna=False)
-    constant = (per_group.max(axis=0) <= 1) & (frame[others].nunique(dropna=False) > 1)
-    return float(constant.mean())
+    return (per_group.max(axis=0) <= 1) & (frame[others].nunique(dropna=False) > 1)

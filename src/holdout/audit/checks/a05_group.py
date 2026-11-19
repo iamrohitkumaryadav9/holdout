@@ -1,7 +1,9 @@
 """A5 group leakage: does the score depend on seeing the same entity on both sides?
 
 Candidate entity columns are found from structure alone (repeated values, moderate
-cardinality, other columns constant within a value). For each, the plan is
+cardinality, other columns constant within a value). v1.1 (with thresholds_v11): a candidate
+must also be key-like (string/categorical, or numeric with a key-like name) and have at
+least one entity-constant feature. For each, the plan is
 cross-validated with the run's splitter and with GroupKFold on that column, on the same
 rows. A large relative drop means the plan memorises entities: critical, and the sealed
 holdout - drawn row by row - shares entities with development data, so it is invalid.
@@ -15,6 +17,7 @@ import pandas as pd
 from sklearn.model_selection import GroupKFold
 
 from holdout.audit.checks import CheckOutcome
+from holdout.audit.checks.a03_id_like import key_like_name
 from holdout.audit.comparison import compare, drop_severity, plan_cv
 from holdout.audit.context import AuditContext
 from holdout.audit.sampling import sample_rows, sampling_info
@@ -31,7 +34,7 @@ from holdout.audit.types import (
 from holdout.core import config, portable
 from holdout.core.schemas import EntityScope, SplitStrategy
 from holdout.data.split import SplitSpec
-from holdout.data.structure import EntityCandidate, entity_candidates
+from holdout.data.structure import EntityCandidate, constant_feature_count, entity_candidates
 from holdout.plan.compiler import compile_plan, cv_from_split
 
 
@@ -51,14 +54,37 @@ def candidates(ctx: AuditContext) -> list[EntityCandidate]:
         max_unique_ratio=t.max_unique_ratio,
         max_candidates=len(ctx.features),
     )
-    # A repeated integer measurement (age, a count) is not an entity key unless other
-    # columns are constant within it; string keys qualify on repetition alone.
-    plausible = [
-        c
-        for c in found
-        if c.constant_feature_share > 0.0 or not pd.api.types.is_numeric_dtype(ctx.dev[c.column])
-    ]
+    v11 = ctx.thresholds_v11
+    if v11 is not None:
+        # v1.1 (post-benchmark, error analysis section 3): an entity key must look like a
+        # key - a string or categorical column, or an integer with a key-like name - and
+        # have entity-constant features. A repeated count (telco's number_vmail_messages)
+        # or measurement is not an entity, whatever else happens to be constant with it.
+        tokens = v11.a03_id_like.key_name_tokens
+        minimum = v11.a05_group.min_entity_constant_features
+        plausible = [
+            c
+            for c in found
+            if _key_like(ctx.dev[c.column], c.column, tokens)
+            and constant_feature_count(ctx.dev, c.column, exclude) >= minimum
+        ]
+    else:
+        # A repeated integer measurement (age, a count) is not an entity key unless other
+        # columns are constant within it; string keys qualify on repetition alone.
+        plausible = [
+            c
+            for c in found
+            if c.constant_feature_share > 0.0
+            or not pd.api.types.is_numeric_dtype(ctx.dev[c.column])
+        ]
     return plausible[: t.deep_max_candidates if ctx.deep_mode else t.max_candidates]
+
+
+def _key_like(values: pd.Series, name: str, tokens: list[str]) -> bool:
+    """A string or categorical column, or a numeric column with a key-like name."""
+    if not pd.api.types.is_numeric_dtype(values) or pd.api.types.is_bool_dtype(values):
+        return True
+    return key_like_name(name, tokens)
 
 
 def run(ctx: AuditContext) -> CheckOutcome:
