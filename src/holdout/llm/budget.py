@@ -30,6 +30,10 @@ from holdout.llm.filelock import locked
 
 _log = logging.getLogger("holdout.llm")
 
+#: Set by the benchmark runner while a unit runs (one unit per process at a time), so every
+#: ledger line names the unit that spent it, even when units run in parallel.
+UNIT_TAG_ENV = "HOLDOUT_LEDGER_UNIT"
+
 
 def billing_tier(usage: Usage) -> str:
     """The tier a call is priced at: the tier that served it when reported as standard or
@@ -105,6 +109,14 @@ class SpendLedger:
 
     def total_inr(self) -> float:
         return sum(float(e["inr"]) for e in self.calls())
+
+    def unit_inr(self, unit: str, *, since: str = "") -> float:
+        """Spend of the calls tagged with benchmark ``unit`` (at or after ``since``, an ISO
+        timestamp)."""
+        return sum(
+            float(e["inr"]) for e in self.calls()
+            if e.get("unit") == unit and str(e.get("timestamp", "")) >= since
+        )  # fmt: skip
 
     def total_list_inr(self) -> float:
         """Every call at the list price (cached tokens at the full input rate). Entries from
@@ -297,6 +309,7 @@ class Budget:
                 "inr_cache_adjusted": inr_cached,
                 "retries": retries,
                 "purpose": self.purpose,
+                "unit": os.environ.get(UNIT_TAG_ENV),
                 "inr": inr,
             }
         )
@@ -317,6 +330,7 @@ class Budget:
                 "model": self.model,
                 "retries": retries,
                 "purpose": self.purpose,
+                "unit": os.environ.get(UNIT_TAG_ENV),
                 "inr": 0.0,
             }
         )

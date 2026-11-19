@@ -57,7 +57,7 @@ from bench.systems.base import (
 from holdout.core.errors import NodeTimeoutError, RunPausingError
 from holdout.core.schemas import EntityScope, MetricName, Task
 from holdout.llm import config as llm_config
-from holdout.llm.budget import SpendLedger
+from holdout.llm.budget import UNIT_TAG_ENV, SpendLedger
 from holdout.llm.progress import LineProgress, NullProgress, Progress
 
 RESULTS_DIR = Path("results")
@@ -297,7 +297,7 @@ def run_unit(
     started = datetime.now(UTC)
     clock = time.perf_counter()
     ledger = SpendLedger()
-    spent_before = ledger.total_inr()
+    started_iso = started.isoformat()
     prepared = prepare_fn(unit)
     seal_dir = root / "seals" / unit.suite / unit.slug
     dev, iid, deploy = partition(prepared.frame, prepared.target, prepared.rule, unit.seed)
@@ -322,6 +322,10 @@ def run_unit(
         service_tier=service_tier if system.uses_llm else None,
     )
     metric = benchmark_metric(prepared.task)
+    # Every ledger line written while this unit runs names it (Amendment 3): with parallel
+    # workers, the global ledger delta includes other units' spend.
+    tagged_before = os.environ.get(UNIT_TAG_ENV)
+    os.environ[UNIT_TAG_ENV] = ctx.unit_id
     try:
         output = system.resume(ctx) if resume else system.run(ctx)
     except RunPausingError as exc:
@@ -333,6 +337,11 @@ def run_unit(
         )  # fmt: skip
     except Exception as exc:  # recorded, the benchmark continues
         output = SystemOutput(status="failed", error=f"{type(exc).__name__}: {exc}")
+    finally:
+        if tagged_before is None:
+            os.environ.pop(UNIT_TAG_ENV, None)
+        else:
+            os.environ[UNIT_TAG_ENV] = tagged_before
     errors = [output.error] if output.error else []
     scores: dict[str, float | None] = {}
     if output.estimator is not None:
@@ -362,9 +371,10 @@ def run_unit(
         partition=prepared.rule.describe(),
         report_text=output.report_text,
         report_a11_flags=output.report_a11_flags,
-        # What the ledger recorded during this unit: a unit that fails or pauses after
-        # spending (e.g. a plan call before a rejected request) is charged, not shown as Rs 0.
-        cost_inr=max(output.cost_inr, ledger.total_inr() - spent_before),
+        # What the ledger recorded for THIS unit during this attempt (its tagged lines): a
+        # unit that fails or pauses after spending is charged, not shown as Rs 0, and other
+        # units running in parallel are never charged to it (Amendment 3).
+        cost_inr=max(output.cost_inr, ledger.unit_inr(ctx.unit_id, since=started_iso)),
         cost_cache_adjusted_inr=output.cost_cache_adjusted_inr,
         cached_tokens=output.cached_tokens,
         prompt_tokens=output.prompt_tokens,
@@ -886,6 +896,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not report.fits:
         print("refusing to start: the estimated cost does not fit (see above)")
         return 6
+    # Amendment 3: without the key every LLM unit fails at once and is recorded as a terminal
+    # failure (210 units on 2026-11-18). Refuse to start instead; the key is never printed.
+    from bench.budget import LLM_SYSTEMS
+
+    llm_pending = [u for u, _ in pending(units, args.results, retry_failed=args.retry_failed,
+                                         retry_failed_matching=args.retry_failed_matching)
+                   if u.system in LLM_SYSTEMS]  # fmt: skip
+    if llm_pending and not os.environ.get(llm_config.API_KEY_ENV):
+        print(f"refusing to start: {llm_config.API_KEY_ENV} is not set and {len(llm_pending)} "
+              "LLM unit(s) are pending; set it in this shell and rerun")  # fmt: skip
+        return 2
     # The spend purpose is per process: every Budget built from here on reads it.
     os.environ[llm_config.SPEND_PURPOSE_ENV] = args.purpose
     systems = build_systems(systems_wanted, config)

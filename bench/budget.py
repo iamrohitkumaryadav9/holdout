@@ -93,6 +93,8 @@ class Measured:
     measured_on: date
     #: "flex" only if every paid call of every measured run was served by Flex.
     tier: str = "standard"
+    #: Where it was measured: the dev pilot, or the benchmark's own completed units.
+    source: str = "pilot"
 
 
 @dataclass(frozen=True)
@@ -259,7 +261,7 @@ def estimate(
             system_factor = (1 - fallback_share) * system_factor + fallback_share * standard
         factors.append(system_factor)
         total = units * m.per_run_inr * (1 + config.cost_margin) * system_factor
-        source = (f"pilot mean of {m.runs} runs, {m.measured_on}, {m.tier} tier; priced at "
+        source = (f"{m.source} mean of {m.runs} runs, {m.measured_on}, {m.tier} tier; priced at "
                   f"{tier}")  # fmt: skip
         estimates.append(SystemEstimate(system, units, m.per_run_inr, source, total))
     total = sum(e.total_inr for e in estimates)
@@ -318,6 +320,66 @@ def estimate(
         fallback_share=fallback_share,
         fallback_note=fallback_note,
     )
+
+
+#: A system's cost is measured from the benchmark itself once it has this many completed units.
+RUN_MEASURE_MIN_UNITS: Final = 10
+
+
+def unit_cost_by_tier(result: Any, calls: list[dict[str, Any]]) -> dict[str, float]:
+    """Rupees the ledger billed to one benchmark unit, by billing tier.
+
+    Lines tagged with the unit (Amendment 3) are used when present. Older lines are matched
+    by run id: ReAct's run id is the unit id, and a Holdout-family unit's run ids are the
+    names of its agent run directories (``extra.run_dirs``). The unit's own result cost is
+    not used: before Amendment 3 it included other units' concurrent spend.
+    """
+    from bench.run import Unit
+
+    unit_id = f"{result.suite}/{Unit(result.suite, result.task_id, result.system, result.seed, result.variant).slug}/{result.system}"  # noqa: E501
+    tagged = [c for c in calls if c.get("unit") == unit_id]
+    if not tagged:
+        run_ids = {unit_id, *(Path(d).name for d in result.extra.get("run_dirs", []))}
+        tagged = [c for c in calls if str(c.get("run_id")) in run_ids]
+    out: dict[str, float] = {}
+    for c in tagged:
+        tier = str(c.get("tier_billed") or "standard")
+        out[tier] = out.get(tier, 0.0) + float(c["inr"])
+    return out
+
+
+def measured_from_run(
+    results_root: Path,
+    suites: Sequence[str],
+    model: str,
+    *,
+    ledger: SpendLedger | None = None,
+    today: date | None = None,
+) -> dict[str, Measured]:
+    """Mean cost per completed unit per LLM system, measured on the benchmark's own units
+    (ledger-attributed, Flex spend converted to the Standard price), for systems with at
+    least ``RUN_MEASURE_MIN_UNITS`` completed units. Expressed at the Standard tier."""
+    from bench.score import load_results
+
+    ledger = ledger if ledger is not None else SpendLedger()
+    today = today if today is not None else datetime.now(UTC).date()
+    calls = ledger.calls()
+    standard = llm_config.price_for(model, today, "standard")
+    flex = llm_config.price_for(model, today, "flex")
+    to_standard = standard.input_usd_per_million / flex.input_usd_per_million
+    out: dict[str, Measured] = {}
+    for system in sorted(LLM_SYSTEMS):
+        done = [r for s in suites for r in load_results(results_root, s)
+                if r.system == system and r.status == "completed"]  # fmt: skip
+        if len(done) < RUN_MEASURE_MIN_UNITS:
+            continue
+        costs = []
+        for r in done:
+            by_tier = unit_cost_by_tier(r, calls)
+            costs.append(sum(v * (to_standard if t == "flex" else 1.0) for t, v in by_tier.items()))
+        out[system] = Measured(sum(costs) / len(costs), len(costs), today, "standard",
+                               "benchmark-run")  # fmt: skip
+    return out
 
 
 #: The fallback share is measured only once this many LLM units have completed.
@@ -381,7 +443,12 @@ def preflight(
     )
     if flex_systems:
         note += f" (Flex systems: {', '.join(sorted(flex_systems))})"
+    # Amendment 3: systems with enough completed benchmark units are priced from those units
+    # (ledger-attributed); the others from the pilot.
+    measured = {**measured_costs(config.pilot_results),
+                **measured_from_run(results_root, sorted({u.suite for u in all_units}),
+                                    config.model)}  # fmt: skip
     report = estimate(counts, config, purpose=purpose, workers=workers, fallback_share=share,
-                      fallback_note=note)  # fmt: skip
+                      fallback_note=note, measured=measured)  # fmt: skip
     report.scope = scope
     return report

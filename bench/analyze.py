@@ -12,9 +12,11 @@ import argparse
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
+from bench.budget import unit_cost_by_tier
 from bench.score import (
     TaskScore,
     TaskTruth,
@@ -34,6 +36,7 @@ from bench.score import (
 )
 from bench.systems.base import BenchResult
 from holdout.audit.checks.a11_causal import check_causal_claims
+from holdout.llm.budget import SpendLedger
 
 SYSTEM_ORDER = ("holdout", "audits_only", "llm_judge", "react", "flaml")
 
@@ -200,6 +203,7 @@ def outcome_table(results: list[BenchResult]) -> list[str]:
         "substitutions/run |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
+    calls = ledger_calls()
     for sy in systems:
         runs = [r for r in results if r.system == sy and r.status == "completed"]
         if not runs:
@@ -208,7 +212,7 @@ def outcome_table(results: list[BenchResult]) -> list[str]:
         valid = sum(q.valid for r in runs for q in r.first_attempt.values())
         lines.append(
             f"| {sy} | "
-            f"Rs {np.mean([r.cost_inr for r in runs]):.2f} | "
+            f"Rs {np.mean([attributed_cost(r, calls) for r in runs]):.2f} | "
             f"Rs {np.mean([r.cost_adjusted for r in runs]):.2f} | "
             f"{np.mean([r.time_per_run for r in runs]):.0f} s | "
             f"{np.mean([r.api_seconds for r in runs]):.0f} s | "
@@ -218,6 +222,23 @@ def outcome_table(results: list[BenchResult]) -> list[str]:
             f"{np.mean([r.substitutions for r in runs]):.2f} |"
         )
     return lines
+
+
+def ledger_calls() -> list[dict[str, Any]]:
+    """Paid calls in the spend ledger (empty when there is no ledger)."""
+    try:
+        return SpendLedger().calls()
+    except OSError:
+        return []
+
+
+def attributed_cost(result: BenchResult, calls: list[dict[str, Any]]) -> float:
+    """The unit's own spend from the ledger (prereg Amendment 3): its tagged lines, or for
+    older units its run ids. Before the amendment the recorded ``cost_inr`` could include
+    other units' concurrent spend, so it is used only when the ledger has no line for the
+    unit (e.g. results analysed on another machine)."""
+    by_tier = unit_cost_by_tier(result, calls)
+    return sum(by_tier.values()) if by_tier else result.cost_inr
 
 
 def mcnemar_table(
