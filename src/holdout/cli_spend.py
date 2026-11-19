@@ -11,6 +11,28 @@ from holdout.llm.budget import SpendLedger
 from holdout.llm.spend import build_report, render
 
 
+def _as_of(text: str | None) -> date | datetime | None:
+    """None (now), an exact datetime (naive = local time), or a bare date (start of day)."""
+    if not text:
+        return None
+    if "T" in text or " " in text.strip():
+        try:
+            moment = datetime.fromisoformat(text.strip())
+        except ValueError as exc:
+            raise HoldoutError(f"--as-of {text!r} is not an ISO datetime") from exc
+        moment = moment if moment.tzinfo is not None else moment.astimezone()
+        if moment > datetime.now().astimezone():
+            raise HoldoutError(f"--as-of {text} is in the future")
+        return moment
+    try:
+        day = date.fromisoformat(text.strip())
+    except ValueError as exc:
+        raise HoldoutError(f"--as-of {text!r} is not an ISO date or datetime") from exc
+    if day > datetime.now().astimezone().date():
+        raise HoldoutError(f"--as-of {day} is in the future")
+    return day
+
+
 @app.command()
 def spend(
     set_balance: Annotated[
@@ -24,8 +46,9 @@ def spend(
         str | None,
         typer.Option(
             "--as-of",
-            help="Date the balance was shown (YYYY-MM-DD; default today). Spend from the "
-            "start of that day is subtracted.",
+            help="When the balance was shown: an ISO datetime such as 2026-11-19T18:13 "
+            "(local time unless an offset is given; default now). Spend strictly after it is "
+            "subtracted. A bare date (YYYY-MM-DD) means the start of that day.",
         ),
     ] = None,
     as_json: Annotated[bool, typer.Option("--json", help="Print the report as JSON.")] = False,
@@ -34,13 +57,14 @@ def spend(
     ledger = SpendLedger()
     try:
         if set_balance is not None:
-            day = date.fromisoformat(as_of) if as_of else datetime.now().astimezone().date()
-            if day > datetime.now().astimezone().date():
-                raise HoldoutError(f"--as-of {day} is in the future")
-            ledger.record_balance(set_balance, day)
+            when = _as_of(as_of)
+            record = ledger.record_balance(set_balance, when)
             if not as_json:
+                shown = (record.at.astimezone().isoformat(timespec="seconds") if record.at
+                         else f"the start of {record.as_of}")  # fmt: skip
                 console.print(
-                    f"Recorded a prepaid balance of Rs {set_balance:.2f} as of {day}.",
+                    f"Recorded a prepaid balance of Rs {set_balance:.2f} as of {shown}; spend "
+                    "after that is subtracted.",
                     highlight=False,
                 )
         elif as_of is not None:

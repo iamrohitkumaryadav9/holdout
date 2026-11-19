@@ -34,6 +34,8 @@ class ModelSpend(_Record):
 class BalanceStatus(_Record):
     recorded_inr: float
     as_of: date
+    #: The exact instant (None for date-only records: counted from the start of the day).
+    as_of_at: datetime | None = None
     spent_since_inr: float
     left_inr: float
     warning: str | None
@@ -114,11 +116,12 @@ def build_report(ledger: SpendLedger | None = None, today: date | None = None) -
     recorded = ledger.latest_balance()
     balance = None
     if recorded is not None:
-        since = ledger.spent_since(recorded.as_of)
+        since = ledger.spent_after_balance(recorded)
         left = recorded.amount_inr - since
         balance = BalanceStatus(
             recorded_inr=recorded.amount_inr,
             as_of=recorded.as_of,
+            as_of_at=recorded.at,
             spent_since_inr=since,
             left_inr=left,
             warning=balance_warning(left),
@@ -207,9 +210,12 @@ def render(report: SpendReport) -> list[str]:
         lines.append("  prepaid balance     not recorded (holdout spend --set-balance <rupees>)")
     else:
         b = report.balance
+        when = (b.as_of_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %z") if b.as_of_at
+                else f"{b.as_of} (date only)")  # fmt: skip
+        since = f"after {when}" if b.as_of_at else f"from the start of {b.as_of}"
         lines += [
-            f"  prepaid balance     Rs {b.recorded_inr:9.2f} recorded for {b.as_of}",
-            f"  spent since then    Rs {b.spent_since_inr:9.2f} (from the start of {b.as_of})",
+            f"  prepaid balance     Rs {b.recorded_inr:9.2f} recorded at {when}",
+            f"  spent since then    Rs {b.spent_since_inr:9.2f} ({since})",
             f"  balance left        Rs {b.left_inr:9.2f} (estimate)",
         ]
     lines += [

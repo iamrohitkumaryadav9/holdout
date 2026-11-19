@@ -85,6 +85,17 @@ class BalanceRecord:
     amount_inr: float
     as_of: date  # local calendar date the amount was shown by Google
     recorded_at: str
+    #: The exact instant the amount was shown (timezone-aware). Spend strictly after it is
+    #: subtracted. None for records written before exact instants existed (date only): they
+    #: count from the start of ``as_of`` (local), as they always did.
+    at: datetime | None = None
+
+    @property
+    def since(self) -> datetime:
+        """The instant from which ledger spend is subtracted."""
+        if self.at is not None:
+            return self.at
+        return datetime.combine(self.as_of, datetime.min.time()).astimezone()
 
 
 @dataclass
@@ -138,40 +149,72 @@ class SpendLedger:
 
     # ------------------------------------------------------------------ prepaid balance
 
-    def record_balance(self, amount_inr: float, as_of: date) -> BalanceRecord:
+    def record_balance(
+        self, amount_inr: float, as_of: date | datetime | None = None
+    ) -> BalanceRecord:
+        """Record the prepaid balance Google showed.
+
+        ``as_of`` is the instant it was shown: a datetime (naive = local time), or None for
+        now. Spend strictly after that instant is subtracted from it. A bare date keeps the
+        old meaning (the start of that local day), for callers that only know the day.
+        """
         if not (amount_inr >= 0 and math.isfinite(amount_inr)):
             raise ValueError(f"a balance must be zero or more rupees, got {amount_inr}")
-        record = BalanceRecord(amount_inr, as_of, datetime.now(UTC).isoformat())
-        self.append(
-            {
-                "kind": "balance",
-                "amount_inr": amount_inr,
-                "as_of": as_of.isoformat(),
-                "timestamp": record.recorded_at,
-            }
-        )
+        now = datetime.now(UTC)
+        at: datetime | None
+        if as_of is None:
+            at = now
+        elif isinstance(as_of, datetime):
+            at = as_of if as_of.tzinfo is not None else as_of.astimezone()
+        else:
+            at = None
+        if at is not None and at > now:
+            raise ValueError(f"a balance cannot be recorded in the future ({at.isoformat()})")
+        day = at.astimezone().date() if at is not None else as_of
+        assert isinstance(day, date)
+        record = BalanceRecord(amount_inr, day, now.isoformat(), at)
+        entry: dict[str, object] = {
+            "kind": "balance",
+            "amount_inr": amount_inr,
+            "as_of": day.isoformat(),
+            "timestamp": record.recorded_at,
+        }
+        if at is not None:
+            entry["as_of_at"] = at.isoformat()
+        self.append(entry)
         return record
 
     def latest_balance(self) -> BalanceRecord | None:
         latest: BalanceRecord | None = None
         for e in self.entries():
             if e["kind"] == "balance":
+                at = e.get("as_of_at")
                 latest = BalanceRecord(
-                    float(e["amount_inr"]), date.fromisoformat(e["as_of"]), e["timestamp"]
-                )
+                    float(e["amount_inr"]), date.fromisoformat(e["as_of"]), e["timestamp"],
+                    datetime.fromisoformat(at) if at else None,
+                )  # fmt: skip
         return latest
 
     def spent_since(self, day: date) -> float:
         """Spend on calls made on or after ``day`` (local calendar date)."""
         return sum(float(e["inr"]) for e in self.calls() if local_date(e["timestamp"]) >= day)
 
+    def spent_after_balance(self, balance: BalanceRecord) -> float:
+        """Spend the recorded balance does not yet include: calls strictly after its exact
+        instant, or, for a date-only record, on or after the start of its day."""
+        since = balance.since
+        exact = balance.at is not None
+        return sum(
+            float(e["inr"]) for e in self.calls()
+            if (t := datetime.fromisoformat(e["timestamp"])) > since or (not exact and t == since)
+        )  # fmt: skip
+
     def balance_left(self) -> float | None:
-        """Recorded balance minus ledger spend since its date (start of that day, which
-        errs low: Google's figure may already include part of that day's spend)."""
+        """Recorded balance minus the ledger spend after it was recorded."""
         balance = self.latest_balance()
         if balance is None:
             return None
-        return balance.amount_inr - self.spent_since(balance.as_of)
+        return balance.amount_inr - self.spent_after_balance(balance)
 
 
 def local_date(timestamp: str) -> date:

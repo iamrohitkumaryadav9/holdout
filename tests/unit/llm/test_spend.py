@@ -243,7 +243,13 @@ def test_spend_set_balance_and_the_text_report(home: Path) -> None:
     assert "calls 3, retries 8, cache hits 1, failed calls 1" in out
     assert "project cap         Rs    750.00 (default)" in out
     assert "remaining Rs 734.50" in out
-    assert "balance left        Rs    745.50" in out  # 747 minus today's 1.50
+    # Recorded now: today's Rs 1.50 happened before, so Google's figure already includes it.
+    assert "balance left        Rs    747.00" in out
+    dated = runner.invoke(app, ["spend", "--set-balance", "747", "--as-of",
+                                date.today().isoformat()])  # fmt: skip
+    assert dated.exit_code == 0, dated.output
+    out = runner.invoke(app, ["spend"]).output
+    assert "balance left        Rs    745.50" in out  # a bare date: from the start of the day
     assert "94.1 INR per USD" in out
     assert "reconcile" in out.lower()
 
