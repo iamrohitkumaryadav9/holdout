@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 
 from bench.budget import unit_cost_by_tier
+from bench.costs import cost_calls
 from bench.score import (
     TaskScore,
     TaskTruth,
@@ -155,7 +156,9 @@ def _per_task_mean(results: list[BenchResult], system: str, fn) -> dict[str, flo
     return {k: float(np.mean(v)) for k, v in values.items()}
 
 
-def outcome_table(results: list[BenchResult]) -> list[str]:
+def outcome_table(
+    results: list[BenchResult], calls: list[dict[str, Any]] | None = None
+) -> list[str]:
     systems = _systems(results)
     lines = [
         "### Scores and optimism on both holdouts (completed runs; task = unit; mean [95% CI])",
@@ -203,7 +206,7 @@ def outcome_table(results: list[BenchResult]) -> list[str]:
         "substitutions/run |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
-    calls = ledger_calls()
+    calls = calls if calls is not None else ledger_calls()
     for sy in systems:
         runs = [r for r in results if r.system == sy and r.status == "completed"]
         if not runs:
@@ -413,7 +416,8 @@ def report(root: Path, suite: str) -> list[str]:
         "",
     ]
     return (
-        head + body + [""] + outcome_table(results) + [""] + timeout_table(results) + [""]
+        head + body + [""] + outcome_table(results, cost_calls(root)) + [""]
+        + timeout_table(results) + [""]
         + a11_table(results, truths)
     )  # fmt: skip
 

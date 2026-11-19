@@ -326,23 +326,35 @@ def estimate(
 RUN_MEASURE_MIN_UNITS: Final = 10
 
 
-def unit_cost_by_tier(result: Any, calls: list[dict[str, Any]]) -> dict[str, float]:
-    """Rupees the ledger billed to one benchmark unit, by billing tier.
+def unit_id_of(result: Any) -> str:
+    """The benchmark unit id a result's ledger lines are tagged with."""
+    from bench.run import Unit
+
+    unit = Unit(result.suite, result.task_id, result.system, result.seed, result.variant)
+    return f"{result.suite}/{unit.slug}/{result.system}"
+
+
+def unit_lines(result: Any, calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The ledger lines billed to one benchmark unit.
 
     Lines tagged with the unit (Amendment 3) are used when present. Older lines are matched
     by run id: ReAct's run id is the unit id, and a Holdout-family unit's run ids are the
-    names of its agent run directories (``extra.run_dirs``). The unit's own result cost is
-    not used: before Amendment 3 it included other units' concurrent spend.
+    names of its agent run directories (``extra.run_dirs``).
     """
-    from bench.run import Unit
-
-    unit_id = f"{result.suite}/{Unit(result.suite, result.task_id, result.system, result.seed, result.variant).slug}/{result.system}"  # noqa: E501
+    unit_id = unit_id_of(result)
     tagged = [c for c in calls if c.get("unit") == unit_id]
-    if not tagged:
-        run_ids = {unit_id, *(Path(d).name for d in result.extra.get("run_dirs", []))}
-        tagged = [c for c in calls if str(c.get("run_id")) in run_ids]
+    if tagged:
+        return tagged
+    run_ids = {unit_id, *(Path(d).name for d in result.extra.get("run_dirs", []))}
+    return [c for c in calls if str(c.get("run_id")) in run_ids]
+
+
+def unit_cost_by_tier(result: Any, calls: list[dict[str, Any]]) -> dict[str, float]:
+    """Rupees the ledger billed to one benchmark unit, by billing tier (see
+    :func:`unit_lines`). The unit's own result cost is not used: before Amendment 3 it
+    included other units' concurrent spend."""
     out: dict[str, float] = {}
-    for c in tagged:
+    for c in unit_lines(result, calls):
         tier = str(c.get("tier_billed") or "standard")
         out[tier] = out.get(tier, 0.0) + float(c["inr"])
     return out
