@@ -13,11 +13,11 @@ from bench.budget import (
     observed_fallback_share,
     unit_worst_case,
 )
-from bench.config import load_bench_config
 from bench.run import append_result
 from bench.systems.base import BenchResult, SystemName
 from holdout.llm import config
 from holdout.llm.budget import SpendLedger
+from tests.bench_config import config_with
 
 DAY = date(2026, 11, 20)
 FLEX_MEASURED = {"react": Measured(6.0, 3, DAY, "flex")}
@@ -31,7 +31,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_fallback_share_is_priced_at_standard() -> None:
-    cfg = load_bench_config()  # pins flex
+    cfg = config_with()  # Flex, 20% margin
     flex = estimate({"react": 10}, cfg, purpose="benchmark", measured=FLEX_MEASURED, today=DAY)
     half = estimate({"react": 10}, cfg, purpose="benchmark", measured=FLEX_MEASURED, today=DAY,
                     fallback_share=0.5, fallback_note="50.0% measured")  # fmt: skip

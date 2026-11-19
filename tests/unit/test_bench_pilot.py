@@ -6,12 +6,12 @@ from typing import Any
 
 import pytest
 
-from bench.config import load_bench_config
 from bench.pilot import FULL_UNITS, pilot_report
 from bench.run import Unit, append_result, run_all
 from bench.systems.base import BenchResult, SystemContext, SystemOutput
 from holdout.llm import config
 from holdout.llm.budget import SpendLedger
+from tests.bench_config import config_with
 
 
 @pytest.fixture
@@ -154,7 +154,7 @@ def test_the_pilot_report_explains_spend_and_projects_the_full_run(
         ),
     )
     ledger.append({"kind": "call", "timestamp": datetime.now(UTC).isoformat(), "inr": 5.5})
-    text = pilot_report(results, "dev_v1", load_bench_config(), ledger=ledger)
+    text = pilot_report(results, "dev_v1", config_with(margin=0.20), ledger=ledger)
     assert "| react | react | 4.000 |" in text
     assert "| holdout | report | 0.700 |" in text
     assert "Rs per LLM call: 0.500, 1.500, 2.000" in text

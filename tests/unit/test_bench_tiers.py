@@ -9,16 +9,18 @@ import pytest
 from bench.budget import Measured, estimate
 from bench.config import CONFIG_PATH, load_bench_config
 from bench.run import tier_of
+from tests.bench_config import config_with
 
 DAY = date(2026, 11, 20)
 PILOT = {s: Measured(2.0, 3, DAY, "standard") for s in ("holdout", "llm_judge", "react")}
 
 
-def test_the_config_pins_standard_for_holdout_and_the_judge_and_flex_for_react() -> None:
-    cfg = load_bench_config()
+def test_the_config_pins_standard_for_every_llm_system() -> None:
+    cfg = load_bench_config()  # Amendment 3
     assert cfg.tier_for("holdout") == "standard"
     assert cfg.tier_for("llm_judge") == "standard"
-    assert cfg.tier_for("react") == "flex"
+    assert cfg.tier_for("react") == "standard"
+    assert cfg.service_tiers == {}
     assert cfg.model == "gemini-3.8-flash"  # one model for every tier
 
 
@@ -36,7 +38,7 @@ def test_unknown_systems_and_tiers_in_overrides_are_refused(tmp_path: Path) -> N
     for bad, message in (('{ holdout = "standard", nobody = "flex" }', "unknown systems"),
                          ('{ holdout = "priority" }', "unknown service tier")):  # fmt: skip
         path = tmp_path / "config.toml"
-        path.write_text(text.replace('{ holdout = "standard", llm_judge = "standard" }', bad),
+        path.write_text(text.replace("service_tiers = {}", f"service_tiers = {bad}"),
                         encoding="utf-8")  # fmt: skip
         with pytest.raises(ValueError, match=message):
             load_bench_config(path)
@@ -46,7 +48,7 @@ def test_the_preflight_prices_each_system_at_its_tier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HOLDOUT_HOME", str(tmp_path / "home"))
-    cfg = load_bench_config()
+    cfg = config_with("flex", {"holdout": "standard", "llm_judge": "standard"})
     report = estimate({"holdout": 10, "llm_judge": 10, "react": 10}, cfg, purpose="benchmark",
                       measured=PILOT, today=DAY, fallback_share=0.5)  # fmt: skip
     by = {e.system: e.total_inr for e in report.estimates}

@@ -11,6 +11,11 @@ from holdout.core.errors import BudgetExceededError
 from holdout.llm import config
 from holdout.llm.budget import Budget, SpendLedger
 from holdout.llm.client import LLMRequest
+from tests.bench_config import config_with
+
+#: The pricing rules these tests were written for (Flex, holdout and llm_judge on Standard,
+#: 20% margin), fixed so later amendments to the live config do not change them.
+AMEND2 = config_with("flex", {"holdout": "standard", "llm_judge": "standard"})
 
 REQUEST = LLMRequest("t", "1", "s", "u", {}, seed=1)
 
@@ -40,7 +45,8 @@ def test_the_benchmark_config_is_pinned_and_consistent() -> None:
     cfg = load_bench_config()
     assert cfg.model == "gemini-3.8-flash"
     assert cfg.run_cap_inr == config.RUN_CAP_INR
-    assert cfg.cost_margin == 0.20
+    assert cfg.cost_margin == 0.15  # Amendment 3
+    assert set(cfg.tiers().values()) == {"standard"}  # Amendment 3: every system
     assert cfg.systems == ("holdout", "audits_only", "llm_judge", "react", "flaml")
     assert len(cfg.sha256) == 64
 
@@ -49,7 +55,7 @@ def test_a_run_that_fits_is_allowed(home: Path) -> None:
     SpendLedger().record_balance(700.0, datetime.now().astimezone().date())
     report = estimate(
         {"holdout": 10, "react": 10, "flaml": 10},
-        load_bench_config(),
+        AMEND2,
         purpose="benchmark",
         measured=MEASURED,
         today=date(2026, 11, 20),
@@ -65,7 +71,7 @@ def test_a_run_that_does_not_fit_is_refused_with_what_is_short(home: Path) -> No
     SpendLedger().record_balance(60.0, datetime.now().astimezone().date())
     report = estimate(
         {"react": 20},
-        load_bench_config(),
+        AMEND2,
         purpose="benchmark",
         measured=MEASURED,
         today=date(2026, 11, 20),
@@ -81,7 +87,7 @@ def test_general_spend_is_measured_against_the_cap_minus_the_reserve(home: Path)
     SpendLedger().record_balance(700.0, datetime.now().astimezone().date())
     _spent(140.0)
     report = estimate(
-        {"holdout": 10}, load_bench_config(), purpose="general", measured=MEASURED,
+        {"holdout": 10}, AMEND2, purpose="general", measured=MEASURED,
         today=date(2026, 11, 20),
     )  # fmt: skip
     assert report.available_inr == pytest.approx(750 - 600 - 140)
@@ -93,14 +99,14 @@ def test_unmeasured_systems_are_bounded_by_the_cap_and_a_missing_balance_refuses
     home: Path,
 ) -> None:
     report = estimate(
-        {"holdout": 5, "flaml": 5}, load_bench_config(), purpose="benchmark", measured={},
+        {"holdout": 5, "flaml": 5}, AMEND2, purpose="benchmark", measured={},
         today=date(2026, 11, 20),
     )  # fmt: skip
     # Worst case: the per-run cap for every unit, twice for Holdout (one follow-up run).
     assert report.total_inr == 5 * 30.0
     assert "worst case = per-run cap x 2 (follow-up run)" in report.render()
     measured_only = estimate(
-        {"holdout": 5}, load_bench_config(), purpose="benchmark", measured=MEASURED,
+        {"holdout": 5}, AMEND2, purpose="benchmark", measured=MEASURED,
         today=date(2026, 11, 20),
     )  # fmt: skip
     assert "no prepaid balance recorded" in measured_only.render()
@@ -108,7 +114,7 @@ def test_unmeasured_systems_are_bounded_by_the_cap_and_a_missing_balance_refuses
 
 def test_completed_units_cost_nothing(home: Path) -> None:
     report = estimate(
-        {"holdout": 0, "react": 0}, load_bench_config(), purpose="benchmark",
+        {"holdout": 0, "react": 0}, AMEND2, purpose="benchmark",
         measured=MEASURED, today=date(2026, 11, 20),
     )  # fmt: skip
     assert report.total_inr == 0
@@ -118,11 +124,11 @@ def test_completed_units_cost_nothing(home: Path) -> None:
 def test_the_price_doubling_is_priced_in(home: Path) -> None:
     SpendLedger().record_balance(700.0, datetime.now().astimezone().date())
     before = estimate(
-        {"react": 10}, load_bench_config(), purpose="benchmark", measured=MEASURED,
+        {"react": 10}, AMEND2, purpose="benchmark", measured=MEASURED,
         today=date(2026, 12, 31),
     )  # fmt: skip
     after = estimate(
-        {"react": 10}, load_bench_config(), purpose="benchmark", measured=MEASURED,
+        {"react": 10}, AMEND2, purpose="benchmark", measured=MEASURED,
         today=date(2027, 1, 1),
     )  # fmt: skip
     assert after.price_factor == pytest.approx(2.0)

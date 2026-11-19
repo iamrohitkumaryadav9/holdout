@@ -150,9 +150,9 @@ def test_flex_clients_wait_up_to_fifteen_minutes(monkeypatch: pytest.MonkeyPatch
 
 
 def test_the_bench_config_pins_flex_and_rejects_unknown_tiers(tmp_path: Path) -> None:
-    assert load_bench_config().service_tier == "flex"
+    assert load_bench_config().service_tier == "standard"  # Amendment 3
     text = CONFIG_PATH.read_text(encoding="utf-8").replace(
-        'service_tier = "flex"', 'service_tier = "priority"'
+        'service_tier = "standard"', 'service_tier = "priority"'
     )
     path = tmp_path / "config.toml"
     path.write_text(text, encoding="utf-8")

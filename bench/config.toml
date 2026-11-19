@@ -3,15 +3,14 @@
 
 # The one model every LLM system uses (Holdout, the LLM judge, ReAct).
 model = "gemini-3.8-flash"
-# Gemini service tier for every call of every LLM system (holdout, llm_judge, react): Flex
-# (50% of the standard price; requests may queue for minutes, so the client timeout is 15
-# minutes and time waiting on the API is reported apart from compute time). Pre-registered.
-service_tier = "flex"
-# Per-system overrides of the tier (prereg Amendment 2, 2026-11-18: Flex refused about 80%
-# of requests with HTTP 503, so holdout and llm_judge run on Standard; react stays on Flex
-# with Amendment 1's retries and per-call Standard fallback). Same model, prompts and
-# parameters: the tier changes latency and price only.
-service_tiers = { holdout = "standard", llm_judge = "standard" }
+# Gemini service tier for every call of every LLM system (holdout, llm_judge, react).
+# Pre-registered as Flex; Amendment 2 moved holdout and llm_judge to Standard and Amendment 3
+# (2026-11-19) moved react too, after Flex refused most requests (HTTP 503) and ReAct's Flex
+# retries held workers for hours. Same model, prompts and parameters: the tier changes
+# latency and price only. Time waiting on the API is reported apart from compute time.
+service_tier = "standard"
+# Per-system overrides of service_tier (none since Amendment 3).
+service_tiers = {}
 # Per-run budget cap in rupees, the same for every system (holdout.llm.config.RUN_CAP_INR).
 run_cap_inr = 15.0
 # Systems compared, in report order.
@@ -21,7 +20,8 @@ flaml_time_budget = 60
 # ReAct: at most this many steps per run; observations shown to the model are truncated.
 react_max_steps = 15
 react_observation_chars = 2000
-# Pre-flight: measured pilot cost per run (results of the pilot on the dev suite) plus this
-# margin must fit the remaining budget before a full run may start.
-cost_margin = 0.20
+# Pre-flight: measured cost per unit plus this margin must fit the remaining budget before a
+# run may start. Costs come from the benchmark's own completed units once a system has 10
+# (Amendment 3), otherwise from the dev pilot. 20% at registration; 15% since Amendment 3.
+cost_margin = 0.15
 pilot_results = "results/pilot"

@@ -13,13 +13,13 @@ from typing import Any
 import pytest
 
 from bench.budget import Measured, estimate, limits_left, start_refusal, unit_worst_case
-from bench.config import load_bench_config
 from bench.harness import PartitionRule
 from bench.run import THREAD_ENV, PreparedUnit, Unit, normalise, run_all, threads_per_worker
 from bench.systems.base import System, SystemContext, SystemName, SystemOutput
 from bench.traps import build_case
 from holdout.llm import config
 from holdout.llm.budget import SpendLedger
+from tests.bench_config import config_with
 
 APPENDS = 150
 
@@ -237,7 +237,7 @@ MEASURED = {"react": Measured(6.0, 3, date(2026, 11, 20)), "holdout": Measured(1
 def test_the_preflight_leaves_headroom_for_the_units_in_flight() -> None:
     _spend(600.0)  # Rs 150 left under the cap
     SpendLedger().record_balance(1000.0, datetime.now().astimezone().date())  # Rs 400 left
-    cfg = load_bench_config()
+    cfg = config_with("flex", {"holdout": "standard", "llm_judge": "standard"})
     kwargs: dict[str, Any] = {"purpose": "benchmark", "measured": MEASURED,
                               "today": date(2026, 11, 20)}  # fmt: skip
     one = estimate({"react": 10, "holdout": 10}, cfg, workers=1, **kwargs)
@@ -252,7 +252,7 @@ def test_the_preflight_leaves_headroom_for_the_units_in_flight() -> None:
 
 
 def test_flex_measurements_are_not_halved_again_and_standard_ones_are() -> None:
-    cfg = load_bench_config()  # pins flex
+    cfg = config_with()  # Flex for every system
     assert cfg.service_tier == "flex"
     day = date(2026, 11, 20)
     standard = estimate({"react": 10}, cfg, purpose="benchmark", today=day,
