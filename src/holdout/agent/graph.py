@@ -63,6 +63,7 @@ from holdout.audit.findings import (
     DataFinding,
     collect_findings,
     offline_handling,
+    persisting_split_flags,
     resolution,
     with_handling,
 )
@@ -529,6 +530,14 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
             report = _audit_plan(
                 state, state["current_plan"], state["cv"], state["baseline"], state["round"]
             )
+        # v1.1 fix 2 (error analysis section 1): a split-level data finding persists. If the
+        # plan dropped the entity key but kept a row-level split, the audit of the plan may
+        # no longer see it; it is re-asserted at critical and the holdout-integrity rule holds.
+        persisted = persisting_split_flags(_findings(state), report, _materialize(state)[3])
+        if persisted:
+            report = report.model_copy(update={"flags": [*report.flags, *persisted]})
+            if deps.auditor is None:
+                write_audit(run_state.audit_path, report)
         if report.holdout_invalid and not sealed.holdout_invalid:
             sealed.mark_invalid(
                 [f"{f.check.value}: {f.message}" for f in report.flags if f.invalidates_holdout],

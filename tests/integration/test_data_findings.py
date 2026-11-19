@@ -11,10 +11,13 @@ from typing import Any
 import pytest
 
 from bench.traps import build_case
-from holdout.audit.types import CheckId, Severity
+from holdout.agent.driver import run_agent
+from holdout.agent.graph import AgentDeps, AgentOptions, AuditInputs
+from holdout.audit.types import AuditReport, CheckId, CheckRun, Severity
 from holdout.llm.client import FakeLLM, LLMRequest
 from tests.agent_fakes import answer_findings, data
 from tests.agent_harness import fake_for, run_case, write_case
+from tests.unit.audit.test_findings import _group_flag
 
 
 def test_an_offline_run_reports_every_problem_found(tmp_path: Path) -> None:
@@ -94,6 +97,49 @@ def _masking(case: Any, csv: Path) -> FakeLLM:
         return {**payload, "findings_handled": answers}
 
     return FakeLLM(default={**working.default, "plan": plan})
+
+
+def _key_sensitive_auditor(deps: AgentDeps) -> None:
+    """An audit layer that sees the entity leak only while the plan uses the key column
+    (what A5 does when no entity-constant feature remains to re-identify the entity)."""
+
+    def audit(inputs: AuditInputs) -> AuditReport:
+        flags = [] if "account" in inputs.plan.dropped else [_group_flag()]
+        return AuditReport(
+            flags=flags,
+            checks_run=[CheckRun(check=CheckId.A5, status="ran", seconds=0.0)],
+            thresholds_hash="t" * 64,
+            deep_mode=False,
+            entity_scope=None,
+        )
+
+    deps.auditor = audit
+
+
+def test_the_graph_reasserts_a_masked_entity_finding(tmp_path: Path) -> None:
+    """Fix 2: entity key dropped + row-level split kept => still critical, holdout invalid."""
+    case = build_case("group_leakage", 0, n_rows=400)
+    csv = write_case(case, tmp_path)
+    fake = _masking(case, csv)
+    outcome = run_agent(
+        AgentOptions(csv=str(csv), target=case.target, out_dir=str(tmp_path / "runs"),
+                     goal=case.goal_text, mode="autopilot", use_cache=False),
+        client_factory=lambda: fake,
+        customize=_key_sensitive_auditor,
+    )  # fmt: skip
+    first = outcome.manifest
+    assert first is not None
+    assert first.agent is not None
+    assert "account" in first.plans[1].plan.dropped
+    (persisted,) = [f for f in first.audit.flags if f.check is CheckId.A5]
+    assert persisted.severity is Severity.CRITICAL
+    assert persisted.invalidates_holdout
+    assert "persists" in persisted.message
+    assert "Dropping the column does not remove it" in persisted.message
+    assert first.holdout_invalid
+    (status,) = [s for s in first.agent.findings if s.check is CheckId.A5]
+    assert not status.resolved
+    assert outcome.followup is not None  # autopilot starts the corrected run
 
 
 @pytest.mark.full_only
