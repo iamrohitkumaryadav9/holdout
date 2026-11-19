@@ -50,5 +50,9 @@ results/**/*.lock
 results/**/cache/
 **/checkpoints.sqlite*
 .holdout/
+# Post-hoc v1.1 evaluation: keep the scored results only, as for results/.
+results_v11/**/seals/
+results_v11/**/work/
+results_v11/**/*.lock
 # A shareable copy written by scripts/sanitize_paths.py (the originals stay in results/).
 results_sanitized/
