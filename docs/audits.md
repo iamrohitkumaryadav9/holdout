@@ -27,6 +27,32 @@ rules metric-independent.
 | **A11** causal claims | causal language a predictive model cannot support | phrase lexicon (causes, leads to, drives, results in, effect of X on Y, because of) per sentence, skipping negated uses ("does not cause"); structured claims flagged directly | warning | remove the claim | In agent runs A11 checks the generated report (text and its `causal_claim` field); a claim the model will not remove is stripped by code and recorded as a substitution. Offline runs and `holdout run` record A11 as *skipped* (not a failure), since they write no prose. Paraphrases outside the lexicon ("is responsible for") are missed; negation handling is a 4-word window. |
 | **A12** unstable validation | fold spread that could change the conclusion "the plan beats the dummy" | the plan and the dummy are cross-validated on the same seeded folds, so their per-fold differences are paired; the 95% interval of the mean difference uses the **Nadeau-Bengio corrected resampled t-test** (Nadeau & Bengio, *Inference for the Generalization Error*, Machine Learning 52, 2003): variance `(1/k + n_test/n_train) * s^2` with `k - 1` degrees of freedom, because CV folds share training rows (the naive `s^2/k` is too small); `n_test/n_train` is averaged over the run's actual folds | warning when a fold scores at or below the dummy or the interval includes zero; otherwise info, with the spread (std, coefficient of variation, fold lifts, interval) recorded | more data or repeated CV | Five folds give a wide interval, so a modest true lift on small data warns. The correction is a variance heuristic, not an exact test; it assumes fold differences are exchangeable, which forward-chaining time folds are not (early folds train on less data). |
 
+## v1.1 changes (post-benchmark, not pre-registered)
+
+The table above is v1.0, the version the pre-registered benchmark evaluated
+([results.md](results.md)). v1.1 changes the rules below, each one derived from an error in
+[error_analysis.md](error_analysis.md), so its numbers on the benchmark suites are
+optimistic ([results_v11.md](results_v11.md)). `thresholds.toml` is byte-identical to
+v1.0 (a test compares its hash with the `v1.0.0` tag); the new constants live in
+`src/holdout/audit/thresholds_v11.toml`, layered on top, and both hashes are recorded in
+every manifest. v1.0 behaviour = the v1.0 thresholds without the v1.1 layer.
+
+| Check | v1.1 change | Why (error analysis) | New blind spot |
+|---|---|---|---|
+| **A3** | A near-unique column is ID-like only with an identifier *pattern*: a gap-free integer sequence, a uniform code shape, row-order correlation, or a key-like name (last name token in `key_name_tokens`: id, key, uuid, code, number, no, nbr, ref, ...). A near-unique integer measurement without one of these patterns is not ID-like (floats never were). The message claims "ordering encodes the outcome" only when row-order correlation is the evidence. | Section 3: `cpu_act` `freeswap` and `steel_plates_fault` `V3/V4/V8` (integer measurements) were called identifiers. | A real identifier with an anonymised name and no sequence or code shape (e.g. `col_1` on the anonymised Diabetes data) is no longer flagged. |
+| **A4** | The fix asks for deduplication *before the split* only when the holdout overlap invalidates the holdout; otherwise it asks for deduplication of the development rows, which a plan can now do (`ModelPlan.deduplicate`). A plan that deduplicates is audited on the rows it is evaluated on. | Section 1: deduplication was a recommendation no plan could act on. | None new. The benchmark's duplicate traps overlap Holdout's own seal (about 17% of holdout rows), so they still invalidate the holdout and end the run: this change does not help them. |
+| **A5** | An entity candidate must look like a key (a string or categorical column, or a numeric column with a key-like name) **and** have at least one entity-constant feature. | Section 3: `telco_churn` `number_vmail_messages` (a 0-52 count) was treated as an entity key on two clean tasks. | A numeric entity key with a neutral name (e.g. `x17`) is no longer tested. |
+| **A11** | Also runs on the **goal** at intake (offline runs too). A causal question becomes a goal-level finding; the report carries a code-enforced decline: "This analysis is predictive: it cannot establish whether X affects Y, and no causal conclusion is drawn." | Section 1: a causal goal was answered without a decline whenever the prose avoided causal phrasing; offline runs never checked the goal. | The same lexicon, so a causal question phrased outside it ("is X responsible for Y?") is missed. |
+
+**Data findings.** Before the planner, v1.1 audits a probe plan (every usable column, the
+default model) on the raw development rows; the warning-or-critical flags of A1-A6 and A8
+(and the goal's A11) become findings F1..Fn that persist for the run. The planner must
+answer each one (`findings_handled`: action and reason); code decides the outcome and the
+report lists every finding in "Problems found and how they were handled". A critical entity
+or time finding is resolved only by a group or time split (or `--entities known`):
+dropping the column re-asserts it at critical in every audit round, so the holdout-integrity
+rule still applies ([design.md](design.md#v11-post-benchmark-fixes)).
+
 ## Severity calibration notes
 
 - **Sampling.** Expensive checks use at most 20,000 development rows (whole groups for group

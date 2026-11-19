@@ -871,6 +871,81 @@ the pilot (holdout, llm_judge, react, audits_only) and 3 from the Flex check.
 **Frozen values.** The thresholds file's sha256 is in the pre-registration. Changing a
 threshold or an A11 pattern after the `prereg-v1` tag needs a documented amendment.
 
+## v1.1 post-benchmark fixes
+
+**Not part of the pre-registered evaluation.** Every change below comes from an error found
+in the post-hoc analysis of the frozen v1.0 benchmark ([error_analysis.md](error_analysis.md));
+each commit cites its section. The v1.0 results, suites, thresholds and results files are
+unchanged (`results/` is byte-identical; `thresholds.toml` keeps its frozen sha256, checked
+by a test against the `v1.0.0` tag). New constants live in `thresholds_v11.toml`, layered on
+top; a manifest records both hashes, and `thresholds_v11_hash = null` marks a v1.0 run. The
+post-hoc evaluation is in [results_v11.md](results_v11.md).
+
+**Data findings before the planner (section 1).** The v1.0 planner silently avoided 16 of
+the 20 problems its own audit layer would have reported: it dropped the column or chose
+another metric, so the audit of the *plan* never saw the problem at the severity that
+matters. v1.1 adds two nodes after the seal (and EDA): `profile_fit` cross-validates a probe
+plan (the offline default plan: every usable column) on the raw development rows and
+`profile_audit` audits it. Its warning-or-critical flags of A1-A6 and A8, plus a causal
+question in the goal (A11 on the goal text), become findings F1..Fn
+(`holdout.audit.findings`), stored in the checkpointed state for the whole run.
+
+- The plan prompt (v3) lists them; `ModelPlan.findings_handled` must answer each exactly
+  once with an action (`drop_columns`, `change_split`, `change_metric`, `deduplicate`,
+  `decline_causal_claim`, `keep_with_reason`) and a reason. The LLM check rejects a missing,
+  duplicate or inconsistent answer (e.g. `drop_columns` for a column the plan keeps) with
+  the usual single repair. The offline planner answers deterministically. Revisions keep
+  the answers.
+- What the planner *says* is recorded, but code decides the outcome (`resolution`): a
+  column finding is resolved by the final plan's drop or metric, or by not being raised by
+  the final audit; an entity/time finding only by the split; a goal finding by the decline.
+  The report's "Problems found and how they were handled" table lists every finding; the
+  benchmark harness counts the findings as reported issues.
+- `findings_handled` is a list of plain objects with a `Literal` action, so the schema sent
+  to Gemini has no `oneOf` (tested). v1.0 plans and manifests load unchanged (default
+  empty list; a committed v1.0 manifest is a test fixture).
+- When the first plan equals the probe (always offline), its CV and audit are reused, so
+  offline runs pay for the probe once.
+- **The Gemini planner path is untested live in v1.1** (no API calls were made this week):
+  `findings_handled` through the LLM is covered only by fake-LLM tests (a cooperative
+  model, a model that forgets the findings and is repaired, a model that masks an entity
+  leak).
+
+**No masking (section 1).** Dropping a column never clears a split-level finding. A
+critical A5 (entity) or A6 (time) finding is resolved only by a group or time split, or
+for entities by `--entities known`. Otherwise every audit round re-asserts it at critical
+with `invalidates_holdout` ("Data finding Fx persists: ... Dropping the column does not
+remove it"), so the holdout-integrity rule and the corrected follow-up run still apply.
+Tested on the exact pattern: entity key dropped + random split kept => still critical,
+holdout invalid.
+
+**A3 and A5 false positives (section 3).** See [audits.md](audits.md#v11-changes-post-benchmark-not-pre-registered):
+ID-like requires an identifier pattern; an entity key must be key-like with an
+entity-constant feature. Regression tests run on the benchmark frames themselves
+(`cpu_act` `freeswap`, `steel_plates_fault` `V3/V4/V8`, `telco_churn`
+`number_vmail_messages`) when the OpenML files are cached.
+
+**Deduplication as an action (section 1).** `ModelPlan.deduplicate` removes development
+rows whose normalised features (A4's normalisation, now in the portable kernel so the
+exported `pipeline.py` repeats the step) duplicate an earlier row, keeping the first,
+before cross-validation, the audit and the final fit; the dummy uses the same rows; the
+holdout is never touched. A4's fix is `Deduplicate(scope="dev")` unless the holdout overlap
+invalidates the holdout, and a dev deduplication is a plan fix: in interactive mode the
+user approves it in the review step like any other fix. The manifest records
+`dev_rows_deduplicated`. Cross-split overlap keeps the `holdout_invalid` rule. Trade-off:
+Holdout's own seal puts some duplicates in its internal holdout whenever the development
+data has many, so the benchmark's duplicate traps still invalidate and end the run; the
+action helps only when duplicates are rare across the seal.
+
+**Causal goals (section 1).** A11 also reads the goal at intake (offline runs too). A causal
+question is a goal-level finding, and the report carries a code-enforced first caveat
+declining a causal conclusion; the sentence passes A11 itself.
+
+**Harness fix found on the way.** The budget pre-flight refused offline-only invocations
+once the project cap was spent; a run that spends nothing now always fits. The v1.0
+comparison runs use `scripts/run_offline_eval.py` from a `v1.0.0` worktree, which does not
+need the pre-flight.
+
 ## Environment
 
 The numeric stack is pinned to mature releases (numpy 2.3, pandas 2.3, scikit-learn 1.7,
