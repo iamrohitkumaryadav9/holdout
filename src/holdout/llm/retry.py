@@ -1,7 +1,7 @@
 """Retries for transient LLM failures: exponential backoff with full jitter.
 
-Transient: HTTP 429, 500, 503, 504 and request timeouts. Everything else (400, 401, 403,
-schema problems) fails at once. The wait before retry ``n`` (1-based) is drawn uniformly
+Transient: HTTP 429, 500, 502, 503, 504, request timeouts and dropped connections.
+Everything else (400, 401, 403, schema problems) fails at once. The wait before retry ``n`` (1-based) is drawn uniformly
 from ``[0, min(cap, base * 2**(n-1))]`` ("full jitter"), unless the server sent a
 ``Retry-After`` header, which is honoured (capped). With base 2 s, cap 60 s and 6 attempts,
 jittered waits total at most 2 + 4 + 8 + 16 + 32 = 62 s per call; if the server asks for
@@ -25,7 +25,8 @@ from typing import Final, Literal
 
 from holdout.core.errors import LLMBillingError, LLMRequestError, LLMUnavailableError
 
-TRANSIENT_STATUS: Final = frozenset({429, 500, 503, 504})
+#: HTTP 502 added by prereg Amendment 4 (a Bad Gateway failed a ReAct unit unretried).
+TRANSIENT_STATUS: Final = frozenset({429, 500, 502, 503, 504})
 
 _log = logging.getLogger("holdout.llm")
 

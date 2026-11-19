@@ -275,11 +275,19 @@ class ReactSystem:
         firsts = [r for r in records if r.attempt == 1 and not r.failed]
         model_path = workdir / MODEL_FILE
         estimator, model_error = None, None
+        unreadable = False
         if model_path.exists():
             try:
                 estimator = restricted_loads(model_path.read_bytes())
             except UnsafePickleError as exc:
                 model_error = str(exc)
+            except Exception as exc:
+                # Before Amendment 4 an empty file (a failed submit truncated it) raised
+                # EOFError here, failed the unit and discarded ReAct's final answer.
+                unreadable = True
+                size = model_path.stat().st_size
+                model_error = (f"no valid model submitted: the model file is unreadable "
+                               f"({size} bytes; {type(exc).__name__}: {exc})")  # fmt: skip
         else:
             model_error = "no model was submitted"
         report = final.report if final is not None else None
@@ -305,6 +313,8 @@ class ReactSystem:
         return SystemOutput(
             status=status,  # type: ignore[arg-type]
             issues=issues,
+            # Amendment 4: with an unreadable model file there is no valid final pipeline, so
+            # remediation is not achieved; the final answer's issues still count.
             pipeline=(
                 FinalPipeline(
                     dropped_columns=list(final.dropped_columns),
@@ -313,7 +323,7 @@ class ReactSystem:
                     deduplicated=final.deduplicated,
                     model="react",
                 )
-                if final is not None
+                if final is not None and not unreadable
                 else None
             ),
             estimator=estimator,
@@ -345,6 +355,7 @@ class ReactSystem:
                 "output_tokens": sum(r.output_tokens for r in records),
                 "thinking_tokens": sum(r.thinking_tokens for r in records),
                 "model_error": model_error,
+                "model_file_unreadable": unreadable,
                 "claimed_metric": final.validation_metric if final else None,
                 "claimed_score": final.validation_score if final else None,
                 "metric_note": claim_note,

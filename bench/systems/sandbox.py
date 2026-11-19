@@ -107,6 +107,7 @@ def check_step(source: str) -> list[str]:
 
 _BOOTSTRAP = r"""
 import builtins, io, pickle, re, sys
+import os as _os
 import numpy as np
 import pandas as pd
 
@@ -146,8 +147,17 @@ def load_object(name):
 def submit_model(pipeline):
     if not (hasattr(pipeline, "fit") and hasattr(pipeline, "predict")):
         raise TypeError("submit_model needs a fitted scikit-learn estimator or Pipeline")
-    with open("{model}", "wb") as handle:
-        pickle.dump(pipeline, handle)
+    # Amendment 4: dump to a temporary file and rename it into place only after a complete
+    # dump, so a failed or killed submit never truncates or replaces an earlier valid model.
+    tmp = "{model}.tmp"
+    try:
+        with open(tmp, "wb") as handle:
+            pickle.dump(pipeline, handle)
+        _os.replace(tmp, "{model}")
+    except BaseException:
+        if _os.path.exists(tmp):
+            _os.remove(tmp)
+        raise
     print("model submitted")
 
 safe = {{k: v for k, v in vars(builtins).items() if k not in BLOCKED}}

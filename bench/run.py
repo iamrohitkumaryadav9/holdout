@@ -722,6 +722,7 @@ def _run_pass(
 
     running: dict[cf.Future[BenchResult], Unit] = {}
     errors: list[BaseException] = []
+    superseded: dict[tuple[str, str, str, int, str], dict[str, Any]] = {}
     stopping = False
     budget_stopped = False
     threads = threads_per_worker(workers) if workers > 1 else None
@@ -765,7 +766,10 @@ def _run_pass(
                 continue
             result = future.result()
             # How the CPU was shared while this unit ran: workers and threads per worker.
-            result = result.model_copy(update={"extra": {**result.extra, **setting}})
+            extra = {**result.extra, **setting}
+            if unit.key in superseded:  # a rerun of a failed unit (Amendment 4)
+                extra["supersedes"] = superseded.pop(unit.key)
+            result = result.model_copy(update={"extra": extra})
             append_result(root, result)
             done.append(result)
             write(f"  -> {unit.system} {unit.task_id} seed {unit.seed}: {result.status} in "
@@ -807,6 +811,11 @@ def _run_pass(
                 breaker.before_start(write)
             write(f"{'resume' if resume else 'run'} {unit.suite} {unit.task_id} {unit.system} "
                   f"seed {unit.seed} {unit.variant}")  # fmt: skip
+            prior = latest_results(root, unit.suite, unit.system).get(unit.key)
+            if prior is not None and prior.status == "failed" and not resume:
+                # The failed line stays in the file; the new line names it as superseded.
+                superseded[unit.key] = {"status": prior.status, "error": prior.error,
+                                        "started_at": prior.started_at.isoformat()}  # fmt: skip
             if pool is None:
                 result = run_unit(
                     unit, system_for(unit.system), root, model=model, run_cap_inr=run_cap_inr,
