@@ -485,3 +485,69 @@ python -m bench.run --suite final_v1 --purpose benchmark --workers 4 --retry-fai
 python -m bench.run --suite real_world_v1 --purpose benchmark --workers 4
 python -m bench.analyze --results results --out docs/results.md --charts docs/img
 ```
+### Amendment 4 (2026-11-19): ReAct's empty model file, HTTP 502, and a 12-unit rerun
+
+**Reason.** The benchmark finished on 2026-11-19. A post-hoc error analysis, made before
+any change, found a harness bug that changed scored results. It was reported before
+anything was changed.
+- **The empty file.** ReAct's sandbox opened `final_model.pkl` for writing before
+  pickling. A submit that failed or was killed mid-write left the file empty, and could
+  also wipe out an earlier valid model.
+- **The crash.** The ReAct adapter caught only `UnsafePickleError` when loading the
+  model. An empty file raised `EOFError` instead, which failed the whole unit and
+  discarded ReAct's final answer and every issue it reported. Under the pre-registered
+  rules each such unit then counted as not detected and not remediated.
+- **Scale.** 11 ReAct units failed this way, after spending Rs 9.66–13.81 each. A 12th
+  failed on HTTP 502, which was not in the transient retry list, so it was never retried.
+
+**Affected units (ReAct only):**
+- `final_v1`:
+  - imbalance_accuracy@magic_telescope s101;
+  - messy_formats@cpu_act s101 and s202;
+  - messy_formats@house_16h s101;
+  - time_order@credit_card_default s202;
+  - id_with_signal@wilt s101 (the HTTP 502 failure).
+- `real_world_v1`:
+  - covertype_ordered original s101 and s202;
+  - diabetes_readmission anonymised s101 and s202;
+  - electricity anonymised s202;
+  - titanic anonymised s101.
+
+**Changes.**
+1. **Atomic submit.** `submit_model` writes the pickle to a temporary file and renames it
+   to `final_model.pkl` only after a complete dump. A failed or killed submit never
+   truncates or replaces an earlier valid model.
+2. **Unreadable model file.** An empty or unreadable model file is treated like a missing
+   one.
+   - **Kept:** ReAct's final answer and reported issues; detection is scored from them.
+   - **Scoring:** remediation is not achieved, because the unit has no valid final
+     pipeline, and there is no holdout score.
+   - **Recorded:** `model_file_unreadable` and the reason in the result.
+   - **The existing missing-file path is unchanged.** One completed unit, diabetes
+     original s202, has "no model was submitted" and keeps its pipeline as already
+     scored.
+3. **HTTP 502 is transient**, retried like 500, 503 and 504.
+4. **Rerun of only the 12 affected units:** on the Standard tier, with 1 worker. They are
+   selected by error text with `--retry-failed-matching`.
+   - Their original failed lines stay in the results files.
+   - Each new line records the failed line it supersedes (`extra.supersedes`).
+
+**Cost.** The pre-flight on measured costs gives Rs 115.67: 12 ReAct units at Rs 8.38 per
+unit (measured on 98 ReAct units), +15%. With Rs 15 of headroom for one unit in flight,
+that is Rs 130.67. On 2026-11-19, Rs 272.29 was left under the Rs 1,600 cap and about
+Rs 269.37 of prepaid balance.
+
+**Nothing else changes.** Only ReAct is affected, and only the 12 units listed. Unchanged:
+- the model, the prompts, the suites, the thresholds and the scoring code;
+- the hypotheses and every other system's results.
+
+`bench/config.toml` is unchanged; its hash is Amendment 3's. This amendment is tagged
+`prereg-v1-amend4`; the earlier tags stay where they are.
+
+**Rerun commands** (environment as in Amendment 3, cap Rs 1,600, `GEMINI_API_KEY` set):
+
+```text
+python -m bench.run --suite final_v1 --systems react --purpose benchmark --workers 1 --retry-failed-matching "EOFError: Ran out of input|HTTP 502"
+python -m bench.run --suite real_world_v1 --systems react --purpose benchmark --workers 1 --retry-failed-matching "EOFError: Ran out of input|HTTP 502"
+python -m bench.analyze --results results --out docs/results.md --charts docs/img
+```
