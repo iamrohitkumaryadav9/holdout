@@ -38,3 +38,15 @@ Thumbs.db
 results/**/seals/
 results/**/work/
 
+
+# Benchmark run state is never committed: working folders and sealed holdouts (above),
+# dataset copies, agent checkpoints, submitted models, response caches and lock files.
+# Only the scored results (results/<suite>/<system>.jsonl), reports and charts are kept.
+results/**/*.parquet
+results/**/*.sqlite
+results/**/*.sqlite-*
+results/**/*.pkl
+results/**/*.lock
+results/**/cache/
+**/checkpoints.sqlite*
+.holdout/
