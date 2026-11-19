@@ -220,6 +220,32 @@ from each dataset's documentation, not a claim the source makes.
 **Dropped:** phoneme. Its rows come from about three frames per syllable, a dependence no
 system can test.
 
+## Reproducing the results
+
+`docs/results.md` is generated, never edited:
+
+```text
+python -m bench.analyze --results results --out docs/results.md --charts docs/img
+```
+
+- **Inputs.** It reads only committed files:
+  - the results under `results/<suite>/<system>.jsonl`, latest line per unit, with superseded
+    lines kept;
+  - the frozen suites;
+  - `results/cost_ledger.jsonl`.
+- **Costs.** `cost_ledger.jsonl` holds the benchmark's paid calls, exported from the local
+  spend ledger with `python -m bench.costs export`. It keeps billing fields only, never
+  keys, paths or balances. Costs are attributed from the local ledger when there is one,
+  plus every exported line it lacks. On any machine the file regenerates byte-identically,
+  and a test checks this.
+- **The results files are never modified.** The `prereg-v1*` and `v1.0.0` tags point at
+  them, and no history is rewritten. Their run-directory fields are repo-relative but use
+  Windows separators. None holds an absolute path; this was checked on 2026-11-19.
+- **Portable copy.** `python scripts/sanitize_paths.py` writes a separate copy with POSIX,
+  repo-relative paths (`results_sanitized/`, not committed). Only the path fields and path
+  tokens inside error messages change; the script checks that every other field is
+  unchanged. `docs/results.md` regenerates identically from the copy.
+
 ## Known limitations
 
 - **A neutral-named leak gets only a warning.** A1 alone cannot tell a strong honest feature

@@ -50,3 +50,5 @@ results/**/*.lock
 results/**/cache/
 **/checkpoints.sqlite*
 .holdout/
+# A shareable copy written by scripts/sanitize_paths.py (the originals stay in results/).
+results_sanitized/
