@@ -372,10 +372,116 @@ section 5 for the remaining units. Every other hash in section 5 is unchanged. T
 amendment is tagged `prereg-v1-amend2`; `prereg-v1` and `prereg-v1-amend1` stay where they
 are.
 
-**Resume command** (environment as in section 6, but with `HOLDOUT_PROJECT_CAP_INR=1150`):
+**Resume command** (superseded by Amendment 3; environment as in section 6, but with
+`HOLDOUT_PROJECT_CAP_INR=1150`):
 
 ```text
 python -m bench.run --suite final_v1 --purpose benchmark --workers 4 --retry-failed-matching "RemoteProtocolError|special JSON characters in feature name"
+python -m bench.run --suite real_world_v1 --purpose benchmark --workers 4
+python -m bench.analyze --results results --out docs/results.md --charts docs/img
+```
+
+### Amendment 3 (2026-11-19): Standard tier for every LLM system, measured costs
+
+**Reason.** The run was stopped on 2026-11-18 after about 13 hours, with Rs 192.52 spent
+in total. Of `final_v1`'s 80 units per system:
+- audits_only completed 76 and flaml 72;
+- holdout completed 20, llm_judge 20 and react 15 (plus 1 stopped).
+
+Two causes, measured from the results files and the ledger:
+
+1. **ReAct on Flex held workers for hours.**
+   - Its 15 completed units waited on average 10,150 s (about 2.8 h) for the API, against
+     136 s of compute.
+   - 46 of its 182 calls (25.3%) exhausted the 10 Flex attempts and fell back to Standard.
+   - On the 4 shared workers this starved holdout and llm_judge.
+   - Converted to the Standard price, its measured cost is Rs 7.74 per unit, so Flex no
+     longer saved money in practice.
+2. **One invocation, at 16:31 UTC on 2026-11-18, ran without `GEMINI_API_KEY`.** Within
+   90 s it recorded 210 LLM units as failed with `LLMConfigError` (holdout 70, llm_judge
+   69, react 71). Failed is terminal, so later invocations skipped them. 50 per system are
+   still in that state.
+
+**No final results were analysed** before this amendment, and no hypothesis statistic was
+computed.
+
+**Changes.**
+1. **Every LLM system on Standard** (`bench/config.toml`: `service_tier = "standard"`, no
+   per-system overrides).
+   - The same model (`gemini-3.8-flash`), prompts, generation parameters, seeds, suites,
+     thresholds, scoring and hypotheses.
+   - The tier changes latency and price only, so completed units stay valid.
+   - Amendment 1's Flex retries and fallback remain in the code but are no longer used.
+   - Time per run stays compute time only.
+2. **Per-unit cost attribution** (a reporting fix; scoring is unaffected).
+   - **The defect:** a unit's recorded `cost_inr` was the larger of its own calls and the
+     ledger's total growth while it ran. With 4 workers, that growth includes the other
+     units' concurrent spend. ReAct's recorded mean was Rs 28.13 per unit against a true
+     Rs 4.71.
+   - **The fix:** the runner now tags every ledger line with the unit that spent it, and a
+     unit is charged only its own lines.
+   - **Earlier units:** their costs are attributed from the ledger by run id (ReAct: the
+     unit id; Holdout-family: the agent run directories). The cost tables use these
+     attributions. Recorded `cost_inr` values from before this amendment are not used for
+     cost reporting.
+3. **The pre-flight uses measured costs.**
+   - Systems with at least 10 completed benchmark units are priced from those units, with
+     ledger-attributed costs and Flex spend converted to the Standard price. Other systems
+     use the pilot.
+   - The pre-flight margin is **15%** (registered: 20%).
+   - The unit worst case, and so the unit-start guard, is unchanged.
+4. **The run refuses to start without the API key.** If any LLM unit is pending and
+   `GEMINI_API_KEY` is not set, `bench.run` exits with code 2 before any unit starts or
+   is recorded.
+5. **Reruns of infrastructure failures.** The `--retry-failed-matching` pattern now also
+   covers `LLMConfigError`, so all units that failed for infrastructure reasons are rerun:
+   - the 150 key failures;
+   - the 8 FLAML magic_telescope units;
+   - any `RemoteProtocolError` unit.
+
+   The FLAML magic_telescope reruns from Amendment 1 had not been attempted. Each unit
+   still has a single failed line from 2026-11-18. The CPU-only pass runs after the LLM
+   pass, and no later invocation that carried the rerun pattern reached it. Their failed
+   lines stay in the results files.
+   The 4 audits_only node timeouts are genuine and are **not** rerun.
+
+**Measured costs** (completed `final_v1` units, ledger-attributed, at the Standard price):
+
+| system | completed | true mean | recorded mean (before the fix) |
+|---|---|---|---|
+| holdout | 20 | Rs 1.727 | Rs 2.312 |
+| llm_judge | 20 | Rs 1.631 (Rs 1.571 as billed, 6 calls on Flex) | Rs 1.939 |
+| react | 15 | Rs 7.738 (Rs 4.707 as billed: Rs 45.46 Flex + Rs 25.15 Standard) | Rs 28.134 |
+
+The 15 completed ReAct units may not be representative of the remaining 100: they used 9
+to 15 steps. The per-run cap (Rs 15) still bounds every unit.
+
+**Cost impact** (everything pending in both suites, 4 workers, measured costs + 15%):
+
+| system | pending units | Rs per unit | total |
+|---|---|---|---|
+| react | 100 | 7.738 | Rs 889.82 |
+| holdout | 96 | 1.727 | Rs 190.66 |
+| llm_judge | 96 | 1.631 | Rs 180.07 |
+| flaml, audits_only | 44, 36 | 0 | Rs 0 |
+| **total** | | | **Rs 1,260.54** |
+
+The pre-flight also needs Rs 120 of headroom for 4 units in flight.
+- **Cap:** at least Rs 192.52 already spent + Rs 1,260.54 + Rs 120 = **Rs 1,573.06**.
+- **Prepaid balance:** at least **Rs 1,380.54** left. On 2026-11-19 about Rs 1,003.48
+  was left, so a top-up of at least Rs 377.06 is needed before the run can start.
+
+**Frozen values.** This changes `bench/config.toml`. Its sha256 (LF) is now
+`007bda8d2e007b77f7181092f8f85db7b5ce9613dceec84522106bdcb650a2e9`, replacing Amendment
+2's hash for the remaining units. Every other hash in section 5 is unchanged. This
+amendment is tagged `prereg-v1-amend3`; the earlier tags stay where they are.
+
+**Resume commands** (environment as in section 6, with `HOLDOUT_PROJECT_CAP_INR` raised to
+at least 1,573.06, the top-up recorded with `holdout spend --set-balance`, and
+`GEMINI_API_KEY` set in the same shell):
+
+```text
+python -m bench.run --suite final_v1 --purpose benchmark --workers 4 --retry-failed-matching "LLMConfigError|RemoteProtocolError|special JSON characters in feature name"
 python -m bench.run --suite real_world_v1 --purpose benchmark --workers 4
 python -m bench.analyze --results results --out docs/results.md --charts docs/img
 ```
