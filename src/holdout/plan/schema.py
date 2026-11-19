@@ -158,6 +158,26 @@ class Rationale(_Strict):
     class_weight: OneLine
 
 
+#: How a plan addresses one data finding (v1.1). Code checks the action against the plan;
+#: whether the problem is actually resolved is decided by code, not by this claim.
+FindingAction = Literal[
+    "drop_columns",
+    "change_split",
+    "change_metric",
+    "deduplicate",
+    "decline_causal_claim",
+    "keep_with_reason",
+]
+
+
+class FindingHandling(_Strict):
+    """The planner's explicit answer to one data finding (v1.1, post-benchmark)."""
+
+    finding_id: str = Field(min_length=1, max_length=12, description="e.g. F1, as listed")
+    action: FindingAction
+    reason: OneLine
+
+
 class ModelPlan(_Strict):
     """A complete, bounded modelling plan."""
 
@@ -170,6 +190,9 @@ class ModelPlan(_Strict):
     model: ModelSpec
     class_weight: Literal["none", "balanced"] = "none"
     rationale: Rationale
+    #: v1.1: one entry per data finding (raw-data audit before planning). Empty for runs
+    #: without findings and for every plan written by v1.0, which still load.
+    findings_handled: list[FindingHandling] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def _unique_drops(self) -> "ModelPlan":

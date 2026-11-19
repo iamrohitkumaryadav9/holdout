@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from holdout.audit.findings import DataFinding, FindingStatus
 from holdout.audit.types import CheckId
 from holdout.core.schemas import CVResult
 from holdout.plan.schema import ModelPlan
@@ -193,6 +194,10 @@ class AgentRecord(_Strict):
     explanations: dict[str, str]
     eda: list[SandboxResult]
     report: ReportDraft | None
+    #: v1.1: problems found on the raw development rows before the planner (empty in v1.0).
+    data_findings: list[DataFinding] = Field(default_factory=list)
+    #: v1.1: how each data finding ended up, decided by code.
+    findings: list[FindingStatus] = Field(default_factory=list)
     stop_reason: str
     previous_run_id: str | None
     next_run_id: str | None

@@ -43,7 +43,9 @@ def test_an_outage_pauses_with_a_checkpoint_and_resume_completes(tmp_path: Path)
     paused = outcome.paused
     assert paused is not None
     assert (paused.outage.node, paused.outage.status, paused.outage.retries) == ("plan", 503, 5)
-    assert paused.completed_nodes == ["intake", "confirm_split", "seal"]
+    assert paused.completed_nodes == [
+        "intake", "confirm_split", "seal", "profile_fit", "profile_audit"
+    ]  # fmt: skip
     assert paused.usage_by_node["plan"].retries == 5
     assert paused.usage_by_node["plan"].inr == 0.0  # retries cost no tokens
     expected = f"holdout agent --resume {outcome.run_id} --out {outcome.run_dir.parent}"

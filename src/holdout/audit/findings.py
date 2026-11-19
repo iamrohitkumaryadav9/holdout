@@ -1,0 +1,274 @@
+"""Data findings (v1.1): problems found on the raw data before the planner chooses a plan.
+
+Post-benchmark v1.1, not part of the pre-registered evaluation. The error analysis
+(docs/error_analysis.md, section 1) found that Holdout's LLM planner silently avoided 16 of
+20 problems its own audit layer would have reported: it dropped an identifier or a leak, or
+chose a different metric, so the audit of the *plan* never saw the problem at the severity
+that matters. A data finding is recorded from an audit of a probe plan (every usable column,
+the default model) on the raw development rows, before the planner, and it persists for the
+whole run whatever the plan later drops:
+
+* the planner must answer every finding explicitly (``ModelPlan.findings_handled``);
+* code decides whether each one was resolved (:func:`resolution`), and the report lists
+  them all ("Problems found and how they were handled");
+* a split-level finding (an entity or time leak) is never cleared by dropping a column
+  (:func:`persisting_split_flags`, fix 2).
+"""
+
+from collections.abc import Sequence
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
+
+from holdout.audit.types import (
+    AuditFlag,
+    AuditReport,
+    ChangeMetric,
+    CheckId,
+    Deduplicate,
+    DropColumns,
+    Severity,
+)
+from holdout.core.schemas import EntityScope, SplitStrategy
+from holdout.data.split import SplitSpec
+from holdout.plan.schema import FindingAction, FindingHandling, ModelPlan
+
+#: The structural checks whose raw-data flags become findings.
+FINDING_CHECKS = frozenset(
+    {CheckId.A1, CheckId.A2, CheckId.A3, CheckId.A4, CheckId.A5, CheckId.A6, CheckId.A8}
+)
+FindingLevel = Literal["column", "split", "rows", "goal"]
+
+
+class DataFinding(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    level: FindingLevel
+    source: Literal["raw_data", "goal"]
+    flag: AuditFlag
+
+
+class FindingStatus(BaseModel):
+    """How one finding ended up, decided by code from the final run state."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    finding_id: str
+    check: CheckId
+    severity: Severity
+    columns: list[str]
+    problem: str
+    planner_action: FindingAction | None
+    planner_reason: str | None
+    resolved: bool
+    outcome: str
+
+
+def _level(flag: AuditFlag) -> FindingLevel:
+    if flag.check in (CheckId.A5, CheckId.A6):
+        return "split"
+    if flag.check is CheckId.A4:
+        return "rows"
+    if flag.check is CheckId.A11:
+        return "goal"
+    return "column"
+
+
+def collect_findings(
+    report: AuditReport, goal_flags: Sequence[AuditFlag] = ()
+) -> list[DataFinding]:
+    """Warning-or-critical flags of the structural checks on the raw data, plus goal-level
+    flags, numbered F1, F2, ... in a stable order."""
+    raw = [
+        f
+        for f in report.flags
+        if f.check in FINDING_CHECKS and f.severity.at_least(Severity.WARNING)
+    ]
+    out: list[DataFinding] = []
+    for flag in raw:
+        out.append(
+            DataFinding(id=f"F{len(out) + 1}", level=_level(flag), source="raw_data", flag=flag)
+        )
+    for flag in goal_flags:
+        out.append(DataFinding(id=f"F{len(out) + 1}", level="goal", source="goal", flag=flag))
+    return out
+
+
+# ----------------------------------------------------------------------------- handling
+
+
+def _resolves(plan: ModelPlan, finding: DataFinding) -> FindingAction | None:
+    """The action the plan itself already takes on ``finding``, if any."""
+    fix = finding.flag.fix
+    if isinstance(fix, DropColumns) and fix.columns and set(fix.columns) <= plan.dropped:
+        return "drop_columns"
+    if isinstance(fix, ChangeMetric) and plan.metric is fix.metric:
+        return "change_metric"
+    if isinstance(fix, Deduplicate) and getattr(plan, "deduplicate", False):
+        return "deduplicate"
+    return None
+
+
+def handling_problems(plan: ModelPlan, findings: Sequence[DataFinding]) -> list[str]:
+    """Why ``plan.findings_handled`` does not answer ``findings`` (empty when it does).
+
+    Every finding needs exactly one entry; an action must be one the plan can actually
+    take for that finding (dropping its columns, a split change only for a split-level
+    finding, declining a causal claim only for a goal finding).
+    """
+    if not findings:
+        return []
+    ids = {f.id: f for f in findings}
+    problems: list[str] = []
+    seen: dict[str, int] = {}
+    for entry in plan.findings_handled:
+        seen[entry.finding_id] = seen.get(entry.finding_id, 0) + 1
+        finding = ids.get(entry.finding_id)
+        if finding is None:
+            problems.append(f"findings_handled names {entry.finding_id!r}, which is not a finding")
+            continue
+        columns = set(finding.flag.columns)
+        if entry.action == "drop_columns" and not (columns and columns <= plan.dropped):
+            problems.append(
+                f"{entry.finding_id}: action drop_columns, but the plan does not drop "
+                f"{sorted(columns - plan.dropped)}"
+            )
+        if entry.action == "change_split" and finding.level != "split":
+            problems.append(f"{entry.finding_id}: change_split applies to split-level findings")
+        if entry.action == "decline_causal_claim" and finding.level != "goal":
+            problems.append(f"{entry.finding_id}: decline_causal_claim applies to the goal")
+        if entry.action == "change_metric" and not isinstance(finding.flag.fix, ChangeMetric):
+            problems.append(f"{entry.finding_id}: change_metric does not address this finding")
+    for fid in ids:
+        if seen.get(fid, 0) == 0:
+            problems.append(f"findings_handled has no entry for {fid}; answer every finding")
+        elif seen[fid] > 1:
+            problems.append(f"findings_handled lists {fid} more than once")
+    return problems
+
+
+def offline_handling(plan: ModelPlan, findings: Sequence[DataFinding]) -> list[FindingHandling]:
+    """The offline planner's deterministic answers (it cannot reason about the data)."""
+    out: list[FindingHandling] = []
+    for finding in findings:
+        taken = _resolves(plan, finding)
+        if taken is not None:
+            action: FindingAction = taken
+            reason = "the plan already does this"
+        elif finding.level == "split":
+            action, reason = "change_split", "a row-level split leaks; code enforces the split"
+        elif finding.level == "goal":
+            action, reason = "decline_causal_claim", "a predictive model cannot answer it"
+        else:
+            action = "keep_with_reason"
+            reason = "kept in the first plan; the audit re-checks it and code applies fixes"
+        out.append(FindingHandling(finding_id=finding.id, action=action, reason=reason))
+    return out
+
+
+def with_handling(plan: ModelPlan, handled: Sequence[FindingHandling]) -> ModelPlan:
+    return ModelPlan.model_validate(
+        {**plan.model_dump(mode="json"), "findings_handled": [h.model_dump() for h in handled]}
+    )
+
+
+# ----------------------------------------------------------------------------- no masking
+
+
+def split_resolved(finding: DataFinding, spec: SplitSpec) -> bool:
+    """A split-level finding is resolved only by the split itself (or, for entities, by a
+    declaration that predictions are for known entities) - never by dropping a column."""
+    if finding.flag.check is CheckId.A5:
+        return spec.strategy is SplitStrategy.GROUP or spec.entity_scope is EntityScope.KNOWN
+    if finding.flag.check is CheckId.A6:
+        return spec.strategy is SplitStrategy.TIME
+    return True
+
+
+def persisting_split_flags(
+    findings: Sequence[DataFinding], report: AuditReport, spec: SplitSpec
+) -> list[AuditFlag]:
+    """Critical split-level findings not resolved by the split and not already raised at
+    critical by this audit: they are re-asserted (fix 2), so dropping the entity key with a
+    row-level split kept cannot hide them, and the holdout-integrity rule still applies."""
+    raised = {
+        (f.check, tuple(f.columns))
+        for f in report.flags
+        if f.severity is Severity.CRITICAL and f.check in (CheckId.A5, CheckId.A6)
+    }
+    out: list[AuditFlag] = []
+    for finding in findings:
+        flag = finding.flag
+        if finding.level != "split" or flag.severity is not Severity.CRITICAL:
+            continue
+        if split_resolved(finding, spec) or (flag.check, tuple(flag.columns)) in raised:
+            continue
+        out.append(
+            flag.model_copy(
+                update={
+                    "message": (
+                        f"Data finding {finding.id} persists: {flag.message} Dropping the "
+                        "column does not remove it - rows of the same entity or period are "
+                        "still on both sides of a row-level split."
+                    ),
+                    "invalidates_holdout": True,
+                }
+            )
+        )
+    return out
+
+
+# ----------------------------------------------------------------------------- outcome
+
+
+def resolution(
+    findings: Sequence[DataFinding], plan: ModelPlan, spec: SplitSpec, final: AuditReport
+) -> list[FindingStatus]:
+    """Each finding's outcome, decided by code from the final plan, split and audit."""
+    answers = {h.finding_id: h for h in plan.findings_handled}
+    out: list[FindingStatus] = []
+    for finding in findings:
+        flag = finding.flag
+        answer = answers.get(finding.id)
+        if finding.level == "split":
+            resolved = split_resolved(finding, spec)
+            outcome = (
+                f"resolved: the split is {spec.strategy.value}"
+                + (f" by {spec.group_col}" if spec.group_col else "")
+                if resolved
+                else "open: the split still leaks; the holdout is invalid and a new run with "
+                "the corrected split is needed"
+            )
+        elif finding.level == "goal":
+            resolved = True
+            outcome = "handled: the report declines a causal conclusion"
+        else:
+            taken = _resolves(plan, finding)
+            still = [
+                f for f in final.flags
+                if f.check is flag.check and f.columns == flag.columns
+                and f.severity.at_least(Severity.WARNING)
+            ]  # fmt: skip
+            if taken is not None:
+                resolved, outcome = True, f"resolved: the final plan does {taken.replace('_', ' ')}"
+            elif still:
+                resolved = False
+                outcome = f"open: the final audit still raises it ({still[0].severity.value})"
+            else:
+                resolved = True
+                outcome = "not raised by the final audit (the plan as fitted no longer shows it)"
+        out.append(
+            FindingStatus(
+                finding_id=finding.id,
+                check=flag.check,
+                severity=flag.severity,
+                columns=list(flag.columns),
+                problem=flag.message,
+                planner_action=answer.action if answer is not None else None,
+                planner_reason=answer.reason if answer is not None else None,
+                resolved=resolved,
+                outcome=outcome,
+            )
+        )
+    return out

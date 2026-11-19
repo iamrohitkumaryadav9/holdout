@@ -1,6 +1,7 @@
 """The agent graph (LangGraph, SQLite checkpointer).
 
-intake -> confirm_split (interrupt) -> seal -> [eda] -> plan -> compile_and_fit -> audit
+intake -> confirm_split (interrupt) -> seal -> [eda] -> profile_fit -> profile_audit -> plan
+  -> compile_and_fit -> audit
   audit -> end_split                 (contaminated holdout or a ChangeSplit fix: new run)
   audit -> explain_and_fix -> review (interrupt) -> compile_and_fit   (at most 3 rounds)
   audit / explain_and_fix / review -> confirm_unseal (interrupt) -> unseal -> report
@@ -9,6 +10,11 @@ State holds only JSON-serialisable values; development rows are rebuilt from the
 and the split spec in each node (never stored, so a checkpoint never contains data).
 Nodes with side effects are idempotent (seal, unseal, report), so a run killed mid-node
 resumes from its last checkpoint without sealing or evaluating twice.
+
+v1.1 (post-benchmark): ``profile_fit`` and ``profile_audit`` audit a probe plan (every usable
+column, the default model) on the raw development rows before the planner, and record the
+problems found as data findings that persist for the whole run (holdout.audit.findings).
+When the first plan is the probe plan, the probe's cross-validation and audit are reused.
 
 Loop guards: at most ``MAX_FIX_ROUNDS`` fix rounds; a revised plan identical to an earlier
 one stops the loop; one plan retry with validation feedback; a per-node wall-clock limit
@@ -32,6 +38,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from holdout.agent.planner import (
+    OfflinePlanner,
     PlanContext,
     Planner,
     ReportContext,
@@ -52,6 +59,13 @@ from holdout.agent.schemas import (
     Substitution,
 )
 from holdout.agent.tracing import tracer
+from holdout.audit.findings import (
+    DataFinding,
+    collect_findings,
+    offline_handling,
+    resolution,
+    with_handling,
+)
 from holdout.audit.gate import UnsealDecision, decide_unseal
 from holdout.audit.runner import run_audits, write_audit
 from holdout.audit.thresholds import load_thresholds, load_thresholds_v11
@@ -146,6 +160,9 @@ class AgentState(TypedDict, total=False):
     next_spec: dict[str, Any] | None
     status: str
     nodes_done: list[str]
+    #: v1.1: the probe plan's CV and audit on the raw development rows, and the findings.
+    probe: dict[str, Any]
+    data_findings: list[dict[str, Any]]
 
 
 @dataclass
@@ -228,6 +245,25 @@ def _plan_hash(plan: dict[str, Any]) -> str:
 
 def _audit(state: AgentState) -> AuditReport:
     return AuditReport.model_validate(state["audit"])
+
+
+def _findings(state: AgentState) -> list[DataFinding]:
+    return [DataFinding.model_validate(f) for f in state.get("data_findings", [])]
+
+
+def _same_plan(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Plans equal apart from ``findings_handled`` (the probe has none)."""
+    strip = {"findings_handled"}
+    return {k: v for k, v in a.items() if k not in strip} == {
+        k: v for k, v in b.items() if k not in strip
+    }
+
+
+def _probe_reusable(state: AgentState) -> bool:
+    probe = state.get("probe")
+    if not probe or state.get("round", 0) != 0:
+        return False
+    return _same_plan(state["current_plan"], probe["plan"])
 
 
 def _record(decision: Decision, state: AgentState) -> list[dict[str, Any]]:
@@ -374,24 +410,94 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
         results = run_snippets(snippets, dev.copy(), figures_dir=_run_state(state).run_dir / "eda")
         return {"eda": [r.model_dump(mode="json") for r in results]}
 
+    def _plan_context(state: AgentState, profile: DatasetProfile, dev: pd.DataFrame) -> PlanContext:
+        return PlanContext(
+            goal=state["goal"],
+            target=_options(state).target,
+            task=Task(state["task"]),
+            profile=profile,
+            dev=dev,
+            seed=_options(state).seed,
+            history=[],
+            eda=[
+                {"purpose": e["purpose"], "status": e["status"], "output": e["output"][:4000]}
+                for e in state.get("eda", [])
+            ],
+            overrides=_options(state).plan_overrides,
+            findings=_findings(state),
+        )
+
+    def _audit_plan(
+        state: AgentState, plan_json: dict[str, Any], cv_json: dict[str, Any],
+        baseline_json: dict[str, Any], round_: int,
+    ) -> AuditReport:  # fmt: skip
+        """Audit one cross-validated plan with the run's audit layer (or the judge)."""
+        _, profile, dev, spec = _materialize(state)
+        current = ModelPlan.model_validate(plan_json)
+        if deps.auditor is not None:  # the LLM-judge ablation replaces the audit layer
+            return deps.auditor(
+                AuditInputs(
+                    dev=dev,
+                    plan=current,
+                    cv=CVResult.model_validate(cv_json),
+                    baseline=CVResult.model_validate(baseline_json),
+                    profile=profile,
+                    spec=spec,
+                    target=_options(state).target,
+                    goal=state["goal"],
+                    round=round_,
+                )
+            )
+        run_state = _run_state(state)
+        return run_audits(
+            run_state,
+            dev,
+            current,
+            CVResult.model_validate(cv_json),
+            baseline=CVResult.model_validate(baseline_json),
+            profile=profile,
+            spec=spec,
+            target=_options(state).target,
+            thresholds=load_thresholds(),
+            thresholds_v11=load_thresholds_v11(),
+            overlap_source=SealedHoldout.load(run_state),
+            hint_provider=planner.hint_provider(state["goal"]),
+            goal_text=state["goal"],
+        )
+
+    def profile_fit(state: AgentState) -> dict[str, Any]:
+        """v1.1: cross-validate the probe plan (every usable column, the default model)."""
+        _, profile, dev, spec = _materialize(state)
+        probe = OfflinePlanner().propose_plan(_plan_context(state, profile, dev))
+        target = _options(state).target
+        baseline = evaluate_cv(
+            baseline_plan(probe), dev, target, spec, profile, label="dummy baseline"
+        )
+        result = evaluate_cv(probe, dev, target, spec, profile, label=probe.model.name)
+        return {
+            "probe": {
+                "plan": probe.model_dump(mode="json"),
+                "cv": result.model_dump(mode="json"),
+                "baseline": baseline.model_dump(mode="json"),
+            }
+        }
+
+    def profile_audit(state: AgentState) -> dict[str, Any]:
+        """v1.1: audit the probe on the raw development rows; record the data findings."""
+        probe = state["probe"]
+        report = _audit_plan(state, probe["plan"], probe["cv"], probe["baseline"], 0)
+        findings = collect_findings(report)
+        return {
+            "probe": {**probe, "audit": report.model_dump(mode="json")},
+            "data_findings": [f.model_dump(mode="json") for f in findings],
+        }
+
     def plan(state: AgentState) -> dict[str, Any]:
         _, profile, dev, _ = _materialize(state)
-        proposed = planner.propose_plan(
-            PlanContext(
-                goal=state["goal"],
-                target=_options(state).target,
-                task=Task(state["task"]),
-                profile=profile,
-                dev=dev,
-                seed=_options(state).seed,
-                history=[],
-                eda=[
-                    {"purpose": e["purpose"], "status": e["status"], "output": e["output"][:4000]}
-                    for e in state.get("eda", [])
-                ],
-                overrides=_options(state).plan_overrides,
-            )
-        )
+        proposed = planner.propose_plan(_plan_context(state, profile, dev))
+        findings = _findings(state)
+        if planner.offline and findings:
+            proposed = with_handling(proposed, offline_handling(proposed, findings))
         return {
             "current_plan": proposed.model_dump(mode="json"),
             "plan_source": "default" if planner.offline else "llm",
@@ -399,6 +505,9 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
         }
 
     def compile_and_fit(state: AgentState) -> dict[str, Any]:
+        if _probe_reusable(state):  # the first plan is the probe: same rows, same folds
+            probe = state["probe"]
+            return {"baseline": probe["baseline"], "cv": probe["cv"]}
         _, profile, dev, spec = _materialize(state)
         current = ModelPlan.model_validate(state["current_plan"])
         target = _options(state).target
@@ -409,39 +518,16 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
         return {"baseline": baseline.model_dump(mode="json"), "cv": result.model_dump(mode="json")}
 
     def audit(state: AgentState) -> dict[str, Any]:
-        _, profile, dev, spec = _materialize(state)
         run_state = _run_state(state)
         sealed = SealedHoldout.load(run_state)
         current = ModelPlan.model_validate(state["current_plan"])
-        if deps.auditor is not None:  # the LLM-judge ablation replaces the audit layer
-            report = deps.auditor(
-                AuditInputs(
-                    dev=dev,
-                    plan=current,
-                    cv=CVResult.model_validate(state["cv"]),
-                    baseline=CVResult.model_validate(state["baseline"]),
-                    profile=profile,
-                    spec=spec,
-                    target=_options(state).target,
-                    goal=state["goal"],
-                    round=state["round"],
-                )
-            )
+        if _probe_reusable(state) and state["probe"].get("audit") is not None:
+            report = AuditReport.model_validate(state["probe"]["audit"])
+            if deps.auditor is None:
+                write_audit(run_state.audit_path, report)
         else:
-            report = run_audits(
-                run_state,
-                dev,
-                current,
-                CVResult.model_validate(state["cv"]),
-                baseline=CVResult.model_validate(state["baseline"]),
-                profile=profile,
-                spec=spec,
-                target=_options(state).target,
-                thresholds=load_thresholds(),
-                thresholds_v11=load_thresholds_v11(),
-                overlap_source=sealed,
-                hint_provider=planner.hint_provider(state["goal"]),
-                goal_text=state["goal"],
+            report = _audit_plan(
+                state, state["current_plan"], state["cv"], state["baseline"], state["round"]
             )
         if report.holdout_invalid and not sealed.holdout_invalid:
             sealed.mark_invalid(
@@ -491,6 +577,11 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
         current = ModelPlan.model_validate(state["current_plan"])
         flags = _audit(state).flags
         outcome = planner.explain_and_fix(current, flags, profile, state["round"])
+        if current.findings_handled and not outcome.plan.findings_handled:
+            # A revision keeps the planner's answers to the data findings.
+            outcome = dataclasses.replace(
+                outcome, plan=with_handling(outcome.plan, current.findings_handled)
+            )
         update: dict[str, Any] = {
             "explanations": {**state.get("explanations", {}), **outcome.explanations},
             "proposed_plan": None,
@@ -602,6 +693,8 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
         ("confirm_split", confirm_split),
         ("seal", seal),
         ("eda", eda),
+        ("profile_fit", profile_fit),
+        ("profile_audit", profile_audit),
         ("plan", plan),
         ("compile_and_fit", compile_and_fit),
         ("audit", audit),
@@ -621,10 +714,12 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
     )
     graph.add_conditional_edges(
         "seal",
-        lambda s: "eda" if _options(s).eda and not deps.planner.offline else "plan",
-        ["eda", "plan"],
+        lambda s: "eda" if _options(s).eda and not deps.planner.offline else "profile_fit",
+        ["eda", "profile_fit"],
     )
-    graph.add_edge("eda", "plan")
+    graph.add_edge("eda", "profile_fit")
+    graph.add_edge("profile_fit", "profile_audit")
+    graph.add_edge("profile_audit", "plan")
     graph.add_edge("plan", "compile_and_fit")
     graph.add_edge("compile_and_fit", "audit")
     graph.add_conditional_edges(
@@ -769,6 +864,8 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
         explanations=state.get("explanations", {}),
         eda=[SandboxResult.model_validate(e) for e in state.get("eda", [])],
         report=outcome.draft,
+        data_findings=_findings(state),
+        findings=resolution(_findings(state), current, spec, final_audit),
         stop_reason=state.get("stop_reason", "completed"),
         previous_run_id=opts.previous_run_id,
         next_run_id=None,

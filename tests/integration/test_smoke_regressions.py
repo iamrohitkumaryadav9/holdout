@@ -16,6 +16,7 @@ tests/fixtures/smoke_2026_11_17/README.md.
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -33,9 +34,10 @@ from holdout.core.schemas import MetricName
 from holdout.llm import config
 from holdout.llm.budget import Budget, SpendLedger
 from holdout.llm.cache import ResponseCache
-from holdout.llm.client import FakeLLM
+from holdout.llm.client import FakeLLM, LLMRequest
 from holdout.llm.structured import LLMSession, llm_schema
 from holdout.plan.schema import MODEL_NAMES, ModelPlan
+from tests.agent_fakes import answer_findings, data
 from tests.agent_harness import fake_for, run_case, write_case
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "smoke_2026_11_17"
@@ -91,7 +93,8 @@ def test_model_names_match_the_union() -> None:
 
 def test_the_plan_prompt_lists_every_tag_and_metric_and_its_example_validates() -> None:
     prompt = load_prompt("plan")
-    assert prompt.version == "2"
+    assert prompt.version == "3"  # v1.1: the data-findings section
+    assert "findings_handled" in prompt.system
     for name in MODEL_NAMES:
         assert f'"{name}"' in prompt.system
     listed = set(re.findall(r'"([a-z0-9_]+)"', prompt.system.split("- metric:")[1].split("- ")[0]))
@@ -107,7 +110,12 @@ def test_a_rejected_tag_is_repaired_once_and_counted(label: str, tmp_path: Path)
     working = fake_for(case, write_case(case, tmp_path))
     repaired = _fixture("plan_direct_leak_repaired.json")
     rejected = {**repaired, "model": {**repaired["model"], "name": _bad_tag(label)}}
-    replay = FakeLLM(default=working.default, scripts={"plan": [rejected, repaired]})
+    # The recorded Week 3 plans predate v1.1's findings_handled; answer the findings the
+    # way the cooperative fake does, so only the bad tag is rejected.
+    replay = FakeLLM(
+        default=working.default,
+        scripts={"plan": [_answering(rejected), _answering(repaired)]},
+    )
     outcome = run_case(case, tmp_path, llm=replay)
     assert outcome.manifest is not None
     agent = outcome.manifest.agent
@@ -121,6 +129,14 @@ def test_a_rejected_tag_is_repaired_once_and_counted(label: str, tmp_path: Path)
     assert _bad_tag(label) in kept.text  # the raw answer is kept now
     report = (outcome.run_dir / "report.md").read_text(encoding="utf-8")
     assert "**Answer quality:** plan 0/1" in report
+
+
+def _answering(plan: dict[str, Any]) -> Callable[[LLMRequest], dict[str, Any]]:
+    def respond(request: LLMRequest) -> dict[str, Any]:
+        found = data(request, "findings")
+        return {**plan, "findings_handled": answer_findings(plan, found)} if found else plan
+
+    return respond
 
 
 def _bad_tag(label: str) -> str:

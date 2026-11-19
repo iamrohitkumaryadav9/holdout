@@ -9,6 +9,7 @@ rendered from the manifest only, so the two can never disagree.
 import platform
 import subprocess
 import sys
+from collections.abc import Sequence
 from datetime import datetime
 from importlib import metadata
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from holdout.agent.schemas import AgentRecord, Decision, LLMOutage, NodeUsage, RoundRecord
+from holdout.audit.findings import FindingStatus
 from holdout.audit.gate import UnsealDecision
 from holdout.audit.render import fix_text
 from holdout.audit.types import AuditReport
@@ -288,6 +290,8 @@ def render_report(manifest: RunManifest) -> str:
             "For a lower-is-better metric, a *negative* gap means validation was optimistic.",
             "",
         ]
+    if manifest.agent is not None and manifest.agent.findings:
+        lines += findings_section(manifest.agent.findings)
     lines += _audit_section(manifest)
     lines += ["## Split reasoning", ""] + [f"- {r}" for r in split.reasons]
     warnings = split.warnings + split.reuse_warnings
@@ -302,6 +306,33 @@ def render_report(manifest: RunManifest) -> str:
         lines += _agent_section(manifest.agent)
     lines += ["", "## Artifacts", ""] + [f"- `{a}`" for a in manifest.artifacts]
     return "\n".join(lines) + "\n"
+
+
+def findings_section(findings: Sequence[FindingStatus]) -> list[str]:
+    """v1.1: every problem found on the raw data before planning, and its outcome."""
+    lines = [
+        "## Problems found and how they were handled",
+        "",
+        "Found on the raw development rows before planning (v1.1). The planner's action is "
+        "what it said it would do; the outcome is decided by code from the final plan, split "
+        "and audit.",
+        "",
+        "| finding | check | severity | columns | problem | planner action | outcome |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for f in findings:
+        columns = ", ".join(f"`{c}`" for c in f.columns) or "-"
+        action = "-" if f.planner_action is None else f.planner_action.replace("_", " ")
+        if f.planner_reason:
+            action += f": {f.planner_reason}"
+        lines.append(
+            f"| {f.finding_id} | {f.check.value} | {f.severity.value} | {columns} | "
+            f"{_cell(f.problem)} | {_cell(action)} | "
+            f"{'**' if not f.resolved else ''}{_cell(f.outcome)}{'**' if not f.resolved else ''} |"
+        )
+    open_count = sum(not f.resolved for f in findings)
+    lines += ["", f"{len(findings) - open_count} handled, {open_count} open.", ""]
+    return lines
 
 
 def _audit_section(manifest: RunManifest) -> list[str]:

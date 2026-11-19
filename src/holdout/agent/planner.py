@@ -38,6 +38,7 @@ from holdout.agent.schemas import (
     Substitution,
 )
 from holdout.audit.checks.a11_causal import StructuredCausalClaim, check_causal_claims
+from holdout.audit.findings import DataFinding, handling_problems
 from holdout.audit.hints import ColumnHint, HintProvider, HintRequest, LexiconHintProvider
 from holdout.audit.types import AuditFlag, CausalEvidence, ChangeMetric, DropColumns, Severity
 from holdout.core.errors import AgentError, LLMOutputError
@@ -160,6 +161,24 @@ class PlanContext:
     #: Plan fields the user stated (e.g. a required metric). Only the offline planner
     #: applies them, since it cannot read the goal text; an LLM planner reads the goal.
     overrides: dict[str, Any] = field(default_factory=dict)
+    #: v1.1: problems found on the raw development rows; the plan must answer each one.
+    findings: list[DataFinding] = field(default_factory=list)
+
+
+def findings_summary(findings: Sequence[DataFinding]) -> list[dict[str, Any]]:
+    """What the planner is told about each data finding (code-computed, data only)."""
+    return [
+        {
+            "id": f.id,
+            "level": f.level,
+            "check": f.flag.check.value,
+            "severity": f.flag.severity.value,
+            "columns": list(f.flag.columns),
+            "problem": f.flag.message,
+            "suggested_fix": f.flag.fix.kind,
+        }
+        for f in findings
+    ]
 
 
 @dataclass(frozen=True)
@@ -303,13 +322,17 @@ class LLMPlanner:
             sample_rows=sample_rows(ctx.dev, ctx.seed),
             history=ctx.history,
             eda=ctx.eda,
+            findings=findings_summary(ctx.findings),
         )
         try:
             return self.session.call(
                 node="plan",
                 prompt=rendered,
                 schema=ModelPlan,
-                check=lambda plan: plan_errors(plan, ctx.profile, ctx.task),
+                check=lambda plan: [
+                    *plan_errors(plan, ctx.profile, ctx.task),
+                    *handling_problems(plan, ctx.findings),
+                ],
             )
         except LLMOutputError as exc:
             if exc.last_answer is None:

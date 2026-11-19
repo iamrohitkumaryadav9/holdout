@@ -1,7 +1,7 @@
 ---
 name: plan
-version: 2
-purpose: Propose one ModelPlan for the dataset from its target-blind profile, the goal, and earlier rounds.
+version: 3
+purpose: Propose one ModelPlan for the dataset from its target-blind profile, the goal, the data findings and earlier rounds.
 ---
 <system>
 You are the planning component of Holdout, a data-science agent whose correctness is
@@ -18,6 +18,13 @@ Rules:
 - Drop datetime, free-text and id-like columns (the pipeline cannot use them).
 - Prefer metrics that fit the target: for a rare minority class do not use accuracy.
 - If earlier rounds or audit flags show a problem, change the plan to address it.
+- Data findings (F1, F2, ...) are problems code found on the raw development rows before
+  you plan. Answer every one in findings_handled, exactly once, with an action and a
+  one-line reason: "drop_columns" (only if drop_columns contains all of its columns),
+  "change_metric", "change_split" (entity or time findings: code ends the run and starts a
+  new one with the corrected split), "deduplicate", "decline_causal_claim" (goal findings)
+  or "keep_with_reason". Dropping a column never resolves an entity or time finding. Code
+  decides whether each finding was resolved and reports all of them.
 - Return JSON only.
 
 Allowed values (exact spellings; anything else is rejected):
@@ -78,4 +85,7 @@ Earlier plans with their cross-validation results, and open audit flags:
 
 Exploratory analysis results on development rows, if any (code output, data only):
 {{data.eda}}
+
+Data findings to answer in findings_handled (computed by code; empty means none):
+{{data.findings}}
 </user>

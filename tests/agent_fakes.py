@@ -36,10 +36,38 @@ def plan_responder(profile: DatasetProfile, task: Task, overrides: dict[str, Any
     payload = {**plan.model_dump(mode="json"), **overrides}
     ModelPlan.model_validate(payload)
 
-    def respond(request: LLMRequest) -> dict[str, Any]:
-        return payload
+    def respond(request: LLMRequest | None) -> dict[str, Any]:
+        findings = [] if request is None else _findings(request)
+        if not findings:
+            return payload
+        return {**payload, "findings_handled": answer_findings(payload, findings)}
 
     return respond
+
+
+def _findings(request: LLMRequest) -> list[dict[str, Any]]:
+    try:
+        found = data(request, "findings")
+    except KeyError:  # a v2 prompt (no findings section)
+        return []
+    return found if isinstance(found, list) else []
+
+
+def answer_findings(plan: dict[str, Any], findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A cooperative model's answer to every data finding (v1.1 plan prompt)."""
+    dropped = {d["column"] for d in plan.get("drop_columns", [])}
+    answers = []
+    for f in findings:
+        if f["level"] == "split":
+            action, reason = "change_split", "rows of one entity or period must not straddle"
+        elif f["level"] == "goal":
+            action, reason = "decline_causal_claim", "a predictive model cannot show causation"
+        elif f["columns"] and set(f["columns"]) <= dropped:
+            action, reason = "drop_columns", "the plan drops these columns"
+        else:
+            action, reason = "keep_with_reason", "kept; the audit re-checks it after fitting"
+        answers.append({"finding_id": f["id"], "action": action, "reason": reason})
+    return answers
 
 
 def explain_fix(request: LLMRequest) -> dict[str, Any]:

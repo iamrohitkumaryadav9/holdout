@@ -6,7 +6,8 @@ the pinned model, the unit's seed, goal and entity scope. Holdout seals part of 
 as its own internal holdout; the benchmark's holdout is separate and never seen.
 
 Reported issues are every flag of every audit round and of the final audit, of the first
-run and of the follow-up run with a corrected split if autopilot started one. The final
+run and of the follow-up run with a corrected split if autopilot started one; from v1.1
+also the data findings recorded before planning. The final
 plan is the last run's selected plan; it is refit on all development rows the system
 received (the same data every other system could use) and handed to the harness.
 """
@@ -208,6 +209,11 @@ def _issues(manifests: list[RunManifest]) -> list[ReportedIssue]:
 
     for manifest in manifests:
         if manifest.agent is not None:
+            # v1.1: the data findings are reported (the report's "Problems found" table),
+            # whatever the plan later dropped.
+            for finding in manifest.agent.data_findings:
+                f = finding.flag
+                add(f.check.value, f.severity.value, f.category.value, f.columns, f.message)
             for round_ in manifest.agent.rounds:
                 for text in round_.flags:  # "check severity category col1,col2"
                     parts = text.split(" ", 3)

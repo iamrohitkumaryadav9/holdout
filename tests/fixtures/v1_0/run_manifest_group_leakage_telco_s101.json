@@ -1,0 +1,709 @@
+{
+  "schema_version": 3,
+  "status": "completed",
+  "run_id": "20261119T061837Z-ebba0b",
+  "started_at": "2026-11-19T06:18:37.749841Z",
+  "finished_at": "2026-11-19T06:20:33.146752Z",
+  "data": {
+    "path": "results\\work\\final_v1\\group_leakage_at_telco_churn__planted__s101\\holdout\\dev.csv",
+    "sha256": "b07e55a849099122a1e1787d7761bd03b81b64599b1afe9dc431a09e90c41ed4",
+    "n_rows": 3199,
+    "n_cols": 25,
+    "n_dropped_missing_target": 0
+  },
+  "target": "class",
+  "task": "classification",
+  "goal_text": "predict class",
+  "entity_scope": "new",
+  "metric": "roc_auc",
+  "direction": "higher",
+  "profile": {
+    "task_hint": "classification",
+    "column_kinds": {
+      "state": "numeric",
+      "account_length": "numeric",
+      "area_code": "numeric",
+      "phone_number": "numeric",
+      "international_plan": "boolean",
+      "voice_mail_plan": "boolean",
+      "number_vmail_messages": "numeric",
+      "total_day_minutes": "numeric",
+      "total_day_calls": "numeric",
+      "total_day_charge": "numeric",
+      "total_eve_minutes": "numeric",
+      "total_eve_calls": "numeric",
+      "total_eve_charge": "numeric",
+      "total_night_minutes": "numeric",
+      "total_night_calls": "numeric",
+      "total_night_charge": "numeric",
+      "total_intl_minutes": "numeric",
+      "total_intl_calls": "numeric",
+      "total_intl_charge": "numeric",
+      "number_customer_service_calls": "numeric",
+      "account": "categorical",
+      "region_code": "categorical",
+      "account_vintage": "numeric",
+      "credit_band": "categorical",
+      "class": "boolean"
+    },
+    "target_class_frequencies": {
+      "0": 0.8762113160362613,
+      "1": 0.12378868396373867
+    },
+    "datetime_candidates": [],
+    "monotonic_candidates": [],
+    "entity_candidates": [],
+    "looks_time_ordered": false
+  },
+  "split": {
+    "spec": {
+      "strategy": "stratified",
+      "test_size": 0.2,
+      "group_col": null,
+      "time_col": null,
+      "seed": 101,
+      "entity_scope": "new"
+    },
+    "source": "user",
+    "reasons": [
+      "split chosen by the user (--split)"
+    ],
+    "warnings": [
+      "'account' looks like an entity identifier (659 values, ~4.9 rows each, 13% of other columns constant within it). Will predictions be made for new entities (--entities new) or for entities already in the data (--entities known)? Unanswered is treated as new."
+    ],
+    "alternatives": [
+      {
+        "strategy": "group",
+        "test_size": 0.2,
+        "group_col": "account",
+        "time_col": null,
+        "seed": 101,
+        "entity_scope": null
+      }
+    ],
+    "n_dev_rows": 2559,
+    "n_holdout_rows": 640,
+    "holdout_sha256": "ba0371f9beb603576c4aa86939a52195d5aa9e28539fc321685874a25b13d0b4",
+    "reuse_warnings": []
+  },
+  "run_seed": 101,
+  "derived_seeds": {
+    "split": 1552690923,
+    "cv": 84447662,
+    "model": 1354139812,
+    "target_encoder": 577678067,
+    "feature_selection": 1635392886
+  },
+  "plans": [
+    {
+      "label": "dummy baseline",
+      "plan": {
+        "task": "classification",
+        "metric": "roc_auc",
+        "drop_columns": [
+          {
+            "column": "phone_number",
+            "reason": "unique identifier per row with high cardinality"
+          },
+          {
+            "column": "account",
+            "reason": "high-cardinality account identifier entity"
+          }
+        ],
+        "numeric": {
+          "impute": "median",
+          "scale": "none"
+        },
+        "categorical": {
+          "impute": "most_frequent",
+          "encode": "onehot"
+        },
+        "feature_selection": {
+          "method": "none"
+        },
+        "model": {
+          "name": "dummy"
+        },
+        "class_weight": "none",
+        "rationale": {
+          "metric": "roc_auc is robust to class imbalance (12.4% positive)",
+          "drop_columns": "phone_number and account are identifiers that risk overfitting",
+          "preprocessing": "median imputation and onehot encoding fit tabular data cleanly",
+          "feature_selection": "none: the baseline ignores features",
+          "model": "dummy baseline: predicts the prior or the mean",
+          "class_weight": "none: the dummy model cannot use weights"
+        }
+      },
+      "issues": [],
+      "cv": {
+        "plan_label": "dummy baseline",
+        "metric": "roc_auc",
+        "direction": "higher",
+        "mean": 0.5,
+        "std": 0.0,
+        "fold_scores": [
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.5
+        ],
+        "fit_seconds": 0.3832916000392288,
+        "n_rows": 2559,
+        "n_folds": 5,
+        "splitter": "StratifiedKFold"
+      }
+    },
+    {
+      "label": "hist_gb",
+      "plan": {
+        "task": "classification",
+        "metric": "roc_auc",
+        "drop_columns": [
+          {
+            "column": "phone_number",
+            "reason": "unique identifier per row with high cardinality"
+          },
+          {
+            "column": "account",
+            "reason": "high-cardinality account identifier entity"
+          }
+        ],
+        "numeric": {
+          "impute": "median",
+          "scale": "none"
+        },
+        "categorical": {
+          "impute": "most_frequent",
+          "encode": "onehot"
+        },
+        "feature_selection": {
+          "method": "none"
+        },
+        "model": {
+          "name": "hist_gb",
+          "learning_rate": 0.08,
+          "max_iter": 200,
+          "max_leaf_nodes": 31,
+          "min_samples_leaf": 20,
+          "l2_regularization": 0.0
+        },
+        "class_weight": "balanced",
+        "rationale": {
+          "metric": "roc_auc is robust to class imbalance (12.4% positive)",
+          "drop_columns": "phone_number and account are identifiers that risk overfitting",
+          "preprocessing": "median imputation and onehot encoding fit tabular data cleanly",
+          "feature_selection": "feature count is compact so all informative predictors are kept",
+          "model": "hist_gb handles mixed tabular features and non-linear interactions well",
+          "class_weight": "balanced weights address the moderate positive class imbalance"
+        }
+      },
+      "issues": [],
+      "cv": {
+        "plan_label": "hist_gb",
+        "metric": "roc_auc",
+        "direction": "higher",
+        "mean": 0.6224313063401632,
+        "std": 0.037392988002291724,
+        "fold_scores": [
+          0.6259058931664722,
+          0.6386325874076431,
+          0.6587611607142857,
+          0.5506766183035714,
+          0.6381802721088435
+        ],
+        "fit_seconds": 16.686685399967246,
+        "n_rows": 2559,
+        "n_folds": 5,
+        "splitter": "StratifiedKFold"
+      }
+    }
+  ],
+  "selected_plan": "hist_gb",
+  "validation_score": 0.6224313063401632,
+  "thresholds_hash": "99a8905a1004207b9c314a99d6ab10da88be232a5786fb35819e04e4348287d6",
+  "audit": {
+    "flags": [
+      {
+        "check": "A3",
+        "category": "id_signal",
+        "severity": "info",
+        "columns": [
+          "phone_number"
+        ],
+        "evidence": {
+          "kind": "id_like",
+          "signals": [
+            "near_unique"
+          ],
+          "unique_ratio": 1.0,
+          "row_order_spearman": 0.0048519926795644675,
+          "single_feature_relative_lift": -0.07100949234237974,
+          "single_feature_normalized_score": -0.017387569820058735,
+          "used_by_plan": false
+        },
+        "message": "'phone_number' looks like an identifier (near_unique) with no signal.",
+        "fix": {
+          "kind": "drop_columns",
+          "columns": [
+            "phone_number"
+          ],
+          "reason": "identifier; must not carry signal"
+        },
+        "invalidates_holdout": false
+      },
+      {
+        "check": "A5",
+        "category": "group_leakage",
+        "severity": "critical",
+        "columns": [
+          "account"
+        ],
+        "evidence": {
+          "kind": "group",
+          "column": "account",
+          "n_groups": 654,
+          "mean_rows_per_group": 3.9128440366972477,
+          "constant_feature_share": 0.13043478260869565,
+          "entity_scope": "new",
+          "comparison": {
+            "reference_splitter": "StratifiedKFold",
+            "reference_score": 0.6224313063401632,
+            "alternative_splitter": "GroupKFold(account)",
+            "alternative_score": 0.564085748280861,
+            "dummy_score": 0.5,
+            "absolute_drop": 0.058345558059302194,
+            "relative_drop": 0.47655750643707806,
+            "reference_repeat_score": 0.6393055223144846,
+            "relative_noise": 0.1378259897630925,
+            "n_usable_folds": 5,
+            "sampling": {
+              "n_rows_total": 2559,
+              "n_rows_used": 2559,
+              "row_method": "none",
+              "n_features_total": 24,
+              "n_features_used": 24,
+              "feature_method": "all"
+            }
+          }
+        },
+        "message": "Grouping by 'account' (654 values) drops the CV score from 0.622 to 0.564 (48% of the lift): the plan memorises entities. The sealed holdout shares these entities with development data.",
+        "fix": {
+          "kind": "change_split",
+          "new_spec": {
+            "strategy": "group",
+            "test_size": 0.2,
+            "group_col": "account",
+            "time_col": null,
+            "seed": 101,
+            "entity_scope": "new"
+          },
+          "instruction": "start a new run with --split group:account --entities new, or --entities known if predictions are for entities already in the data"
+        },
+        "invalidates_holdout": true
+      },
+      {
+        "check": "A12",
+        "category": "unstable_validation",
+        "severity": "info",
+        "columns": [],
+        "evidence": {
+          "kind": "stability",
+          "fold_scores": [
+            0.6259058931664722,
+            0.6386325874076431,
+            0.6587611607142857,
+            0.5506766183035714,
+            0.6381802721088435
+          ],
+          "dummy_score": 0.5,
+          "dummy_fold_scores": [
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.5
+          ],
+          "fold_lifts": [
+            0.12590589316647216,
+            0.13863258740764306,
+            0.1587611607142857,
+            0.0506766183035714,
+            0.13818027210884354
+          ],
+          "coefficient_of_variation": 0.06007568645953709,
+          "lift_coefficient_of_variation": 0.3054201504507273,
+          "test_train_ratio": 0.25000004770701023,
+          "lift_interval_low": 0.04456661833196637,
+          "lift_interval_high": 0.20029599434835996,
+          "confidence": 0.95
+        },
+        "message": "Fold scores vary (std 0.037), but every fold beats the dummy and the 95% interval of the lift (+0.045 to +0.200) excludes zero.",
+        "fix": {
+          "kind": "no_action",
+          "reason": "spread recorded; it does not change the conclusion"
+        },
+        "invalidates_holdout": false
+      }
+    ],
+    "checks_run": [
+      {
+        "check": "A1",
+        "status": "ran",
+        "seconds": 2.2689830000745133,
+        "sampling": {
+          "n_rows_total": 2559,
+          "n_rows_used": 2559,
+          "row_method": "none",
+          "n_features_total": 24,
+          "n_features_used": 24,
+          "feature_method": "all"
+        },
+        "detail": "24 feature(s) scored with StratifiedKFold"
+      },
+      {
+        "check": "A2",
+        "status": "ran",
+        "seconds": 4.97854629997164,
+        "sampling": null,
+        "detail": "provider lexicon+gemini: 0 hinted column(s)"
+      },
+      {
+        "check": "A3",
+        "status": "ran",
+        "seconds": 0.024764000088907778,
+        "sampling": null,
+        "detail": "1 ID-like column(s)"
+      },
+      {
+        "check": "A4",
+        "status": "ran",
+        "seconds": 0.165111199952662,
+        "sampling": null,
+        "detail": "no duplicates across folds; 0 redundant dev rows"
+      },
+      {
+        "check": "A5",
+        "status": "ran",
+        "seconds": 72.73097350005992,
+        "sampling": null,
+        "detail": "account: relative drop 48%; number_vmail_messages: relative drop -10%"
+      },
+      {
+        "check": "A6",
+        "status": "ran",
+        "seconds": 0.047871400020085275,
+        "sampling": null,
+        "detail": "row order: no target autocorrelation"
+      },
+      {
+        "check": "A7",
+        "status": "ran",
+        "seconds": 0.000470799976028502,
+        "sampling": null,
+        "detail": "metric roc_auc"
+      },
+      {
+        "check": "A8",
+        "status": "ran",
+        "seconds": 0.10984120005741715,
+        "sampling": null,
+        "detail": "0 format issue(s)"
+      },
+      {
+        "check": "A9",
+        "status": "ran",
+        "seconds": 0.0007984000258147717,
+        "sampling": null,
+        "detail": "no target-aware encoders"
+      },
+      {
+        "check": "A10",
+        "status": "ran",
+        "seconds": 0.0000700999516993761,
+        "sampling": null,
+        "detail": "score within normal range; standard audit depth"
+      },
+      {
+        "check": "A11",
+        "status": "ran",
+        "seconds": 0.0,
+        "sampling": null,
+        "detail": "generated report checked; 0 causal-claim flag(s)"
+      },
+      {
+        "check": "A12",
+        "status": "ran",
+        "seconds": 0.005505400011315942,
+        "sampling": null,
+        "detail": null
+      }
+    ],
+    "thresholds_hash": "99a8905a1004207b9c314a99d6ab10da88be232a5786fb35819e04e4348287d6",
+    "deep_mode": false,
+    "entity_scope": "new",
+    "complete": true,
+    "holdout_invalid": true,
+    "counts": {
+      "info": 2,
+      "warning": 0,
+      "critical": 1
+    }
+  },
+  "unseal": {
+    "requested": false,
+    "allowed": false,
+    "blocked_by": [
+      "holdout invalid (A5): it shares rows, entities or time with development data; start a new run with the corrected split (not overridable)"
+    ],
+    "acknowledged_warnings": false,
+    "accepted_risk": null,
+    "overridden_criticals": []
+  },
+  "holdout_invalid": true,
+  "caveats": [],
+  "holdout": "not unsealed",
+  "optimism_gap": null,
+  "artifacts": [
+    "holdout.parquet",
+    "holdout_seal.json",
+    "holdout_row_digests.json",
+    "holdout_access.jsonl",
+    "audit.json",
+    "checkpoints.sqlite",
+    "pipeline.py",
+    "run_manifest.json",
+    "report.md"
+  ],
+  "environment": {
+    "python": "3.12.15",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "packages": {
+      "holdout": "0.1.0",
+      "pandas": "2.3.3",
+      "numpy": "2.3.5",
+      "scikit-learn": "1.7.2",
+      "scipy": "1.16.3",
+      "lightgbm": "4.6.0",
+      "pyarrow": "21.0.0",
+      "pydantic": "2.14.3",
+      "typer": "0.29.1",
+      "rich": "15.0.0"
+    },
+    "git_commit": "3e09941571b6febaba618f36faff8e31db74484b",
+    "git_dirty": true
+  },
+  "agent": {
+    "mode": "autopilot",
+    "offline": false,
+    "llm_client": "GeminiClient",
+    "model": "gemini-3.8-flash",
+    "model_overridden": true,
+    "model_verified": true,
+    "seed_passed_to_model": true,
+    "thinking_level": "low",
+    "max_output_tokens": 4096,
+    "prompts": {
+      "plan": {
+        "version": "2",
+        "sha256": "8cd3f04cc460fdddb3453acbbebe6d12dffa770833f23fc4d7f80f9403ddccb0"
+      },
+      "hints": {
+        "version": "1",
+        "sha256": "cc224cfeb13c6e316e34f137cdfafa327b6b4a00f30b22536ddbc516af50b282"
+      },
+      "report": {
+        "version": "2",
+        "sha256": "dbca98b269108fc9358ce226d9743d1e1aded008b12c038e71e323ca9f33da27"
+      }
+    },
+    "usage_by_node": {
+      "audit": {
+        "calls": 1,
+        "cache_hits": 0,
+        "prompt_tokens": 1600,
+        "output_tokens": 6,
+        "thinking_tokens": 49,
+        "inr": 0.132328125,
+        "retries": 0,
+        "cached_tokens": 0,
+        "inr_cache_adjusted": 0.132328125,
+        "tiers": {
+          "standard": 1
+        },
+        "fallbacks": 0
+      },
+      "plan": {
+        "calls": 1,
+        "cache_hits": 0,
+        "prompt_tokens": 5531,
+        "output_tokens": 263,
+        "thinking_tokens": 0,
+        "inr": 0.48315644999999996,
+        "retries": 0,
+        "cached_tokens": 0,
+        "inr_cache_adjusted": 0.48315644999999996,
+        "tiers": {
+          "standard": 1
+        },
+        "fallbacks": 0
+      },
+      "report": {
+        "calls": 1,
+        "cache_hits": 0,
+        "prompt_tokens": 852,
+        "output_tokens": 327,
+        "thinking_tokens": 0,
+        "inr": 0.175520025,
+        "retries": 0,
+        "cached_tokens": 0,
+        "inr_cache_adjusted": 0.175520025,
+        "tiers": {
+          "standard": 1
+        },
+        "fallbacks": 0
+      }
+    },
+    "total_inr": 0.7910046,
+    "cache_hits": 0,
+    "retries": 0,
+    "api_seconds": 19.75,
+    "service_tier": "standard",
+    "quality": {
+      "first_attempt": {
+        "plan": {
+          "first_attempts": 1,
+          "valid": 1,
+          "rate": 1.0
+        },
+        "explain_and_fix": {
+          "first_attempts": 0,
+          "valid": 0,
+          "rate": null
+        },
+        "report": {
+          "first_attempts": 1,
+          "valid": 1,
+          "rate": 1.0
+        }
+      },
+      "repairs": 0,
+      "substitutions": 0
+    },
+    "rejected_attempts": [],
+    "outages": [],
+    "run_cap_inr": 15.0,
+    "project_cap_inr": 1600.0,
+    "budget_stop": null,
+    "decisions": [
+      {
+        "kind": "split",
+        "mode": "autopilot",
+        "accepted": true,
+        "detail": {
+          "entity_scope": "new"
+        },
+        "reason": "autopilot: accept the proposed split; entity scope new unless declared"
+      }
+    ],
+    "rounds": [
+      {
+        "round": 0,
+        "plan": {
+          "task": "classification",
+          "metric": "roc_auc",
+          "drop_columns": [
+            {
+              "column": "phone_number",
+              "reason": "unique identifier per row with high cardinality"
+            },
+            {
+              "column": "account",
+              "reason": "high-cardinality account identifier entity"
+            }
+          ],
+          "numeric": {
+            "impute": "median",
+            "scale": "none"
+          },
+          "categorical": {
+            "impute": "most_frequent",
+            "encode": "onehot"
+          },
+          "feature_selection": {
+            "method": "none"
+          },
+          "model": {
+            "name": "hist_gb",
+            "learning_rate": 0.08,
+            "max_iter": 200,
+            "max_leaf_nodes": 31,
+            "min_samples_leaf": 20,
+            "l2_regularization": 0.0
+          },
+          "class_weight": "balanced",
+          "rationale": {
+            "metric": "roc_auc is robust to class imbalance (12.4% positive)",
+            "drop_columns": "phone_number and account are identifiers that risk overfitting",
+            "preprocessing": "median imputation and onehot encoding fit tabular data cleanly",
+            "feature_selection": "feature count is compact so all informative predictors are kept",
+            "model": "hist_gb handles mixed tabular features and non-linear interactions well",
+            "class_weight": "balanced weights address the moderate positive class imbalance"
+          }
+        },
+        "plan_source": "llm",
+        "cv": {
+          "plan_label": "hist_gb",
+          "metric": "roc_auc",
+          "direction": "higher",
+          "mean": 0.6224313063401632,
+          "std": 0.037392988002291724,
+          "fold_scores": [
+            0.6259058931664722,
+            0.6386325874076431,
+            0.6587611607142857,
+            0.5506766183035714,
+            0.6381802721088435
+          ],
+          "fit_seconds": 16.686685399967246,
+          "n_rows": 2559,
+          "n_folds": 5,
+          "splitter": "StratifiedKFold"
+        },
+        "flag_counts": {
+          "info": 2,
+          "warning": 0,
+          "critical": 1
+        },
+        "flags": [
+          "A3 info id_signal phone_number",
+          "A5 critical group_leakage account",
+          "A12 info unstable_validation"
+        ]
+      }
+    ],
+    "substitutions": [],
+    "explanations": {},
+    "eda": [],
+    "report": {
+      "summary": "The agent built a predictive pipeline to classify the target using a gradient boosted model. While the cross-validation score on development data reached 0.6224, outperforming the dummy baseline score of 0.5000, the holdout dataset is invalid and was not evaluated. The current partition leaks account groups across splits, requiring a fresh run with an updated group-aware splitting strategy.",
+      "findings": [
+        "Check A5 raised a critical flag for group leakage along the account column, showing that the model memorises entities across splits.",
+        "The sealed holdout split contains overlapping account values with the development data, rendering holdout evaluation invalid.",
+        "The validation score reached 0.6224 with a standard deviation of 0.0374, compared to the dummy baseline of 0.5000."
+      ],
+      "caveats": [
+        "The reported validation metrics reflect memorisation of account groups and will not represent performance on unseen accounts.",
+        "Total dataset size is 3199 rows, with 2559 in development and 640 in holdout, but the holdout remains unusable until grouped splitting is applied."
+      ],
+      "recommendations": [
+        "Reconfigure the split strategy to group by the account column to prevent identical accounts from appearing in both training and test sets.",
+        "Launch a new modeling run with the corrected group split before evaluating final performance on unseen data."
+      ],
+      "causal_claim": false
+    },
+    "stop_reason": "the split leaks (a new run with the corrected split is needed)",
+    "previous_run_id": null,
+    "next_run_id": "20261119T062033Z-fe31cf"
+  }
+}
