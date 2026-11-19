@@ -33,7 +33,7 @@ from holdout.audit.checks import (
 from holdout.audit.checks.a01_single_feature import SingleFeatureResult
 from holdout.audit.context import AuditContext, OverlapSource
 from holdout.audit.hints import HintProvider, LexiconHintProvider
-from holdout.audit.thresholds import Thresholds, load_thresholds
+from holdout.audit.thresholds import Thresholds, ThresholdsV11, load_thresholds
 from holdout.audit.types import AuditFlag, AuditReport, CheckId, CheckRun
 from holdout.core.schemas import CVResult
 from holdout.core.state import RunState
@@ -47,11 +47,14 @@ A11_SKIP_DETAIL = "skipped: no report text (causal-claim check runs on generated
 
 
 class _Recorder:
-    def __init__(self) -> None:
+    def __init__(self, only: frozenset[CheckId] | None = None) -> None:
         self.flags: list[AuditFlag] = []
         self.runs: list[CheckRun] = []
+        self.only = only
 
     def run(self, check: CheckId, fn: Callable[[], CheckOutcome]) -> CheckOutcome | None:
+        if self.only is not None and check not in self.only:
+            return None
         started = time.perf_counter()
         try:
             outcome = fn()
@@ -95,10 +98,18 @@ def run_audits(
     overlap_source: OverlapSource | None = None,
     hint_provider: HintProvider | None = None,
     goal_text: str = "",
+    thresholds_v11: tuple[ThresholdsV11, str] | None = None,
+    checks: frozenset[CheckId] | None = None,
 ) -> AuditReport:
     """Audit a cross-validated plan on development rows; write ``audit.json`` if a run
-    state is given."""
+    state is given.
+
+    ``thresholds_v11`` (v1.1) layers the post-benchmark rule additions on the frozen
+    thresholds; None keeps the v1.0 behaviour. ``checks`` restricts the checks run (the v1.1
+    raw-data findings); None runs all of them.
+    """
     loaded, thresholds_hash = thresholds if thresholds is not None else load_thresholds()
+    v11, v11_hash = thresholds_v11 if thresholds_v11 is not None else (None, None)
     ctx = AuditContext(
         dev=dev_df,
         target=target,
@@ -111,8 +122,9 @@ def run_audits(
         overlap_source=overlap_source,
         hint_provider=hint_provider if hint_provider is not None else LexiconHintProvider(),
         goal_text=goal_text,
+        thresholds_v11=v11,
     )
-    recorder = _Recorder()
+    recorder = _Recorder(checks)
     a10 = recorder.run(CheckId.A10, lambda: a10_too_good.run(ctx))
     if a10 is not None and a10.flags:
         ctx = ctx.with_deep_mode()
@@ -187,6 +199,7 @@ def run_audits(
         flags=sorted(recorder.flags, key=lambda f: (_ORDER.index(f.check), -f.severity.rank)),
         checks_run=sorted(recorder.runs, key=lambda r: _ORDER.index(r.check)),
         thresholds_hash=thresholds_hash,
+        thresholds_v11_hash=v11_hash,
         deep_mode=audit.deep_mode,
         entity_scope=spec.entity_scope,
     )

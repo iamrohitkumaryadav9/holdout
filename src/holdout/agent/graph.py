@@ -54,7 +54,7 @@ from holdout.agent.schemas import (
 from holdout.agent.tracing import tracer
 from holdout.audit.gate import UnsealDecision, decide_unseal
 from holdout.audit.runner import run_audits, write_audit
-from holdout.audit.thresholds import load_thresholds
+from holdout.audit.thresholds import load_thresholds, load_thresholds_v11
 from holdout.audit.types import AuditFlag, AuditReport, ChangeSplit, CheckId, CheckRun, Severity
 from holdout.core.errors import AgentError, NodeTimeoutError, RunPausingError
 from holdout.core.schemas import CVResult, DataType, EntityScope, HoldoutResult, Task
@@ -438,6 +438,7 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
                 spec=spec,
                 target=_options(state).target,
                 thresholds=load_thresholds(),
+                thresholds_v11=load_thresholds_v11(),
                 overlap_source=sealed,
                 hint_provider=planner.hint_provider(state["goal"]),
                 goal_text=state["goal"],
@@ -791,6 +792,7 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
             baseline=baseline,
             result=result,
             thresholds_hash=final_audit.thresholds_hash,
+            thresholds_v11_hash=final_audit.thresholds_v11_hash,
             audit=final_audit,
             unseal=unseal_decision,
             holdout=holdout,

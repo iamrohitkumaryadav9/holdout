@@ -384,6 +384,8 @@ class AuditReport(BaseModel):
     flags: list[AuditFlag]
     checks_run: list[CheckRun]
     thresholds_hash: str
+    #: sha256 of thresholds_v11.toml when the v1.1 rules ran (None: v1.0 behaviour).
+    thresholds_v11_hash: str | None = None
     deep_mode: bool
     entity_scope: EntityScope | None
 

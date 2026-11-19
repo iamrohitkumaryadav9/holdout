@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from holdout.agent.schemas import AgentRecord
 from holdout.audit.gate import UnsealDecision, decide_unseal, validate_risk_reason
 from holdout.audit.runner import run_audits
-from holdout.audit.thresholds import load_thresholds
+from holdout.audit.thresholds import load_thresholds, load_thresholds_v11
 from holdout.audit.types import AuditReport
 from holdout.core.errors import HoldoutError, PlanValidationError, SplitError
 from holdout.core.schemas import (
@@ -204,6 +204,7 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
 
     watch.on_stage("auditing the pipeline on development rows")
     thresholds = load_thresholds()
+    thresholds_v11 = load_thresholds_v11()
     audit = run_audits(
         state,
         dev,
@@ -216,6 +217,7 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
         thresholds=thresholds,
         overlap_source=seal,
         goal_text=goal,
+        thresholds_v11=thresholds_v11,
     )
     if audit.holdout_invalid:
         seal.mark_invalid(_invalid_reasons(audit), caller=AUDIT_CALLER)
@@ -251,6 +253,7 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
             baseline=baseline,
             result=result,
             thresholds_hash=thresholds[1],
+            thresholds_v11_hash=thresholds_v11[1],
             audit=audit,
             unseal=decision,
             holdout=holdout,
@@ -295,6 +298,7 @@ class RunFacts:
     unseal: UnsealDecision
     holdout: HoldoutResult | None
     agent: AgentRecord | None = None
+    thresholds_v11_hash: str | None = None
 
 
 def finalize_run(facts: RunFacts) -> RunManifest:
@@ -365,6 +369,7 @@ def finalize_run(facts: RunFacts) -> RunManifest:
         selected_plan=result.plan_label,
         validation_score=result.mean,
         thresholds_hash=facts.thresholds_hash,
+        thresholds_v11_hash=facts.thresholds_v11_hash,
         audit=facts.audit,
         unseal=facts.unseal,
         holdout_invalid=facts.audit.holdout_invalid,

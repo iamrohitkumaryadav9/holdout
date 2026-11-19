@@ -11,7 +11,7 @@ from typing import Protocol
 import pandas as pd
 
 from holdout.audit.hints import HintProvider, LexiconHintProvider
-from holdout.audit.thresholds import Thresholds
+from holdout.audit.thresholds import Thresholds, ThresholdsV11
 from holdout.core.schemas import CVResult, Task
 from holdout.core.seeds import derive_seed
 from holdout.data.profile import DatasetProfile
@@ -41,6 +41,8 @@ class AuditContext:
     hint_provider: HintProvider = dataclasses.field(default_factory=LexiconHintProvider)
     goal_text: str = ""
     deep_mode: bool = False
+    #: The v1.1 rule additions (thresholds_v11.toml); None = v1.0 behaviour.
+    thresholds_v11: ThresholdsV11 | None = None
 
     @property
     def task(self) -> Task:

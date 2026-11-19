@@ -105,6 +105,33 @@ class Thresholds(_Section):
     a12_stability: StabilityThresholds
 
 
+class IdLikeV11(_Section):
+    key_name_tokens: list[str] = Field(min_length=1)
+
+
+class GroupV11(_Section):
+    min_entity_constant_features: int = Field(ge=1)
+
+
+class ThresholdsV11(_Section):
+    """The v1.1 additions (``thresholds_v11.toml``), layered on :class:`Thresholds`."""
+
+    a03_id_like: IdLikeV11
+    a05_group: GroupV11
+
+
+def default_thresholds_v11_bytes() -> bytes:
+    """The packaged ``thresholds_v11.toml`` as bytes."""
+    return resources.files("holdout.audit").joinpath("thresholds_v11.toml").read_bytes()
+
+
+def load_thresholds_v11(path: Path | None = None) -> tuple[ThresholdsV11, str]:
+    """Load the v1.1 additions with their sha256 (v1.0 behaviour does not call this)."""
+    raw = path.read_bytes() if path is not None else default_thresholds_v11_bytes()
+    data = tomllib.loads(raw.decode("utf-8"))
+    return ThresholdsV11.model_validate(data), hashlib.sha256(raw).hexdigest()
+
+
 def default_thresholds_bytes() -> bytes:
     """The packaged ``thresholds.toml`` as bytes (LF line endings via .gitattributes)."""
     return resources.files("holdout.audit").joinpath("thresholds.toml").read_bytes()

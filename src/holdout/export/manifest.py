@@ -156,6 +156,10 @@ class RunManifest(_Record):
     selected_plan: str
     validation_score: float
     thresholds_hash: str = Field(description="sha256 of the audit thresholds file")
+    thresholds_v11_hash: str | None = Field(
+        default=None,
+        description="sha256 of thresholds_v11.toml, the v1.1 rule additions; None: v1.0",
+    )
     audit: AuditReport
     unseal: UnsealDecision
     holdout_invalid: bool
@@ -262,7 +266,12 @@ def render_report(manifest: RunManifest) -> str:
         f"{split.n_dev_rows} development / {split.n_holdout_rows} sealed holdout rows",
         f"- **Entities:** {scope}",
         f"- **Run seed:** {manifest.run_seed}; thresholds sha256 "
-        f"`{manifest.thresholds_hash[:12]}...`",
+        f"`{manifest.thresholds_hash[:12]}...`"
+        + (
+            f"; v1.1 additions sha256 `{manifest.thresholds_v11_hash[:12]}...`"
+            if manifest.thresholds_v11_hash
+            else ""
+        ),
         "",
         "## Results",
         "",

@@ -1,0 +1,21 @@
+# Holdout v1.1 audit additions, layered on top of thresholds.toml.
+#
+# POST-BENCHMARK: these rules come from the post-hoc error analysis of the pre-registered
+# benchmark (docs/error_analysis.md) and are NOT part of the pre-registered v1.0 evaluation.
+# thresholds.toml is unchanged and keeps its frozen sha256; v1.1 loads both files, and the
+# v1.0 behaviour loads only thresholds.toml. Each run manifest records both hashes.
+
+[a03_id_like]
+# A column is an identifier only if it is near-unique AND shows an identifier pattern: a
+# consecutive integer sequence, a uniform code shape, a monotonic order along the rows,
+# or a key-like name. Near-uniqueness alone is not enough: integer measurements such as
+# page counts or pixel coordinates are naturally near-unique (error analysis, section 3).
+# Key-like name: the column's last name token (split on _ - . space and camelCase) is one
+# of these, or the whole name is.
+key_name_tokens = ["id", "key", "uuid", "guid", "code", "number", "num", "no", "nbr", "ref"]
+
+[a05_group]
+# An entity key must be key-like (string or categorical, or an integer with an identifier
+# pattern as above) and have at least this many other columns constant within each key
+# value. A repeated count or measurement is not an entity (error analysis, section 3).
+min_entity_constant_features = 1
