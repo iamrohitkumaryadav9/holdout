@@ -38,6 +38,38 @@ def test_an_offline_run_reports_every_problem_found(tmp_path: Path) -> None:
     assert f"| {leak[0].id} |" in report
 
 
+@pytest.mark.parametrize("offline", [True, False])
+def test_a_causal_goal_is_declined_in_the_report(tmp_path: Path, offline: bool) -> None:
+    """Fix 6: the goal is a finding at intake; the report carries the decline (offline runs
+    included, which never ran A11 in v1.0)."""
+    case = build_case("causal_question", 0)
+    outcome = run_case(case, tmp_path, offline=offline)
+    manifest = outcome.manifest
+    assert manifest is not None
+    agent = manifest.agent
+    assert agent is not None
+    goal = [f for f in agent.data_findings if f.level == "goal"]
+    assert len(goal) == 1
+    assert goal[0].flag.category.value == "causal_claim"
+    assert agent.report is not None
+    declines = [c for c in agent.report.caveats if "no causal conclusion is drawn" in c]
+    assert len(declines) == 1
+    (status,) = [s for s in agent.findings if s.finding_id == goal[0].id]
+    assert status.resolved
+    assert status.outcome == "handled: the report declines a causal conclusion"
+    assert "no causal conclusion is drawn" in (outcome.run_dir / "report.md").read_text("utf-8")
+
+
+def test_a_predictive_goal_gets_no_decline(tmp_path: Path) -> None:
+    outcome = run_case(build_case("direct_leak", 0), tmp_path, offline=True)
+    assert outcome.manifest is not None
+    agent = outcome.manifest.agent
+    assert agent is not None
+    assert not [f for f in agent.data_findings if f.level == "goal"]
+    assert agent.report is not None
+    assert not [c for c in agent.report.caveats if "causal" in c]
+
+
 def test_the_first_plan_reuses_the_probe_audit(tmp_path: Path) -> None:
     """The offline plan is the probe: compile_and_fit and the round-0 audit are not rerun."""
     case = build_case("direct_leak", 0)

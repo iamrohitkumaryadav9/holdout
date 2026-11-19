@@ -117,6 +117,47 @@ def check_causal_claims(
     return flags
 
 
+def check_goal(goal_text: str, columns: Sequence[str], target: str) -> list[AuditFlag]:
+    """v1.1 (error analysis section 1): a causal *question* in the goal, raised at intake.
+
+    The same lexicon as for reports ("Does X cause Y?" asserts nothing, but asks for a
+    conclusion a predictive model cannot give). The flag names the data columns the goal
+    mentions; the report then declines a causal conclusion (:func:`decline_sentence`).
+    """
+    flags = check_causal_claims(goal_text)
+    if not flags:
+        return []
+    evidence = flags[0].evidence
+    assert isinstance(evidence, CausalEvidence)
+    lowered = goal_text.lower()
+    mentioned = [
+        c
+        for c in columns
+        if c != target and re.search(rf"(?<![\w]){re.escape(c.lower())}(?![\w])", lowered)
+    ]
+    return [
+        flags[0].model_copy(
+            update={
+                "columns": mentioned,
+                "message": (
+                    "The goal asks a causal question; a predictive model on observational "
+                    "data shows association, not cause and effect. The report declines a "
+                    "causal conclusion."
+                ),
+            }
+        )
+    ]
+
+
+def decline_sentence(causes: Sequence[str], target: str) -> str:
+    """The caveat every report of a causal goal carries (it is not itself a claim)."""
+    what = ", ".join(causes) if causes else "any column"
+    return (
+        f"This analysis is predictive: it cannot establish whether {what} affects {target}, "
+        "and no causal conclusion is drawn."
+    )
+
+
 def _causal_phrases(sentence: str) -> list[str]:
     lowered = sentence.lower()
     found: list[str] = []

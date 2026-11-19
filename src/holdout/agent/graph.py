@@ -54,11 +54,13 @@ from holdout.agent.schemas import (
     LLMQuality,
     NodeUsage,
     RejectedAttempt,
+    ReportDraft,
     RoundRecord,
     SandboxResult,
     Substitution,
 )
 from holdout.agent.tracing import tracer
+from holdout.audit.checks.a11_causal import check_goal, decline_sentence
 from holdout.audit.findings import (
     DataFinding,
     collect_findings,
@@ -487,7 +489,10 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
         """v1.1: audit the probe on the raw development rows; record the data findings."""
         probe = state["probe"]
         report = _audit_plan(state, probe["plan"], probe["cv"], probe["baseline"], 0)
-        findings = collect_findings(report)
+        _, profile, _, _ = _materialize(state)
+        # v1.1 fix 6: a causal question in the goal is a finding from intake on.
+        goal = check_goal(state["goal"], [c.name for c in profile.columns], _options(state).target)
+        findings = collect_findings(report, goal_flags=goal)
         return {
             "probe": {**probe, "audit": report.model_dump(mode="json")},
             "data_findings": [f.model_dump(mode="json") for f in findings],
@@ -813,6 +818,13 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
         "split": spec.strategy.value,
     }
     caveats = list(sealed.caveats)
+    # v1.1 fix 6: a causal goal gets a code-enforced decline, whatever the prose says.
+    decline = [
+        decline_sentence(f.flag.columns, opts.target) for f in _findings(state) if f.level == "goal"
+    ][:1]
+    if decline:
+        facts["causal_question"] = True
+        caveats += decline
     outcome = deps.planner.draft_report(
         ReportContext(
             goal=state["goal"],
@@ -826,6 +838,16 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
             round=state.get("round", 0),
         )
     )
+    if decline and decline[0] not in outcome.draft.caveats:
+        outcome = dataclasses.replace(
+            outcome,
+            draft=ReportDraft.model_validate(  # the decline first; the schema caps caveats
+                {
+                    **outcome.draft.model_dump(),
+                    "caveats": [decline[0], *outcome.draft.caveats][:12],
+                }
+            ),
+        )
     final_audit = _with_causal_check(
         audit_report, outcome.causal_flags, ran=not deps.planner.offline
     )
