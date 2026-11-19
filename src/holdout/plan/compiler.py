@@ -76,6 +76,15 @@ def cv_from_split(spec: SplitSpec) -> Any:
     return portable.make_cv(spec.strategy.value, config.N_FOLDS, derive_seed(spec.seed, "cv"))
 
 
+def plan_rows(plan: ModelPlan, dev_df: pd.DataFrame, target: str) -> pd.DataFrame:
+    """The development rows ``plan`` is evaluated and fitted on (v1.1: deduplicated if the
+    plan says so)."""
+    if not plan.deduplicate:
+        return dev_df
+    rows, _ = portable.drop_duplicate_rows(dev_df, target, config.ROW_HASH_SIGNIFICANT_DIGITS)
+    return rows
+
+
 def evaluate_cv(
     plan: ModelPlan,
     dev_df: pd.DataFrame,
@@ -93,7 +102,7 @@ def evaluate_cv(
             classes), with the fold number in the message.
     """
     pipeline = compile_plan(plan, profile, run_seed=spec.seed)
-    X, y, groups = portable.cv_inputs(dev_df, target, spec.to_config())
+    X, y, groups = portable.cv_inputs(plan_rows(plan, dev_df, target), target, spec.to_config())
     metric = get_metric(plan.metric)
     try:
         scores, seconds = portable.cross_validate_scores(
@@ -120,7 +129,7 @@ def fit_final(
 ) -> Pipeline:
     """Fit ``plan`` on all development rows, for the single holdout evaluation."""
     pipeline = compile_plan(plan, profile, run_seed=spec.seed)
-    X, y, _ = portable.cv_inputs(dev_df, target, spec.to_config())
+    X, y, _ = portable.cv_inputs(plan_rows(plan, dev_df, target), target, spec.to_config())
     try:
         fitted: Pipeline = pipeline.fit(X, y)
     except ValueError as exc:

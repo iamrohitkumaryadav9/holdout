@@ -108,6 +108,13 @@ class RichAsker:
         new_metric = payload["proposed_plan"]["metric"]
         if old_metric != new_metric:
             console.print(f"  metric: {old_metric} -> {new_metric}")
+        if payload["proposed_plan"].get("deduplicate") and not payload["current_plan"].get(
+            "deduplicate"
+        ):
+            console.print(
+                "  deduplicate: remove duplicate development rows before cross-validation "
+                "(the holdout is untouched)"
+            )
         accepted = Confirm.ask("Apply these fixes and re-run the audit?", default=True)
         return Decision(
             kind="review",

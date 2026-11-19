@@ -40,7 +40,14 @@ from holdout.agent.schemas import (
 from holdout.audit.checks.a11_causal import StructuredCausalClaim, check_causal_claims
 from holdout.audit.findings import DataFinding, handling_problems
 from holdout.audit.hints import ColumnHint, HintProvider, HintRequest, LexiconHintProvider
-from holdout.audit.types import AuditFlag, CausalEvidence, ChangeMetric, DropColumns, Severity
+from holdout.audit.types import (
+    AuditFlag,
+    CausalEvidence,
+    ChangeMetric,
+    Deduplicate,
+    DropColumns,
+    Severity,
+)
 from holdout.core.errors import AgentError, LLMOutputError
 from holdout.core.schemas import Task
 from holdout.data.profile import DatasetProfile
@@ -52,14 +59,21 @@ from holdout.plan.schema import Severity as IssueSeverity
 # ----------------------------------------------------------------------------- fixes
 
 
+def _is_plan_fix(fix: object) -> bool:
+    # v1.1: deduplicating the development rows is a plan action (ModelPlan.deduplicate);
+    # deduplicating before the split is not - that needs a new run.
+    return isinstance(fix, DropColumns | ChangeMetric) or (
+        isinstance(fix, Deduplicate) and fix.scope == "dev"
+    )
+
+
 def plan_fixes(flags: Sequence[AuditFlag]) -> list[AuditFlag]:
-    """Critical flags whose typed fix changes the plan (drop columns, change metric)."""
+    """Critical flags whose typed fix changes the plan (drop columns, change metric,
+    deduplicate the development rows)."""
     return [
         f
         for f in flags
-        if f.severity is Severity.CRITICAL
-        and not f.invalidates_holdout
-        and isinstance(f.fix, DropColumns | ChangeMetric)
+        if f.severity is Severity.CRITICAL and not f.invalidates_holdout and _is_plan_fix(f.fix)
     ]
 
 
@@ -70,6 +84,8 @@ def fix_labels(flags: Sequence[AuditFlag]) -> list[str]:
             labels.extend(f"drop:{c}" for c in flag.fix.columns)
         elif isinstance(flag.fix, ChangeMetric):
             labels.append(f"metric:{flag.fix.metric.value}")
+        elif isinstance(flag.fix, Deduplicate) and flag.fix.scope == "dev":
+            labels.append("deduplicate:dev")
     return sorted(set(labels))
 
 
@@ -83,6 +99,8 @@ def fix_constraints(plan: ModelPlan, flags: Sequence[AuditFlag]) -> list[str]:
                 f'revised_plan.drop_columns MUST contain an entry {{"column": "{value}", '
                 '"reason": ...}; keep every column the current plan already drops'
             )
+        elif kind == "deduplicate":
+            constraints.append("revised_plan.deduplicate MUST be true")
         else:
             constraints.append(f'revised_plan.metric MUST be "{value}"')
     constraints.append(
@@ -97,8 +115,11 @@ def apply_fixes(plan: ModelPlan, flags: Sequence[AuditFlag]) -> ModelPlan:
     drops = list(plan.drop_columns)
     dropped = {d.column for d in drops}
     metric = plan.metric
+    deduplicate = plan.deduplicate
     rationale = plan.rationale.model_dump()
     for flag in flags:
+        if isinstance(flag.fix, Deduplicate) and flag.fix.scope == "dev":
+            deduplicate = True
         if isinstance(flag.fix, DropColumns):
             for column in flag.fix.columns:
                 if column not in dropped:
@@ -119,6 +140,7 @@ def apply_fixes(plan: ModelPlan, flags: Sequence[AuditFlag]) -> ModelPlan:
             "drop_columns": [d.model_dump() for d in drops],
             "metric": metric.value,
             "rationale": rationale,
+            "deduplicate": deduplicate,
         }
     )
 
@@ -130,6 +152,8 @@ def missed_fixes(revised: ModelPlan, flags: Sequence[AuditFlag]) -> list[str]:
         if kind == "drop" and value not in revised.dropped:
             missed.append(label)
         if kind == "metric" and revised.metric.value != value:
+            missed.append(label)
+        if kind == "deduplicate" and not revised.deduplicate:
             missed.append(label)
     return missed
 

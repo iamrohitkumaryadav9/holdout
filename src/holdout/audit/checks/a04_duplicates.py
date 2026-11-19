@@ -13,6 +13,8 @@ share at or above the threshold is critical; a smaller positive share is a warni
 the count. A holdout overlap at or above the threshold also invalidates the holdout.
 """
 
+from typing import Literal
+
 import numpy as np
 
 from holdout.audit.checks import CheckOutcome
@@ -91,7 +93,19 @@ def run(ctx: AuditContext) -> CheckOutcome:
             holdout_overlap_note=note,
         ),
         message=message,
-        fix=Deduplicate(scope="before_split" if holdout_share else "dev"),
+        fix=Deduplicate(scope=_scope(ctx, holdout_share, invalidates)),
         invalidates_holdout=invalidates,
     )
     return CheckOutcome(flags=[flag], detail=f"{redundant} redundant dev rows")
+
+
+def _scope(
+    ctx: AuditContext, holdout_share: float | None, invalidates: bool
+) -> Literal["dev", "before_split"]:
+    """v1.0: any holdout overlap asks for deduplication before the split. v1.1 (post-
+    benchmark, error analysis section 1): only an overlap that invalidates the holdout does;
+    below that threshold, deduplicating the development rows - an action the plan can take
+    (``ModelPlan.deduplicate``) - removes the cross-fold inflation."""
+    if ctx.thresholds_v11 is None:
+        return "before_split" if holdout_share else "dev"
+    return "before_split" if invalidates else "dev"

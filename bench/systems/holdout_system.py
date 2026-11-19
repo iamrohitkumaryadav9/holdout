@@ -151,7 +151,8 @@ class HoldoutSystem:
                 dropped_columns=sorted(plan.dropped),
                 metric=plan.metric.value,
                 split=_split_label(spec.strategy.value, spec.group_col or spec.time_col),
-                deduplicated=False,  # Holdout reports duplicates; it never removes rows itself
+                # v1.0 never removed rows; from v1.1 the plan can deduplicate dev rows.
+                deduplicated=plan.deduplicate,
                 model=plan.model.name,
             ),
             estimator=estimator,

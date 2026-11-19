@@ -47,6 +47,8 @@ Allowed values (exact spellings; anything else is rejected):
 - feature_selection: {"method": "none"} | {"method": "k_best", "k": 1..1000} |
   {"method": "model_based"}.
 - class_weight: "none" | "balanced".
+- deduplicate: true | false (optional, default false): true removes duplicate development
+  rows (equal features) before cross-validation; code applies it, never to the holdout.
 - rationale: one line (3 to 200 characters) for each of metric, drop_columns,
   preprocessing, feature_selection, model, class_weight.
 

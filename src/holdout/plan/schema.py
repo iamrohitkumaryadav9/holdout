@@ -190,6 +190,12 @@ class ModelPlan(_Strict):
     model: ModelSpec
     class_weight: Literal["none", "balanced"] = "none"
     rationale: Rationale
+    #: v1.1: remove duplicate development rows (equal normalised features) before
+    #: cross-validation and the final fit. Code applies it; the holdout is never touched.
+    deduplicate: bool = Field(
+        default=False,
+        description="true removes duplicate development rows before cross-validation",
+    )
     #: v1.1: one entry per data finding (raw-data audit before planning). Empty for runs
     #: without findings and for every plan written by v1.0, which still load.
     findings_handled: list[FindingHandling] = Field(default_factory=list, max_length=50)

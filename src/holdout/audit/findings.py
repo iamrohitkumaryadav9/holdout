@@ -105,8 +105,8 @@ def _resolves(plan: ModelPlan, finding: DataFinding) -> FindingAction | None:
         return "drop_columns"
     if isinstance(fix, ChangeMetric) and plan.metric is fix.metric:
         return "change_metric"
-    if isinstance(fix, Deduplicate) and getattr(plan, "deduplicate", False):
-        return "deduplicate"
+    if isinstance(fix, Deduplicate) and fix.scope == "dev" and plan.deduplicate:
+        return "deduplicate"  # a holdout overlap (before_split) is not resolved by the plan
     return None
 
 
@@ -140,6 +140,10 @@ def handling_problems(plan: ModelPlan, findings: Sequence[DataFinding]) -> list[
             problems.append(f"{entry.finding_id}: decline_causal_claim applies to the goal")
         if entry.action == "change_metric" and not isinstance(finding.flag.fix, ChangeMetric):
             problems.append(f"{entry.finding_id}: change_metric does not address this finding")
+        if entry.action == "deduplicate" and not plan.deduplicate:
+            problems.append(
+                f"{entry.finding_id}: action deduplicate, but plan.deduplicate is false"
+            )
     for fid in ids:
         if seen.get(fid, 0) == 0:
             problems.append(f"findings_handled has no entry for {fid}; answer every finding")

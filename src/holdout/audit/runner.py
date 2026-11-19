@@ -39,6 +39,7 @@ from holdout.core.schemas import CVResult
 from holdout.core.state import RunState
 from holdout.data.profile import DatasetProfile
 from holdout.data.split import SplitSpec
+from holdout.plan.compiler import plan_rows
 from holdout.plan.schema import ModelPlan
 
 _ORDER = list(CheckId)
@@ -111,7 +112,8 @@ def run_audits(
     loaded, thresholds_hash = thresholds if thresholds is not None else load_thresholds()
     v11, v11_hash = thresholds_v11 if thresholds_v11 is not None else (None, None)
     ctx = AuditContext(
-        dev=dev_df,
+        # v1.1: a plan that deduplicates is audited on the rows it is evaluated on.
+        dev=plan_rows(plan, dev_df, target),
         target=target,
         profile=profile,
         spec=spec,

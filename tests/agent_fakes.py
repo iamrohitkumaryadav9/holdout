@@ -80,6 +80,8 @@ def explain_fix(request: LLMRequest) -> dict[str, Any]:
         if kind == "metric":
             plan["metric"] = value
             plan["rationale"]["metric"] = f"{value}: chosen after the audit"
+        if kind == "deduplicate":
+            plan["deduplicate"] = True
     plan["drop_columns"] = drops
     explanations = [
         {

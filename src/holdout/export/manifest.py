@@ -156,6 +156,11 @@ class RunManifest(_Record):
     derived_seeds: dict[str, int]
     plans: list[PlanRecord] = Field(description="baseline first, then the selected plan")
     selected_plan: str
+    #: v1.1: development rows the selected plan removed as duplicates (None: no dedup).
+    dev_rows_deduplicated: int | None = Field(
+        default=None,
+        description="development rows removed by the plan's deduplicate step; None: not used",
+    )
     validation_score: float
     thresholds_hash: str = Field(description="sha256 of the audit thresholds file")
     thresholds_v11_hash: str | None = Field(
@@ -265,7 +270,13 @@ def render_report(manifest: RunManifest) -> str:
         f"- **Target:** `{manifest.target}` ({manifest.task.value}); "
         f"metric **{manifest.metric.value}** ({manifest.direction.value} is better)",
         f"- **Split:** {split.spec.strategy.value} ({split.source}), "
-        f"{split.n_dev_rows} development / {split.n_holdout_rows} sealed holdout rows",
+        f"{split.n_dev_rows} development / {split.n_holdout_rows} sealed holdout rows"
+        + (
+            f"; {manifest.dev_rows_deduplicated} duplicate development rows removed before "
+            "cross-validation (the holdout is untouched)"
+            if manifest.dev_rows_deduplicated is not None
+            else ""
+        ),
         f"- **Entities:** {scope}",
         f"- **Run seed:** {manifest.run_seed}; thresholds sha256 "
         f"`{manifest.thresholds_hash[:12]}...`"

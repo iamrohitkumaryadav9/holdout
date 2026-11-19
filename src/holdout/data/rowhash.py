@@ -15,34 +15,12 @@ import hmac
 import numpy as np
 import pandas as pd
 
-_MISSING = "\x00<missing>"
+# The normalisation lives in the portable kernel (v1.1) so an exported pipeline.py can
+# deduplicate development rows exactly as the run did; the code is unchanged, so seal
+# digests are unchanged.
+from holdout.core.portable import normalise_features, round_significant
 
-
-def normalise_features(features: pd.DataFrame, significant_digits: int) -> pd.DataFrame:
-    """Return a normalised copy: columns sorted by name, floats rounded, strings folded."""
-    columns = sorted(features.columns, key=str)
-    out: dict[str, pd.Series] = {}
-    for column in columns:
-        values = features[column]
-        if pd.api.types.is_bool_dtype(values) or pd.api.types.is_numeric_dtype(values):
-            out[str(column)] = pd.Series(
-                round_significant(values.astype("float64").to_numpy(), significant_digits),
-                index=features.index,
-            )
-        else:
-            text = values.astype(str).str.strip().str.lower()
-            out[str(column)] = text.where(values.notna(), _MISSING)
-    return pd.DataFrame(out, index=features.index)
-
-
-def round_significant(values: np.ndarray, digits: int) -> np.ndarray:
-    """Round to ``digits`` significant digits; NaN and infinities are kept as they are."""
-    result = np.array(values, dtype="float64", copy=True)
-    finite = np.isfinite(result) & (result != 0.0)
-    magnitude = np.floor(np.log10(np.abs(result[finite])))
-    factor = np.power(10.0, digits - 1 - magnitude)
-    result[finite] = np.round(result[finite] * factor) / factor
-    return result + 0.0  # turn -0.0 into 0.0 so both hash alike
+__all__ = ["keyed_digests", "normalise_features", "round_significant", "row_fingerprints"]
 
 
 def row_fingerprints(features: pd.DataFrame, significant_digits: int) -> np.ndarray:

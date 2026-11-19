@@ -35,6 +35,13 @@ def render_pipeline_script(
     """
     pipeline_config = plan_to_config(plan, profile, run_seed=spec.seed)
     split_config = spec.to_config()
+    # v1.1: a plan that deduplicates development rows reproduces that step too.
+    dedup = (
+        [f"DEDUP_SIGNIFICANT_DIGITS = {config.ROW_HASH_SIGNIFICANT_DIGITS}", ""]
+        if plan.deduplicate
+        else []
+    )
+    dedup_arg = ["            dedup_significant_digits=DEDUP_SIGNIFICANT_DIGITS,"] * bool(dedup)
     sections = [
         _header(plan, spec),
         _kernel_source(),
@@ -49,6 +56,7 @@ def render_pipeline_script(
         "",
         f"PIPELINE_CONFIG: PipelineConfig = {_literal(pipeline_config)}",
         "",
+        *dedup,
         "",
         'if __name__ == "__main__":',
         "    raise SystemExit(",
@@ -61,6 +69,7 @@ def render_pipeline_script(
         "            cv_seed=CV_SEED,",
         "            split_config=SPLIT_CONFIG,",
         "            pipeline_config=PIPELINE_CONFIG,",
+        *dedup_arg,
         "        )",
         "    )",
         "",
@@ -98,6 +107,8 @@ def _header(plan: ModelPlan, spec: SplitSpec) -> str:
     if plan.drop_columns:
         lines.append("# Dropped columns:")
         lines += [f"#   {d.column!r}: {d.reason}" for d in plan.drop_columns]
+    if plan.deduplicate:
+        lines.append("# Duplicate development rows are removed before cross-validation.")
     return "\n".join(lines) + "\n"
 
 

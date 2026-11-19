@@ -193,6 +193,51 @@ def split_frame(
     return frame.iloc[np.sort(dev_pos)], frame.iloc[np.sort(holdout_pos)]
 
 
+_MISSING = "\x00<missing>"
+
+
+def normalise_features(features: pd.DataFrame, significant_digits: int) -> pd.DataFrame:
+    """Return a normalised copy: columns sorted by name, floats rounded, strings folded."""
+    columns = sorted(features.columns, key=str)
+    out: dict[str, pd.Series] = {}
+    for column in columns:
+        values = features[column]
+        if pd.api.types.is_bool_dtype(values) or pd.api.types.is_numeric_dtype(values):
+            out[str(column)] = pd.Series(
+                round_significant(values.astype("float64").to_numpy(), significant_digits),
+                index=features.index,
+            )
+        else:
+            text = values.astype(str).str.strip().str.lower()
+            out[str(column)] = text.where(values.notna(), _MISSING)
+    return pd.DataFrame(out, index=features.index)
+
+
+def round_significant(values: np.ndarray, digits: int) -> np.ndarray:
+    """Round to ``digits`` significant digits; NaN and infinities are kept as they are."""
+    result = np.array(values, dtype="float64", copy=True)
+    finite = np.isfinite(result) & (result != 0.0)
+    magnitude = np.floor(np.log10(np.abs(result[finite])))
+    factor = np.power(10.0, digits - 1 - magnitude)
+    result[finite] = np.round(result[finite] * factor) / factor
+    return result + 0.0  # turn -0.0 into 0.0 so both hash alike
+
+
+def drop_duplicate_rows(
+    dev: pd.DataFrame, target: str, significant_digits: int
+) -> tuple[pd.DataFrame, int]:
+    """Keep the first of development rows whose normalised features match (v1.1).
+
+    The same normalisation as the duplicate audit; the label is not compared, so of two
+    rows with equal features and different labels the first is kept. Never applied to the
+    holdout. Returns the remaining rows (original order and index) and the number removed.
+    """
+    normalised = normalise_features(dev.drop(columns=[target]), significant_digits)
+    duplicated = pd.util.hash_pandas_object(normalised, index=False).duplicated(keep="first")
+    keep = ~duplicated.to_numpy()
+    return dev.iloc[keep], int((~keep).sum())
+
+
 def make_cv(strategy: str, n_splits: int, seed: int) -> Any:
     """Return the CV splitter that matches the holdout split strategy.
 
@@ -472,11 +517,13 @@ def run_exported_cv(
     cv_seed: int,
     split_config: SplitConfig,
     pipeline_config: PipelineConfig,
+    dedup_significant_digits: int | None = None,
 ) -> int:
     """Command-line entry point of an exported ``pipeline.py``.
 
-    Re-applies the recorded split, discards the holdout rows unseen, and prints the
-    cross-validated score on the development rows. It never scores the holdout.
+    Re-applies the recorded split, discards the holdout rows unseen, removes duplicate
+    development rows if the plan did, and prints the cross-validated score on the
+    development rows. It never scores the holdout.
     """
     parser = argparse.ArgumentParser(description="Reproduce a Holdout cross-validation run.")
     parser.add_argument("--csv", type=Path, required=True, help="the CSV the run used")
@@ -490,6 +537,9 @@ def run_exported_cv(
         )
     frame, _ = load_csv(args.csv, target)
     dev, _ = split_frame(frame, target, split_config)
+    if dedup_significant_digits is not None:
+        dev, removed = drop_duplicate_rows(dev, target, dedup_significant_digits)
+        print(f"deduplicated: {removed} development rows removed")
     X, y, groups = cv_inputs(dev, target, split_config)
     cv = make_cv(split_config["strategy"], n_splits, cv_seed)
     scores, seconds = cross_validate_scores(

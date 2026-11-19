@@ -367,6 +367,9 @@ def finalize_run(facts: RunFacts) -> RunManifest:
             PlanRecord(label=result.plan_label, plan=facts.plan, issues=facts.issues, cv=result),
         ],
         selected_plan=result.plan_label,
+        dev_rows_deduplicated=(
+            facts.n_dev_rows - result.n_rows if facts.plan.deduplicate else None
+        ),
         validation_score=result.mean,
         thresholds_hash=facts.thresholds_hash,
         thresholds_v11_hash=facts.thresholds_v11_hash,
