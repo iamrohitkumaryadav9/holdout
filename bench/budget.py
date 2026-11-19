@@ -276,7 +276,9 @@ def estimate(
     reserve = 0.0 if purpose == "benchmark" else llm_config.BENCHMARK_RESERVE_INR
     available = cap - reserve - spent
     where = "the project cap" if purpose == "benchmark" else "the cap minus the reserve"
-    if total > available:
+    if total + headroom <= 0:
+        pass  # no LLM units: a run that spends nothing cannot breach a cap
+    elif total > available:
         shortfalls.append(
             f"estimated Rs {total:.2f} exceeds the Rs {available:.2f} left under {where} "
             f"(short by Rs {total - available:.2f})"

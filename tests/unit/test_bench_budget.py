@@ -121,6 +121,23 @@ def test_completed_units_cost_nothing(home: Path) -> None:
     assert report.fits
 
 
+def test_an_offline_run_fits_even_when_the_caps_are_spent(home: Path) -> None:
+    """Spending past the cap must not block runs that make no API calls (audits_only)."""
+    _spent(2000.0)
+    for purpose in ("benchmark", "general"):
+        report = estimate(
+            {"audits_only": 24, "flaml": 24}, AMEND2, purpose=purpose,
+            measured=MEASURED, today=date(2026, 11, 20),
+        )  # fmt: skip
+        assert report.available_inr < 0
+        assert report.total_inr == 0
+        assert report.fits, report.render()
+    llm = estimate(
+        {"holdout": 1}, AMEND2, purpose="benchmark", measured=MEASURED, today=date(2026, 11, 20)
+    )
+    assert not llm.fits  # any spend still has to fit
+
+
 def test_the_price_doubling_is_priced_in(home: Path) -> None:
     SpendLedger().record_balance(700.0, datetime.now().astimezone().date())
     before = estimate(
