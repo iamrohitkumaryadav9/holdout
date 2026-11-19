@@ -6,7 +6,7 @@ from pathlib import Path
 from bench.compare import changes, render, summarise
 from bench.run import append_result
 from bench.score import load_results, planted_truths
-from bench.systems.base import BenchResult, ReportedIssue
+from bench.systems.base import BenchResult, FinalPipeline, ReportedIssue
 from holdout.audit.types import Category, Severity
 
 TRUTHS = planted_truths("final_v1")
@@ -58,8 +58,28 @@ def test_every_change_is_listed_per_seed(tmp_path: Path) -> None:
     assert "ID_SIGNAL".lower() in text
 
 
+def test_a_lost_remediation_is_listed(tmp_path: Path) -> None:
+    trap = next(
+        t for t in TRUTHS.values()
+        if t.kind == "trap" and (t.expectations[0].remediation or "").startswith("drop:")
+    )  # fmt: skip
+    exp = trap.expectations[0]
+    column = (exp.remediation or "").removeprefix("drop:")
+    hit = _issue(exp.categories[0], Severity.CRITICAL, list(exp.columns))
+    for name, dropped in (("v1_0", [column]), ("v1_1", [])):
+        result = _result(trap.task_id, trap.variant, 101, [hit]).model_copy(
+            update={"pipeline": FinalPipeline(dropped_columns=dropped)}
+        )
+        append_result(tmp_path / name, result)
+    b = load_results(tmp_path / "v1_0", "final_v1")
+    a = load_results(tmp_path / "v1_1", "final_v1")
+    assert [(c.kind, c.seed) for c in changes(b, a, TRUTHS, "audits_only")] == [
+        ("remediation lost", 101)
+    ]
+
+
 def test_no_change_says_so(tmp_path: Path) -> None:
     for name in ("v1_0", "v1_1"):
         _write(tmp_path / name, {101: True}, {101: None})
     text = "\n".join(render("final_v1", tmp_path / "v1_0", tmp_path / "v1_1"))
-    assert "No per-seed change" in text
+    assert "No per-seed change in detection, remediation or false alarms" in text

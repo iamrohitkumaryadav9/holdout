@@ -108,8 +108,8 @@ def changes(
     truths: dict[tuple[str, str], TaskTruth],
     system: str,
 ) -> list[Change]:
-    """Every per-seed difference in detection (traps) and in warning-or-critical false
-    alarms (clean controls) between the two versions."""
+    """Every per-seed difference in detection and remediation (traps) and in critical or
+    warning false alarms (clean controls) between the two versions."""
     b, a = _mine(before, system), _mine(after, system)
     out: list[Change] = []
     b_scores = {(s.task_id, s.variant, s.issue_id): s for s in task_scores(b, truths)}
@@ -123,6 +123,12 @@ def changes(
             if was is None or was == now:
                 continue
             kind = "detection gained" if now else "detection lost"
+            out.append(Change(kind, label, seed, ""))
+        for seed, fixed in sorted(s.remediated_by_seed.items()):
+            was_fixed = old.remediated_by_seed.get(seed)
+            if fixed is None or was_fixed is None or fixed == was_fixed:
+                continue
+            kind = "remediation gained" if fixed else "remediation lost"
             out.append(Change(kind, label, seed, ""))
     by_key = {(r.task_id, r.variant, r.seed): r for r in b}
     for r in a:
@@ -170,7 +176,7 @@ def render(
     ]
     diffs = changes(b, a, truths, system)
     if not diffs:
-        lines += ["No per-seed change in detection or in false alarms.", ""]
+        lines += ["No per-seed change in detection, remediation or false alarms.", ""]
         return lines
     lines += ["| change | task | seed | issues behind it |", "|---|---|---|---|"]
     lines += [f"| {c.kind} | {c.task} | {c.seed} | {c.detail or '-'} |" for c in diffs]
