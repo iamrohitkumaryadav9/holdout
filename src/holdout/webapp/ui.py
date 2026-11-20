@@ -10,6 +10,7 @@ import streamlit as st
 import holdout
 from holdout import __version__
 from holdout.agent.driver import AgentOutcome
+from holdout.audit.checks.a12_stability import baseline_statement
 from holdout.audit.findings import FindingStatus
 from holdout.audit.render import fix_text
 from holdout.audit.types import AuditFlag, Severity
@@ -173,10 +174,10 @@ def show_outcome(outcome: AgentOutcome) -> None:
         if run.manifest is None:
             st.warning(f"The run did not complete ({run.status}): {run.stop_reason}")
             continue
-        show_manifest(run.manifest, run.run_dir)
+        show_manifest(run.manifest, run.run_dir, followup=i == 0 and outcome.followup is not None)
 
 
-def show_manifest(m: RunManifest, run_dir: Path) -> None:
+def show_manifest(m: RunManifest, run_dir: Path, *, followup: bool = False) -> None:
     baseline, selected = m.plans[0].cv, m.plans[-1].cv
     holdout_text = "not opened" if isinstance(m.holdout, str) else f"{m.holdout.score:.4f}"
     cols = st.columns(3)
@@ -186,13 +187,20 @@ def show_manifest(m: RunManifest, run_dir: Path) -> None:
     if m.holdout_invalid:
         st.error(
             "**Holdout invalid.** The sealed rows share rows, entities or time with the "
-            "development data, so they can never give an honest score. A new run with the "
-            "corrected split is needed."
+            "development data, so they are never opened. "
+            + (
+                "Holdout started a new run with the corrected split: its result is below."
+                if followup
+                else "A new run with the corrected split is needed."
+            )
         )
     elif m.holdout == NOT_UNSEALED:
         st.warning("The holdout stayed sealed: " + "; ".join(m.unseal.blocked_by or ["-"]))
     else:
         st.success("No critical problem remained, so the holdout was opened once and scored.")
+    weak = baseline_statement(m.audit.flags)
+    if weak is not None:  # v1.1: said next to the scores, not only in the warnings block
+        st.warning(weak)
     agent = m.agent
     if agent is not None and agent.findings:
         st.subheader("Problems found before planning")
@@ -223,11 +231,14 @@ def _severity_block(
     elif severity is Severity.WARNING:
         st.markdown(f"#### :orange[Warnings ({len(rows)})]")
         st.warning(text.WARNING_EXPLAINED, icon="⚠️")
+    else:
+        st.markdown(f"#### :blue[Info ({len(rows)})]")
+        st.info(text.INFO_FINDING_EXPLAINED)
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
 
 def show_findings(findings: list[FindingStatus]) -> None:
-    for severity in (Severity.CRITICAL, Severity.WARNING):
+    for severity in (Severity.CRITICAL, Severity.WARNING, Severity.INFO):
         rows = [
             {
                 "finding": f.finding_id,

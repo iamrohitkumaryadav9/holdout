@@ -19,3 +19,12 @@ key_name_tokens = ["id", "key", "uuid", "guid", "code", "number", "num", "no", "
 # pattern as above) and have at least this many other columns constant within each key
 # value. A repeated count or measurement is not an entity (error analysis, section 3).
 min_entity_constant_features = 1
+# The same rule (key-like, entity-constant features) decides the split proposer's entity
+# question, so the proposer and A5 agree on what is an entity key.
+
+[a12_stability]
+# Warn (not info) when the selected plan does not beat the dummy baseline: the Nadeau-Bengio
+# interval of the fold-level lift does not exclude zero on the good side. Found on the app's
+# group_leakage demo follow-up run (CV 0.429 vs dummy 0.500, no warning). It warns; it never
+# blocks unsealing (docs/design.md).
+warn_below_baseline = true

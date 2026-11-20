@@ -121,9 +121,18 @@ def test_findings_are_numbered_and_leveled() -> None:
 
 
 def test_info_flags_and_plan_level_checks_are_not_findings() -> None:
-    info = _group_flag(Severity.INFO)
+    info = _id_flag().model_copy(update={"severity": Severity.INFO})
     metric = _id_flag().model_copy(update={"check": CheckId.A7})
     assert collect_findings(_report(info, metric)) == []
+
+
+def test_an_entity_key_is_a_finding_at_any_severity() -> None:
+    """v1.1.3: A5 info (the split already groups by the key, or entities are known) is a
+    finding, so the report says how the entity key was handled."""
+    (finding,) = collect_findings(_report(_group_flag(Severity.INFO)))
+    assert finding.flag.check is CheckId.A5
+    assert finding.level == "split"
+    assert finding.flag.severity is Severity.INFO
 
 
 # --------------------------------------------------------------------- handling

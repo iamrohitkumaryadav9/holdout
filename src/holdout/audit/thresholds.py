@@ -12,6 +12,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from holdout.data.structure import EntityKeyRule
+
 
 class _Section(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -113,11 +115,23 @@ class GroupV11(_Section):
     min_entity_constant_features: int = Field(ge=1)
 
 
+class StabilityV11(_Section):
+    warn_below_baseline: bool
+
+
 class ThresholdsV11(_Section):
     """The v1.1 additions (``thresholds_v11.toml``), layered on :class:`Thresholds`."""
 
     a03_id_like: IdLikeV11
     a05_group: GroupV11
+    a12_stability: StabilityV11
+
+    def entity_rule(self) -> EntityKeyRule:
+        """The one entity-key rule shared by the split proposer and A5."""
+        return EntityKeyRule(
+            key_name_tokens=tuple(self.a03_id_like.key_name_tokens),
+            min_constant_features=self.a05_group.min_entity_constant_features,
+        )
 
 
 def default_thresholds_v11_bytes() -> bytes:

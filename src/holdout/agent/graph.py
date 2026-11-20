@@ -61,6 +61,7 @@ from holdout.agent.schemas import (
 )
 from holdout.agent.tracing import tracer
 from holdout.audit.checks.a11_causal import check_goal, decline_sentence
+from holdout.audit.checks.a12_stability import baseline_statement
 from holdout.audit.findings import (
     DataFinding,
     collect_findings,
@@ -74,7 +75,14 @@ from holdout.audit.runner import run_audits, write_audit
 from holdout.audit.thresholds import load_thresholds, load_thresholds_v11
 from holdout.audit.types import AuditFlag, AuditReport, ChangeSplit, CheckId, CheckRun, Severity
 from holdout.core.errors import AgentError, NodeTimeoutError, RunPausingError
-from holdout.core.schemas import CVResult, DataType, EntityScope, HoldoutResult, Task
+from holdout.core.schemas import (
+    CVResult,
+    DataType,
+    EntityScope,
+    HoldoutResult,
+    SplitStrategy,
+    Task,
+)
 from holdout.core.state import RunState
 from holdout.data.load import LoadedData, load_dataset
 from holdout.data.profile import DatasetProfile, profile_schema
@@ -221,7 +229,10 @@ def _load(
     loaded = load_dataset(Path(csv), target)
     if sha is not None and loaded.sha256 != sha:
         raise AgentError(f"{csv} changed during the run (sha256 {loaded.sha256}, expected {sha})")
-    return loaded, profile_schema(loaded.frame, target, task=Task(task) if task else None)
+    rule = load_thresholds_v11()[0].entity_rule()  # v1.1: one entity rule with A5
+    return loaded, profile_schema(
+        loaded.frame, target, task=Task(task) if task else None, entity_rule=rule
+    )
 
 
 def _materialize(state: AgentState) -> tuple[LoadedData, DatasetProfile, pd.DataFrame, SplitSpec]:
@@ -267,6 +278,31 @@ def _probe_reusable(state: AgentState) -> bool:
     if not probe or state.get("round", 0) != 0:
         return False
     return _same_plan(state["current_plan"], probe["plan"])
+
+
+def drop_entity_key(plan: ModelPlan, spec: SplitSpec) -> ModelPlan:
+    """v1.1: with a group split and entities that are new at prediction time (scope new, or
+    unanswered and treated as new), the group column is not a feature: a new entity's
+    identity carries no information, and target-encoding it only memorises the training
+    entities. Code drops it from every plan of the run (the probe, the planner's, each
+    revision); found on the app's group_leakage demo follow-up run."""
+    column = spec.group_col
+    if (
+        spec.strategy is not SplitStrategy.GROUP
+        or column is None
+        or spec.entity_scope is EntityScope.KNOWN
+        or column in plan.dropped
+    ):
+        return plan
+    drops = [
+        *plan.model_dump(mode="json")["drop_columns"],
+        {
+            "column": column,
+            "reason": "key of the group split: predictions are for new entities, so its "
+            "identity carries no information",
+        },
+    ]
+    return ModelPlan.model_validate({**plan.model_dump(mode="json"), "drop_columns": drops})
 
 
 def _record(decision: Decision, state: AgentState) -> list[dict[str, Any]]:
@@ -471,7 +507,9 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
     def profile_fit(state: AgentState) -> dict[str, Any]:
         """v1.1: cross-validate the probe plan (every usable column, the default model)."""
         _, profile, dev, spec = _materialize(state)
-        probe = OfflinePlanner().propose_plan(_plan_context(state, profile, dev))
+        probe = drop_entity_key(
+            OfflinePlanner().propose_plan(_plan_context(state, profile, dev)), spec
+        )
         target = _options(state).target
         baseline = evaluate_cv(
             baseline_plan(probe), dev, target, spec, profile, label="dummy baseline"
@@ -499,8 +537,8 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
         }
 
     def plan(state: AgentState) -> dict[str, Any]:
-        _, profile, dev, _ = _materialize(state)
-        proposed = planner.propose_plan(_plan_context(state, profile, dev))
+        _, profile, dev, spec = _materialize(state)
+        proposed = drop_entity_key(planner.propose_plan(_plan_context(state, profile, dev)), spec)
         findings = _findings(state)
         if planner.offline and findings:
             proposed = with_handling(proposed, offline_handling(proposed, findings))
@@ -591,6 +629,8 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
         current = ModelPlan.model_validate(state["current_plan"])
         flags = _audit(state).flags
         outcome = planner.explain_and_fix(current, flags, profile, state["round"])
+        _, _, _, spec = _materialize(state)
+        outcome = dataclasses.replace(outcome, plan=drop_entity_key(outcome.plan, spec))
         if current.findings_handled and not outcome.plan.findings_handled:
             # A revision keeps the planner's answers to the data findings.
             outcome = dataclasses.replace(
@@ -790,7 +830,9 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
     baseline = CVResult.model_validate(state["baseline"])
     holdout = HoldoutResult.model_validate(state["holdout"]) if state.get("holdout") else None
     unseal_decision = (
-        decide_unseal(audit_report, requested=False)
+        # Unsealing is never asked for an invalid holdout (the run ends at end_split), so
+        # only the invalidity blocks it; warnings would be acknowledged by the policy.
+        decide_unseal(audit_report, requested=False, ack_warnings=audit_report.holdout_invalid)
         if not state.get("unseal")
         else _unseal_from_state(state)
     )
@@ -849,6 +891,15 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
                     **outcome.draft.model_dump(),
                     "caveats": [decline[0], *outcome.draft.caveats][:12],
                 }
+            ),
+        )
+    weak = baseline_statement(audit_report.flags)
+    if weak is not None and not outcome.draft.summary.startswith(weak):
+        # v1.1: a plan that does not (reliably) beat the dummy is said first, in code.
+        outcome = dataclasses.replace(
+            outcome,
+            draft=ReportDraft.model_validate(
+                {**outcome.draft.model_dump(), "summary": f"{weak} {outcome.draft.summary}"[:1500]}
             ),
         )
     final_audit = _with_causal_check(

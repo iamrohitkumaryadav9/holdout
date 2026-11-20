@@ -16,7 +16,6 @@ info (the default plan already drops profile-detected identifiers).
 """
 
 import re
-from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -34,6 +33,9 @@ from holdout.audit.types import (
 )
 from holdout.core import config
 from holdout.core.schemas import ColumnKind
+from holdout.data.structure import key_like_name, name_tokens
+
+__all__ = ["key_like_name", "name_tokens", "run"]
 
 _LETTER = re.compile(r"[A-Za-z]")
 _DIGIT = re.compile(r"[0-9]")
@@ -130,23 +132,6 @@ def run(ctx: AuditContext, single: SingleFeatureResult | None) -> tuple[CheckOut
 _PATTERNS = frozenset(
     {"integer_sequence", "uniform_code", "row_order_correlation", "key_like_name"}
 )
-_CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-_TOKEN_SPLIT = re.compile(r"[_\-.\s]+")
-
-
-def name_tokens(name: str) -> list[str]:
-    """Lower-case name tokens, split on separators and camelCase ("patientNbr" -> patient,
-    nbr)."""
-    parts = _TOKEN_SPLIT.split(_CAMEL.sub("_", str(name)))
-    return [p.lower() for p in parts if p]
-
-
-def key_like_name(name: str, tokens: Sequence[str]) -> bool:
-    """The name ends in a key token ("record_number", "encounter_id", "patientNbr") or is
-    one ("id"). A key token elsewhere does not count: "number_vmail_messages" is a count."""
-    parts = name_tokens(name)
-    wanted = {t.lower() for t in tokens}
-    return bool(parts) and parts[-1] in wanted
 
 
 def _profile_kind(ctx: AuditContext, column: str) -> ColumnKind | None:

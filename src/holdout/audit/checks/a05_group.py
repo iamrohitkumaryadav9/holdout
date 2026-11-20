@@ -17,7 +17,6 @@ import pandas as pd
 from sklearn.model_selection import GroupKFold
 
 from holdout.audit.checks import CheckOutcome
-from holdout.audit.checks.a03_id_like import key_like_name
 from holdout.audit.comparison import compare, drop_severity, plan_cv
 from holdout.audit.context import AuditContext
 from holdout.audit.sampling import sample_rows, sampling_info
@@ -34,7 +33,13 @@ from holdout.audit.types import (
 from holdout.core import config, portable
 from holdout.core.schemas import EntityScope, SplitStrategy
 from holdout.data.split import SplitSpec
-from holdout.data.structure import EntityCandidate, constant_feature_count, entity_candidates
+from holdout.data.structure import (
+    EntityCandidate,
+    constant_feature_count,
+    entity_candidates,
+    entity_keys,
+    plausible_entity_key,
+)
 from holdout.plan.compiler import compile_plan, cv_from_split
 
 
@@ -46,29 +51,31 @@ def candidates(ctx: AuditContext) -> list[EntityCandidate]:
         + ([ctx.spec.group_col] if ctx.spec.group_col else [])
         + ctx.profile.datetime_candidates
     )
-    found = entity_candidates(
-        ctx.dev,
-        exclude=exclude,
-        min_mean_rows_per_value=t.min_mean_rows_per_value,
-        min_groups=t.min_groups,
-        max_unique_ratio=t.max_unique_ratio,
-        max_candidates=len(ctx.features),
-    )
     v11 = ctx.thresholds_v11
     if v11 is not None:
         # v1.1 (post-benchmark, error analysis section 3): an entity key must look like a
         # key - a string or categorical column, or an integer with a key-like name - and
         # have entity-constant features. A repeated count (telco's number_vmail_messages)
-        # or measurement is not an entity, whatever else happens to be constant with it.
-        tokens = v11.a03_id_like.key_name_tokens
-        minimum = v11.a05_group.min_entity_constant_features
-        plausible = [
-            c
-            for c in found
-            if _key_like(ctx.dev[c.column], c.column, tokens)
-            and constant_feature_count(ctx.dev, c.column, exclude) >= minimum
-        ]
+        # or measurement is not an entity. The same rule (data.structure.entity_keys) feeds
+        # the split proposer's entity question, so the two agree.
+        plausible = entity_keys(
+            ctx.dev,
+            exclude,
+            v11.entity_rule(),
+            min_mean_rows_per_value=t.min_mean_rows_per_value,
+            min_groups=t.min_groups,
+            max_unique_ratio=t.max_unique_ratio,
+            max_candidates=len(ctx.features),
+        )
     else:
+        found = entity_candidates(
+            ctx.dev,
+            exclude=exclude,
+            min_mean_rows_per_value=t.min_mean_rows_per_value,
+            min_groups=t.min_groups,
+            max_unique_ratio=t.max_unique_ratio,
+            max_candidates=len(ctx.features),
+        )
         # A repeated integer measurement (age, a count) is not an entity key unless other
         # columns are constant within it; string keys qualify on repetition alone.
         plausible = [
@@ -80,18 +87,55 @@ def candidates(ctx: AuditContext) -> list[EntityCandidate]:
     return plausible[: t.deep_max_candidates if ctx.deep_mode else t.max_candidates]
 
 
-def _key_like(values: pd.Series, name: str, tokens: list[str]) -> bool:
-    """A string or categorical column, or a numeric column with a key-like name."""
-    if not pd.api.types.is_numeric_dtype(values) or pd.api.types.is_bool_dtype(values):
-        return True
-    return key_like_name(name, tokens)
+def grouped_key_flag(ctx: AuditContext) -> AuditFlag | None:
+    """v1.1: the run's own group column, when it is an entity key, is recorded (info) rather
+    than silently left out: the split already keeps each entity on one side, which is the
+    resolution of a group-leakage finding (the app's group_leakage follow-up run showed
+    "no entity-like columns" and no data finding)."""
+    v11, column = ctx.thresholds_v11, ctx.spec.group_col
+    if v11 is None or ctx.spec.strategy is not SplitStrategy.GROUP or column is None:
+        return None
+    if column not in ctx.dev.columns:
+        return None
+    exclude = [ctx.target, *ctx.profile.datetime_candidates]
+    if not plausible_entity_key(ctx.dev, column, exclude, v11.entity_rule()):
+        return None
+    n_groups = int(ctx.dev[column].nunique())
+    candidate = EntityCandidate(
+        column=column,
+        n_groups=n_groups,
+        mean_rows_per_group=len(ctx.dev) / n_groups,
+        unique_ratio=n_groups / len(ctx.dev),
+        constant_feature_share=constant_feature_count(ctx.dev, column, exclude)
+        / max(1, ctx.dev.shape[1] - 1),
+    )
+    return AuditFlag(
+        check=CheckId.A5,
+        category=Category.GROUP_LEAKAGE,
+        severity=Severity.INFO,
+        columns=[column],
+        evidence=_evidence(ctx, candidate, None),
+        message=(
+            f"{column!r} is an entity key ({n_groups} values, "
+            f"~{candidate.mean_rows_per_group:.1f} rows each); the split groups by it, so no "
+            "entity is on both sides of the holdout or of a fold."
+        ),
+        fix=NoAction(reason="the split already groups by this entity key"),
+    )
 
 
 def run(ctx: AuditContext) -> CheckOutcome:
     if ctx.spec.strategy is SplitStrategy.TIME:
         return CheckOutcome(skipped=True, detail="run uses a time split; group check not applied")
+    grouped = grouped_key_flag(ctx)
     found = candidates(ctx)
     if not found:
+        if grouped is not None:
+            return CheckOutcome(
+                flags=[grouped],
+                detail=f"split groups by entity key {grouped.columns[0]!r}; no other "
+                "entity-like columns",
+            )
         return CheckOutcome(detail="no entity-like columns")
     if ctx.spec.entity_scope is EntityScope.KNOWN:
         return CheckOutcome(
@@ -168,6 +212,8 @@ def run(ctx: AuditContext) -> CheckOutcome:
                 invalidates_holdout=critical,
             )
         )
+    if grouped is not None:
+        flags.insert(0, grouped)
     return CheckOutcome(flags=flags, detail="; ".join(notes))
 
 

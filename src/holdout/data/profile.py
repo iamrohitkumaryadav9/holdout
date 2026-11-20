@@ -21,6 +21,7 @@ from holdout.core import config
 from holdout.core.errors import DataValidationError
 from holdout.core.portable import time_order_key
 from holdout.core.schemas import ColumnKind, Task
+from holdout.data.structure import EntityKeyRule, entity_keys
 from holdout.data.structure import entity_candidates as entity_structure_candidates
 
 _ID_NAME = re.compile(r"(^id$|[_\-\s.]id$|^id[_\-\s.]|uuid|guid)", re.IGNORECASE)
@@ -99,7 +100,13 @@ class DatasetProfile(BaseModel):
         return None if not frequencies else min(frequencies.values())
 
 
-def profile_schema(frame: pd.DataFrame, target: str, task: Task | None = None) -> DatasetProfile:
+def profile_schema(
+    frame: pd.DataFrame,
+    target: str,
+    task: Task | None = None,
+    *,
+    entity_rule: EntityKeyRule | None = None,
+) -> DatasetProfile:
     """Profile ``frame`` without computing any feature-target statistic.
 
     Args:
@@ -107,6 +114,9 @@ def profile_schema(frame: pd.DataFrame, target: str, task: Task | None = None) -
         target: name of the target column.
         task: explicit task; when given, class counts are computed for classification even
             if the hint says regression. ``task_hint`` itself is always the inferred value.
+        entity_rule: v1.1 (from thresholds_v11): structural entities must pass the same
+            entity-key rule as the group-leakage audit (A5), so the split proposer and A5
+            agree. None keeps the v1.0 behaviour.
 
     Raises:
         DataValidationError: if the target is missing or constant, or there are no features.
@@ -146,14 +156,8 @@ def profile_schema(frame: pd.DataFrame, target: str, task: Task | None = None) -
         and c.unique_ratio <= config.ENTITY_MAX_UNIQUE_RATIO
         and c.n_unique >= 2 * config.N_FOLDS
     ]
-    structural = [
-        StructuralEntity(
-            column=c.column,
-            n_groups=c.n_groups,
-            mean_rows_per_group=c.mean_rows_per_group,
-            constant_feature_share=c.constant_feature_share,
-        )
-        for c in entity_structure_candidates(
+    if entity_rule is None:
+        found = entity_structure_candidates(
             frame,
             exclude=[target],
             min_mean_rows_per_value=config.STRUCTURAL_ENTITY_MIN_MEAN_ROWS,
@@ -161,6 +165,24 @@ def profile_schema(frame: pd.DataFrame, target: str, task: Task | None = None) -
             max_unique_ratio=config.ENTITY_MAX_UNIQUE_RATIO,
             max_candidates=config.STRUCTURAL_ENTITY_MAX_CANDIDATES,
         )
+    else:
+        found = entity_keys(
+            frame,
+            [target, *datetime_candidates],
+            entity_rule,
+            min_mean_rows_per_value=config.STRUCTURAL_ENTITY_MIN_MEAN_ROWS,
+            min_groups=config.STRUCTURAL_ENTITY_MIN_GROUPS,
+            max_unique_ratio=config.ENTITY_MAX_UNIQUE_RATIO,
+            max_candidates=config.STRUCTURAL_ENTITY_MAX_CANDIDATES,
+        )
+    structural = [
+        StructuralEntity(
+            column=c.column,
+            n_groups=c.n_groups,
+            mean_rows_per_group=c.mean_rows_per_group,
+            constant_feature_share=c.constant_feature_share,
+        )
+        for c in found
         # Datetime columns repeat too (several rows per day) but are time keys, handled by
         # the time-order logic; name-detected entity ids are already proposed for grouping.
         if c.constant_feature_share > 0.0

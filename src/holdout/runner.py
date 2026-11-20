@@ -177,7 +177,9 @@ def execute_run(options: RunOptions, observer: RunObserver | None = None) -> Run
     frame = loaded.frame
 
     watch.on_stage("profiling schema (target-blind)")
-    profile = profile_schema(frame, options.target, task=options.task)
+    profile = profile_schema(
+        frame, options.target, task=options.task, entity_rule=load_thresholds_v11()[0].entity_rule()
+    )
     task = options.task if options.task is not None else profile.task_hint
     proposal = propose_split(
         profile, task, options.data_type, seed=options.seed, entity_scope=options.entities
@@ -420,7 +422,12 @@ def reaudit_run(run_dir: Path) -> AuditReport:
     plan = ModelPlan.model_validate(raw["plans"][-1]["plan"])
     baseline = CVResult.model_validate(raw["plans"][0]["cv"])
     result = CVResult.model_validate(raw["plans"][-1]["cv"])
-    profile = profile_schema(loaded.frame, target, task=Task(raw["task"]))
+    profile = profile_schema(
+        loaded.frame,
+        target,
+        task=Task(raw["task"]),
+        entity_rule=load_thresholds_v11()[0].entity_rule(),
+    )
     dev, _ = apply_split(loaded.frame, spec, target)
     state = RunState(
         run_id=str(raw["run_id"]),

@@ -79,11 +79,14 @@ def collect_findings(
     report: AuditReport, goal_flags: Sequence[AuditFlag] = ()
 ) -> list[DataFinding]:
     """Warning-or-critical flags of the structural checks on the raw data, plus goal-level
-    flags, numbered F1, F2, ... in a stable order."""
+    flags, numbered F1, F2, ... in a stable order. An entity key is a finding at any
+    severity (A5 info: the split already groups by it, or entities were declared known), so
+    the report always says how it was handled."""
     raw = [
         f
         for f in report.flags
-        if f.check in FINDING_CHECKS and f.severity.at_least(Severity.WARNING)
+        if f.check in FINDING_CHECKS
+        and (f.severity.at_least(Severity.WARNING) or f.check is CheckId.A5)
     ]
     out: list[DataFinding] = []
     for flag in raw:
@@ -176,9 +179,20 @@ def offline_handling(plan: ModelPlan, findings: Sequence[DataFinding]) -> list[F
     """The offline planner's answers: it cannot reason about the data, so it defers every
     finding to code; the outcome column then says what code did."""
     return [
-        FindingHandling(finding_id=f.id, action="deferred_to_audit", reason=_DEFERRED[f.level])
+        FindingHandling(
+            finding_id=f.id,
+            action="deferred_to_audit",
+            reason=_HANDLED_BY_SPLIT
+            if f.level == "split" and f.flag.severity is Severity.INFO
+            else _DEFERRED[f.level],
+        )
         for f in findings
     ]
+
+
+_HANDLED_BY_SPLIT = (
+    "the offline planner does not act on findings; the split already keeps each entity on one side"
+)
 
 
 def with_handling(plan: ModelPlan, handled: Sequence[FindingHandling]) -> ModelPlan:
@@ -236,6 +250,20 @@ def persisting_split_flags(
 # ----------------------------------------------------------------------------- outcome
 
 
+def split_outcome(spec: SplitSpec, plan: ModelPlan) -> str:
+    """How the split resolves an entity or time finding, in words."""
+    if spec.strategy is SplitStrategy.GROUP and spec.group_col:
+        text = f"resolved: group split on {spec.group_col!r}"
+        if spec.group_col in plan.dropped:
+            text += "; the key is not a feature (predictions are for new entities)"
+        return text
+    if spec.strategy is SplitStrategy.TIME and spec.time_col:
+        return f"resolved: time split on {spec.time_col!r}"
+    if spec.entity_scope is EntityScope.KNOWN:
+        return "resolved: entities declared known, so a row-level split is legitimate"
+    return f"resolved: the split is {spec.strategy.value}"
+
+
 def resolution(
     findings: Sequence[DataFinding], plan: ModelPlan, spec: SplitSpec, final: AuditReport
 ) -> list[FindingStatus]:
@@ -248,8 +276,7 @@ def resolution(
         if finding.level == "split":
             resolved = split_resolved(finding, spec)
             outcome = (
-                f"resolved: the split is {spec.strategy.value}"
-                + (f" by {spec.group_col}" if spec.group_col else "")
+                split_outcome(spec, plan)
                 if resolved
                 else "open: the split still leaks; the holdout is invalid and a new run with "
                 "the corrected split is needed"

@@ -82,3 +82,7 @@ WARNING_EXPLAINED: Final = (
     "time signal); decide with what you know about how the data was collected."
 )
 INFO_EXPLAINED: Final = "Info: recorded for the audit trail; nothing to act on."
+INFO_FINDING_EXPLAINED: Final = (
+    "Info: found on the raw data and already handled by the run (for example, the split "
+    "groups by an entity key); listed so the report says how."
+)

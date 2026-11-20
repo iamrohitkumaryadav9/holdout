@@ -258,10 +258,15 @@ def render_report(manifest: RunManifest) -> str:
             "",
         ]
     if manifest.holdout_invalid:
+        next_run = manifest.agent.next_run_id if manifest.agent is not None else None
+        then = (
+            f"Holdout started a new run with the corrected split: `{next_run}`."
+            if next_run
+            else "Start a new run with the corrected split (see the audit fixes below)."
+        )
         lines += [
             "> **HOLDOUT INVALID.** The sealed holdout shares rows, entities or time with the "
-            "development data, so it can never be evaluated. Start a new run with the "
-            "corrected split (see the audit fixes below).",
+            f"development data, so it can never be evaluated. {then}",
             "",
         ]
     for caveat in manifest.caveats:
