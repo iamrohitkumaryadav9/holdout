@@ -81,5 +81,7 @@ def test_a_lost_remediation_is_listed(tmp_path: Path) -> None:
 def test_no_change_says_so(tmp_path: Path) -> None:
     for name in ("v1_0", "v1_1"):
         _write(tmp_path / name, {101: True}, {101: None})
+    labelled = render("final_v1", tmp_path / "v1_0", tmp_path / "v1_1", labels=("a", "b"))
+    assert "| | a | b |" in labelled
     text = "\n".join(render("final_v1", tmp_path / "v1_0", tmp_path / "v1_1"))
     assert "No per-seed change in detection, remediation or false alarms" in text

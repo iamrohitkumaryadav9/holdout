@@ -154,7 +154,13 @@ def _pct(x: float | None) -> str:
 
 
 def render(
-    suite: str, before: Path, after: Path, system: str = "audits_only", *, title: str = ""
+    suite: str,
+    before: Path,
+    after: Path,
+    system: str = "audits_only",
+    *,
+    title: str = "",
+    labels: tuple[str, str] = ("v1.0", "v1.1"),
 ) -> list[str]:
     truths = truths_for(suite)
     b = load_results(before, suite)
@@ -162,7 +168,7 @@ def render(
     sb, sa = summarise(b, truths, system), summarise(a, truths, system)
     lines = [f"### {title or suite}", ""]
     lines += [
-        "| | v1.0 | v1.1 |",
+        f"| | {labels[0]} | {labels[1]} |",
         "|---|---|---|",
         f"| runs (failed) | {sb.runs} ({sb.failed}) | {sa.runs} ({sa.failed}) |",
         f"| detection recall (task = unit) | {_pct(sb.recall)} | {_pct(sa.recall)} |",
@@ -189,8 +195,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--before", type=Path, required=True)
     parser.add_argument("--after", type=Path, required=True)
     parser.add_argument("--system", default="audits_only")
+    parser.add_argument("--labels", nargs=2, default=["v1.0", "v1.1"], metavar=("BEFORE", "AFTER"))
     args = parser.parse_args(argv)
-    print("\n".join(render(args.suite, args.before, args.after, args.system)))
+    labels = (args.labels[0], args.labels[1])
+    print("\n".join(render(args.suite, args.before, args.after, args.system, labels=labels)))
     return 0
 
 
