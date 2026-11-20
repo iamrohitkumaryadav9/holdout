@@ -98,7 +98,10 @@ class LLMClient(Protocol):
 
 
 class GeminiClient:
-    """google-genai client. The API key is read from ``GEMINI_API_KEY`` only.
+    """google-genai client. The API key is read from ``GEMINI_API_KEY``, or passed as
+    ``api_key`` by the web app, which keeps a visitor's key in their session only (a
+    process-wide environment variable would be shared by every session on the server). The
+    key is never logged, stored, cached or written to a manifest.
 
     ``sdk_client`` lets tests inject a stand-in for ``genai.Client`` (no network).
     """
@@ -113,6 +116,7 @@ class GeminiClient:
         rng: random.Random | None = None,
         timeout_seconds: float = config.REQUEST_TIMEOUT_SECONDS,
         flex_policy: RetryPolicy = FLEX_RETRY_POLICY,
+        api_key: str | None = None,
     ) -> None:
         self._model = model
         self._sleep = sleep
@@ -122,7 +126,7 @@ class GeminiClient:
         if sdk_client is not None:
             self._client = sdk_client
         else:
-            key = os.environ.get(config.API_KEY_ENV)
+            key = api_key or os.environ.get(config.API_KEY_ENV)
             if not key:
                 raise LLMConfigError(
                     f"{config.API_KEY_ENV} is not set; set it, or run with --offline"
