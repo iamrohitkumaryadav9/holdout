@@ -29,17 +29,17 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,bench]"
+          python -m pip install -e ".[dev,bench,app]"
 
       - name: Ruff lint
-        run: ruff check src tests scripts bench
+        run: ruff check src tests scripts bench app
 
       - name: Ruff format
-        run: ruff format --check src tests scripts bench
+        run: ruff format --check src tests scripts bench app
 
       # Strict on the whole package (a superset of core, data and plan) and the trap bench.
       - name: Mypy (strict)
-        run: mypy src/holdout bench
+        run: mypy src/holdout bench app
 
       # Coverage sources and the 85% overall floor are configured in pyproject.toml.
       # Full test tier everywhere; the 50k-row performance tests (marked slow) on Ubuntu only.
