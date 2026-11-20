@@ -152,7 +152,8 @@ class SplitProposal(BaseModel):
 def entity_question(entity: StructuralEntity) -> str:
     """The pre-seal question asked when a column looks like an entity key."""
     return (
-        f"{entity.column!r} looks like an entity identifier ({entity.n_groups} values, "
+        f"{entity.column!r} looks like an entity identifier ({entity.n_groups} values across "
+        "all rows, "
         f"~{entity.mean_rows_per_group:.1f} rows each, "
         f"{entity.constant_feature_share:.0%} of other columns constant within it). "
         "Will predictions be made for new entities or for entities already in the data "
@@ -219,7 +220,7 @@ def propose_split(
             entity = profile.column(group_col)
             reasons.append(
                 f"{group_col!r} looks like an entity id ({entity.n_unique} distinct values "
-                f"repeated over {profile.n_rows} rows); keeping each entity on one side "
+                f"across all {profile.n_rows} rows); keeping each entity on one side "
                 "stops the model from memorising entities"
             )
             if task is Task.CLASSIFICATION:

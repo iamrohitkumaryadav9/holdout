@@ -94,7 +94,7 @@ from holdout.llm.structured import LLMSession
 from holdout.plan.compiler import evaluate_cv, fit_final
 from holdout.plan.defaults import baseline_plan
 from holdout.plan.metrics import get_metric
-from holdout.plan.schema import ModelPlan, validate_plan
+from holdout.plan.schema import DropColumn, ModelPlan, validate_plan, with_drops
 from holdout.runner import RunFacts, finalize_run, parse_split_option
 from holdout.sandbox.runner import run_snippets
 
@@ -294,15 +294,12 @@ def drop_entity_key(plan: ModelPlan, spec: SplitSpec) -> ModelPlan:
         or column in plan.dropped
     ):
         return plan
-    drops = [
-        *plan.model_dump(mode="json")["drop_columns"],
-        {
-            "column": column,
-            "reason": "key of the group split: predictions are for new entities, so its "
-            "identity carries no information",
-        },
-    ]
-    return ModelPlan.model_validate({**plan.model_dump(mode="json"), "drop_columns": drops})
+    key = DropColumn(
+        column=column,
+        reason="key of the group split: predictions are for new entities, so its "
+        "identity carries no information",
+    )
+    return with_drops(plan, [*plan.drop_columns, key])  # the rationale names the drop
 
 
 def _record(decision: Decision, state: AgentState) -> list[dict[str, Any]]:

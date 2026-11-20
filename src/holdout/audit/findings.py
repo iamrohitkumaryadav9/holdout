@@ -250,6 +250,18 @@ def persisting_split_flags(
 # ----------------------------------------------------------------------------- outcome
 
 
+def _resolved_text(taken: FindingAction, finding: DataFinding, plan: ModelPlan) -> str:
+    """What the final plan did about a column or rows finding, naming it."""
+    fix = finding.flag.fix
+    if taken == "drop_columns" and isinstance(fix, DropColumns):
+        return "resolved: " + ", ".join(repr(c) for c in fix.columns) + " dropped"
+    if taken == "change_metric":
+        return f"resolved: metric changed to {plan.metric.value}"
+    if taken == "deduplicate":
+        return "resolved: duplicate development rows removed"
+    return f"resolved: {taken.replace('_', ' ')}"
+
+
 def split_outcome(spec: SplitSpec, plan: ModelPlan) -> str:
     """How the split resolves an entity or time finding, in words."""
     if spec.strategy is SplitStrategy.GROUP and spec.group_col:
@@ -292,7 +304,7 @@ def resolution(
                 and f.severity.at_least(Severity.WARNING)
             ]  # fmt: skip
             if taken is not None:
-                resolved, outcome = True, f"resolved: the final plan does {taken.replace('_', ' ')}"
+                resolved, outcome = True, _resolved_text(taken, finding, plan)
             elif still:
                 resolved = False
                 outcome = f"open: the final audit still raises it ({still[0].severity.value})"

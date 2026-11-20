@@ -237,7 +237,7 @@ def test_a_column_finding_is_resolved_by_the_drop() -> None:
     assert "still raises it" in kept.outcome
     (done,) = resolution(findings, dropped, ROW_SPLIT, _report())
     assert done.resolved
-    assert done.outcome == "resolved: the final plan does drop columns"
+    assert done.outcome == "resolved: 'ticket' dropped"
 
 
 def test_the_report_table_lists_every_finding() -> None:

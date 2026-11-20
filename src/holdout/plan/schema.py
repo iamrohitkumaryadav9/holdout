@@ -215,6 +215,32 @@ class ModelPlan(_Strict):
         return {d.column for d in self.drop_columns}
 
 
+def drop_rationale(drops: list[DropColumn]) -> str:
+    """The rationale line for ``drop_columns`` written from the final drop list, so a plan
+    whose drops code changed never says "no drops needed" above its dropped columns."""
+    if not drops:
+        return "no drops needed"
+    detailed = "drops " + "; ".join(f"{d.column!r} ({d.reason})" for d in drops)
+    if len(detailed) <= 200:
+        return detailed
+    names = "drops " + ", ".join(repr(d.column) for d in drops) + " (reasons per column)"
+    if len(names) <= 200:
+        return names
+    return f"drops {len(drops)} columns (listed with their reasons in drop_columns)"
+
+
+def with_drops(plan: ModelPlan, drops: list[DropColumn]) -> ModelPlan:
+    """``plan`` with ``drops`` as its drop list and the drop rationale rewritten to match."""
+    rationale = {**plan.rationale.model_dump(), "drop_columns": drop_rationale(drops)}
+    return ModelPlan.model_validate(
+        {
+            **plan.model_dump(mode="json"),
+            "drop_columns": [d.model_dump() for d in drops],
+            "rationale": rationale,
+        }
+    )
+
+
 class Severity(StrEnum):
     ERROR = "error"
     WARNING = "warning"

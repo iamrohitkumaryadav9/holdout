@@ -53,7 +53,7 @@ from holdout.core.schemas import Task
 from holdout.data.profile import DatasetProfile
 from holdout.llm.structured import LLMSession
 from holdout.plan.defaults import default_plan
-from holdout.plan.schema import MODEL_NAMES, DropColumn, ModelPlan, validate_plan
+from holdout.plan.schema import MODEL_NAMES, DropColumn, ModelPlan, drop_rationale, validate_plan
 from holdout.plan.schema import Severity as IssueSeverity
 
 # ----------------------------------------------------------------------------- fixes
@@ -130,7 +130,7 @@ def apply_fixes(plan: ModelPlan, flags: Sequence[AuditFlag]) -> ModelPlan:
                         )
                     )
                     dropped.add(column)
-            rationale["drop_columns"] = "includes columns the audit found leaking"
+            rationale["drop_columns"] = drop_rationale(drops)  # the final list, named
         elif isinstance(flag.fix, ChangeMetric):
             metric = flag.fix.metric
             rationale["metric"] = f"{metric.value}: chosen by audit {flag.check.value}"
@@ -232,8 +232,13 @@ class ReportOutcome:
     substitution: Substitution | None
 
 
+def explanation_key(check: str, columns: Sequence[str]) -> str:
+    """ "A1:refund_issued", or just "A12" for a flag without columns (no trailing colon)."""
+    return f"{check}:{','.join(columns)}" if columns else check
+
+
 def flag_key(flag: AuditFlag) -> str:
-    return f"{flag.check.value}:{','.join(flag.columns)}"
+    return explanation_key(flag.check.value, flag.columns)
 
 
 def _open_flags(flags: Sequence[AuditFlag]) -> list[AuditFlag]:
@@ -377,7 +382,7 @@ class LLMPlanner:
         def check(answer: ExplainFixResponse) -> list[str]:
             nonlocal last_missed
             problems = []
-            explained = {f"{e.check.value}:{','.join(e.columns)}" for e in answer.explanations}
+            explained = {explanation_key(e.check.value, e.columns) for e in answer.explanations}
             for flag in open_flags:
                 if flag_key(flag) not in explained:
                     problems.append(f"explain flag {flag_key(flag)}")
@@ -416,7 +421,8 @@ class LLMPlanner:
         return FixOutcome(
             plan=answer.revised_plan,
             explanations={
-                f"{e.check.value}:{','.join(e.columns)}": e.explanation for e in answer.explanations
+                explanation_key(e.check.value, e.columns): e.explanation
+                for e in answer.explanations
             },
             substitution=None,
         )

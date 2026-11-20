@@ -112,7 +112,7 @@ def test_the_user_approves_deduplication_and_code_applies_it(tmp_path: Path) -> 
     assert [d.kind for d in manifest.agent.decisions if d.accepted] == ["split", "review"]
     (finding,) = manifest.agent.findings
     assert finding.resolved
-    assert finding.outcome == "resolved: the final plan does deduplicate"
+    assert finding.outcome == "resolved: duplicate development rows removed"
     report = (outcome.run_dir / "report.md").read_text(encoding="utf-8")
     assert "duplicate development rows removed before cross-validation" in report
     assert "DEDUP_SIGNIFICANT_DIGITS" in (outcome.run_dir / "pipeline.py").read_text("utf-8")

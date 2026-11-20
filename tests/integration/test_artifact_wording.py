@@ -59,7 +59,18 @@ def test_offline_planner_with_a_code_applied_drop(tmp_path: Path) -> None:
     assert leak.planner_reason == (
         "the offline planner does not act on findings; code applies the audit's fixes"
     )
-    assert leak.outcome == "resolved: the final plan does drop columns"
+    assert leak.outcome == "resolved: 'refund_issued' dropped"  # names the columns
+
+    # v1.1.4: the drop rationale names the final drop list, in report.md and pipeline.py.
+    final_plan = manifest.plans[-1].plan
+    assert final_plan.rationale.drop_columns.startswith("drops 'refund_issued' (audit A1")
+    assert "no drops needed" not in report
+    pipeline = (outcome.run_dir / "pipeline.py").read_text(encoding="utf-8")
+    assert f"#   drop_columns: {final_plan.rationale.drop_columns}" in pipeline
+    assert "no drops needed" not in pipeline
+    # A flag without columns is keyed "A12", never "A12:" (report: "**A12::**").
+    assert "::**" not in report
+    assert all(not key.endswith(":") for key in agent.explanations)
     assert "keep with reason" not in report
     assert "deferred to audit: the offline planner does not act on findings" in report
 

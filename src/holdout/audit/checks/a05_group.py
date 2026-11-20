@@ -116,7 +116,7 @@ def grouped_key_flag(ctx: AuditContext) -> AuditFlag | None:
         columns=[column],
         evidence=_evidence(ctx, candidate, None),
         message=(
-            f"{column!r} is an entity key ({n_groups} values, "
+            f"{column!r} is an entity key ({n_groups} values in the development rows, "
             f"~{candidate.mean_rows_per_group:.1f} rows each); the split groups by it, so no "
             "entity is on both sides of the holdout or of a fold."
         ),
@@ -186,7 +186,8 @@ def run(ctx: AuditContext) -> CheckOutcome:
             entity_scope=EntityScope.NEW,
         )
         message = (
-            f"Grouping by {candidate.column!r} ({candidate.n_groups} values) drops the CV score "
+            f"Grouping by {candidate.column!r} ({candidate.n_groups} values in the development "
+            f"rows) drops the CV score "
             f"from {comparison.reference_score:.3f} to {comparison.alternative_score:.3f} "
             f"({drop} of the lift): the plan memorises entities."
         )

@@ -46,6 +46,18 @@ def test_the_group_leakage_demo_first_and_followup_runs(tmp_path: Path) -> None:
     assert "account" in second.plans[-1].plan.dropped
     assert entity.outcome.endswith("the key is not a feature (predictions are for new entities)")
 
+    # v1.1.4: the rationale names the code-applied drop (report.md and pipeline.py).
+    rationale = second.plans[-1].plan.rationale.drop_columns
+    assert rationale.startswith("drops 'account' (key of the group split")
+    assert "no drops needed" not in follow_report
+    pipeline = (outcome.followup.run_dir / "pipeline.py").read_text(encoding="utf-8")
+    assert f"#   drop_columns: {rationale}" in pipeline
+    # v1.1.4: entity counts say which rows they count.
+    (a5,) = [f for f in second.audit.flags if f.check is CheckId.A5]
+    assert "values in the development rows" in a5.message
+    assert any("distinct values across all 600 rows" in r for r in second.split.reasons)
+    assert "::**" not in follow_report  # explanation keys without columns: "A12"
+
     # 1. A model that does not beat the dummy is a warning and the summary says so first.
     assert second.validation_score <= second.plans[0].cv.mean
     (a12,) = [f for f in second.audit.flags if f.check is CheckId.A12]
