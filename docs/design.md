@@ -1,15 +1,17 @@
-# Holdout design (Weeks 1-3)
+# Holdout design
 
 ## Problem
 
-"The Silent Failures in Agentic Data Science" (Li, Xia, Gomm, Santos, Wolff, Hulsebos; CWI;
-arXiv:2610.14115, Oct 2026) reports that LLM data-science agents leak validation data, and
-that the leakage rises with model capability. A more capable agent is better at finding a
-higher validation score, including the illegitimate ways to get one.
+"The Silent Failures in Agentic Data Science" (Xue Li, Hongqian Xia, Daniel Gomm, Aécio
+Santos, Cornelius Wolff, Madelon Hulsebos; [arXiv:2610.14115](https://arxiv.org/abs/2610.14115),
+9 October 2026) argues that judging data-science agents by downstream performance alone
+"masks methodological failures such as data leakage and inappropriate validation", and
+finds that the majority of agentic solutions contain at least one failure mode.
 
-> Reference note: this citation was found through search results and is given as found.
-> Check it against its arXiv page (https://arxiv.org/abs/2610.14115) before citing it
-> further.
+> Reference note: checked against the arXiv abstract page on 20 November 2026 (title,
+> authors, date; v1, no revisions). Earlier drafts of this document also attributed to the
+> paper a claim that leakage rises with model capability; the abstract does not state
+> this, so it was removed.
 
 Holdout's answer is that correctness is enforced in code. A proposer (Gemini in agent runs,
 the offline default otherwise) suggests; deterministic code decides.

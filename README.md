@@ -1,31 +1,110 @@
 # Holdout
 
-Holdout is a self-auditing data-science agent for tabular CSVs. LLM data-science agents
-have been shown to leak validation data, and to leak more as they get more capable
-([Silent Failures in Agentic Data Science](docs/design.md#problem)). Holdout's position is
-that correctness should be enforced by code, not by a prompt. The holdout set is split off,
-written to disk and hashed before anything computes a feature-target statistic. Proposals
-(from Gemini in agent runs, or an offline default) are typed `ModelPlan`s with bounded choices;
-deterministic code validates them and compiles them into leakage-safe scikit-learn
-pipelines. After cross-validation, twelve audit checks inspect the pipeline on the
-development rows for leakage, contaminated splits and misleading metrics. A critical
-finding blocks the single, logged holdout evaluation. Every run exports a standalone script
-that reproduces its result without Holdout installed.
+Holdout is a self-auditing data-science agent for tabular CSVs. Judging data-science agents
+by their scores alone hides methodological failures such as data leakage and inappropriate
+validation, and the majority of agentic solutions contain at least one such failure
+([The Silent Failures in Agentic Data Science](https://arxiv.org/abs/2610.14115), Li et al.,
+2026). Holdout's position is that correctness should be enforced by code, not by a prompt.
+The holdout set is split off, written to disk and hashed before anything computes a
+feature-target statistic. Proposals (from Gemini in agent runs, or an offline default) are
+typed `ModelPlan`s with bounded choices; deterministic code validates them and compiles
+them into leakage-safe scikit-learn pipelines. After cross-validation, twelve audit checks
+inspect the pipeline on the development rows for leakage, contaminated splits and
+misleading metrics. A critical finding blocks the single, logged holdout evaluation. Every
+run exports a standalone script that reproduces its result without Holdout installed.
 
-**Status: Week 4 of 6.** The deterministic core, the audit layer, and the agent: a Gemini-backed
-LangGraph agent that proposes plans, explains audit flags, applies their fixes and writes a
-report whose every number comes from run state, with checkpointed resume, an autopilot mode,
-spend caps and an optional EDA sandbox. Week 4 adds the benchmark harness (five systems,
-frozen suites, two holdouts; see [docs/benchmark.md](docs/benchmark.md)) and its
-pre-registration ([docs/preregistration.md](docs/preregistration.md)). No UI yet; benchmark
-results follow the pre-registered final run.
+**Version 1.1.0** ([tag](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.0)). The
+benchmark below was pre-registered and run on v1.0.0; v1.1 adds post-hoc fixes, evaluated
+as exploratory only. A web app runs it offline in the browser ([Web app](#web-app)).
+
+## Pre-registered results (v1.0.0)
+
+Five systems on frozen suites, scored by pre-registered rules
+([docs/preregistration.md](docs/preregistration.md), [docs/benchmark.md](docs/benchmark.md));
+every number comes from [docs/results.md](docs/results.md), generated from the results files.
+
+- Detection recall on final_v1 (28 planted-trap tasks, 2 seeds; task = unit; 95% bootstrap CI): Holdout (the agent) 51.8% [33.9%, 69.6%]; audits_only (the deterministic audit layer alone) 75.0% [57.1%, 89.3%]; ReAct 60.7% [42.9%, 78.6%]; LLM judge 35.7% [19.6%, 53.6%]; FLAML 0.0%.
+- audits_only vs ReAct: 75.0% vs 60.7%, exact McNemar p = 0.27, not significant. Holdout vs ReAct: 51.8% vs 60.7%, p = 0.58, not significant. Holdout vs its own audit layer: 51.8% vs 75.0%, p = 0.02 (the LLM planner avoided problems the audits would have reported; see docs/error_analysis.md).
+- Pre-registered hypotheses: H1 (Holdout beats ReAct on detection), H3 (smaller optimism gap) and H4 (audits beat the LLM judge) not supported; H2 (critical false alarms on clean tasks at most 10%) failed: 5 of 16 clean tasks (31.3%).
+- Real data (real_world_v1, 7 issues in 9 public datasets): audits_only's detection rate is 57.1% (issues x variants, seeds averaged), but only 3.6% at critical severity; all 4 clean controls get warnings.
+- Cost per run on Gemini: Holdout Rs 1.22 (final_v1) and Rs 1.29 (real_world_v1); ReAct Rs 8.84 (final_v1) and Rs 9.47 (real_world_v1).
+
+ReAct's sandbox steps timed out in 53 of 80 final_v1 runs, which may understate it. Why
+Holdout detected less than its own audit layer is analysed in
+[docs/error_analysis.md](docs/error_analysis.md).
+
+## Post-hoc exploratory: audits_only v1.1 vs v1.0 (not pre-registered)
+
+v1.1 fixes the errors found in that analysis: problems found on the raw data are recorded
+before planning and must be answered by the plan; an entity or time leak cannot be masked
+by dropping a column; A3 and A5 false positives; deduplication as a plan action; a causal
+goal is declined in code ([docs/design.md](docs/design.md#v11-post-benchmark-fixes)). Only
+the offline audits_only system was re-run (no API calls). Full tables:
+[docs/results_v11.md](docs/results_v11.md).
+
+- dev_v1 (primary comparison; both versions run fresh): recall 77.8% -> 88.9%, a gain of one task, causal_question@credit_approval on both seeds; no clean false-alarm change (0/3 critical, 1/3 warning in both).
+- final_v1 (optimistic: the fixes were derived from errors on this suite): recall 75.0% -> 85.7% like for like; clean controls with a critical false alarm 4/12 -> 1/12, and the remaining one is a timeout, not a flag.
+- real_world_v1 (optimistic: the fixes were derived from errors on this suite): detection unchanged (57.1%, 3.6% at critical); remediation 17.9% -> 3.6%.
+
+Trade-offs:
+
+- Titanic `body` remediation lost on real_world_v1 (remediation 17.9% -> 3.6%): v1.0 dropped this post-outcome leak for the wrong reason (A3 misread it as an identifier). It is left unpatched deliberately, to avoid tuning on the test suite.
+- The messy_formats@house_16h gain on final_v1 is a timeout artifact (v1.0's audit ran out of time; v1.1's finishes), not a better format check, and it is not counted as an improvement: like for like, final_v1 recall is 75.0% -> 85.7%.
+- All 4 real-world clean controls still get warnings (mushroom, credit_g, kr_vs_kp, abalone), as in v1.0.
+- Fix 5 (deduplication as a plan action) does not change the duplicate traps: Holdout's own sealed holdout still overlaps the development rows, so the holdout is invalidated and the run ends.
+- The Gemini planner path of v1.1 is untested live: no API calls were made, and it is covered by fake-LLM tests only.
+
+## Limitations
+
+- **Warnings on real data.** All 4 real-world clean controls still get warnings (mushroom
+  `odor`, credit_g, kr_vs_kp, abalone), in v1.0 and v1.1. Warnings need judgement; they are
+  not a verdict.
+- **Low critical-level detection on real data.** On real_world_v1 the audits detect 57.1%
+  of the documented issues but only 3.6% at critical severity, so on real data Holdout
+  mostly warns rather than blocks.
+- **The agent is weaker than its own audit layer** (51.8% vs 75.0% recall on final_v1):
+  the LLM planner can avoid a problem instead of surfacing it. v1.1's data findings address
+  this, but the Gemini path of v1.1 is untested live.
+- **Small samples.** 28 trap tasks, 12 + 4 clean controls and 2 seeds: the confidence
+  intervals are wide, and no pre-registered hypothesis was supported.
+- **Blind spots by design** are listed per check in [docs/audits.md](docs/audits.md), e.g.
+  a smooth time trend in the row order (the semi-synthetic `time_order` trap was detected by
+  no system) and paraphrased causal claims.
+- Tabular classification and regression only; no forecasting, text or images.
+
+## Web app
+
+```powershell
+python -m pip install -e ".[app]"
+streamlit run app/streamlit_app.py
+```
+
+- **Offline by default:** the default plan, the audits and a template report; no API calls.
+- **Demo datasets** (synthetic, no download): a clean churn table and three planted traps
+  (a leaky column, repeated customers, a causal question). Or upload a CSV (up to 50,000
+  rows).
+- **Findings and flags are split by severity.** Critical findings block the holdout;
+  warnings are shown apart, with a note that they are common on real data and need
+  judgement, not automatic rejection.
+- **Gemini (optional):** paste a key in the session-only field. It is passed to the client
+  as an argument, never put in the environment, logged, cached or written to a file. Each
+  run is capped at Rs 15, a session at 3 Gemini runs, and the server's ledger enforces the
+  project cap.
+- **Benchmark page:** the pre-registered v1.0 results first, then the post-hoc v1.1
+  comparison with the same labels and caveats as this README.
+- The sidebar shows the version and links to its tag.
+
+Runs use the autopilot policy (logged): accept the proposed split and the audit's fixes,
+ask to unseal with warnings acknowledged, never override a critical flag. For interactive
+questions use the CLI (`holdout agent`). Deployment to Streamlit Community Cloud and the
+demo GIF checklist: [docs/deploy.md](docs/deploy.md).
 
 ## Quickstart (Windows PowerShell)
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,app]"
 ```
 
 Or with uv: `uv venv --python 3.12`, activate it as above, then `uv pip install -e ".[dev]"`.
@@ -61,8 +140,8 @@ pytest
 pytest --tier full --cov
 
 # Lint and types
-ruff check src tests scripts bench
-mypy src/holdout bench
+ruff check src tests scripts bench app
+mypy src/holdout bench app
 ```
 
 On Linux or macOS, use `python3.12 -m venv .venv` and `source .venv/bin/activate`.
@@ -264,10 +343,12 @@ src/holdout/export/   pipeline.py generator, manifest and report
 src/holdout/llm/      Gemini client, structured calls, budget, response cache
 src/holdout/agent/    LangGraph agent, prompts, planner, report rules, autopilot policy
 src/holdout/sandbox/  EDA sandbox (AST allowlist, isolated process, limits)
+src/holdout/webapp/   the Streamlit app's pages and logic (app/streamlit_app.py starts it)
 src/holdout/cli.py    holdout run / holdout audit / holdout agent / holdout make-example
-bench/traps/          trap generators with ground truth and clean twins (not shipped)
+bench/                benchmark harness, suites, scoring, trap generators (not shipped)
+results/              pre-registered v1.0 results (frozen); results_v11/: post-hoc v1.1
 tests/                unit, property (hypothesis), integration and performance tests
-docs/                 design.md (guarantees and decisions), audits.md (the checks)
+docs/                 design.md, audits.md, results.md, results_v11.md, error_analysis.md
 ```
 
 ## Windows note
@@ -281,3 +362,11 @@ Smart App Control is blocking a recently released binary wheel. The pinned versi
 python -m pip install -r requirements.lock
 python -m pip install -e . --no-deps
 ```
+
+## Citation and licence
+
+MIT licence ([LICENSE](LICENSE)). To cite Holdout, see [CITATION.cff](CITATION.cff).
+
+The motivating paper: Xue Li, Hongqian Xia, Daniel Gomm, Aécio Santos, Cornelius Wolff,
+Madelon Hulsebos. "The Silent Failures in Agentic Data Science". arXiv:2610.14115, 9 October
+2026. https://arxiv.org/abs/2610.14115

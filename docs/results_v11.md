@@ -8,6 +8,12 @@
 > re-evaluated, and **the Gemini planner path of v1.1 (data findings answered by the model)
 > is untested live**. It is covered by fake-LLM tests only.
 
+## Summary
+
+- dev_v1 (primary comparison; both versions run fresh): recall 77.8% -> 88.9%, a gain of one task, causal_question@credit_approval on both seeds; no clean false-alarm change (0/3 critical, 1/3 warning in both).
+- final_v1 (optimistic: the fixes were derived from errors on this suite): recall 75.0% -> 85.7% like for like; clean controls with a critical false alarm 4/12 -> 1/12, and the remaining one is a timeout, not a flag.
+- real_world_v1 (optimistic: the fixes were derived from errors on this suite): detection unchanged (57.1%, 3.6% at critical); remediation 17.9% -> 3.6%.
+
 ## What changed
 
 v1.1 adds data findings recorded before planning and kept for the whole run, a no-masking
@@ -60,7 +66,7 @@ three clean controls are too few to measure a false-alarm change here.
 | | v1.0 | v1.1 |
 |---|---|---|
 | runs (failed) | 80 (4) | 80 (2) |
-| detection recall (task = unit) | 75.0% | 89.3% |
+| detection recall (task = unit) | 75.0% | 85.7% like for like (89.3% raw, incl. a timeout artifact) |
 | detected at critical | 57.1% | 57.1% |
 | remediated (scorable runs) | 64.0% | 64.0% |
 | clean controls with a critical false alarm | 4/12 | 1/12 |
@@ -71,7 +77,7 @@ three clean controls are too few to measure a false-alarm change here.
 | detection gained | causal_question@puma32h | 101, 202 | goal-level A11 |
 | detection gained | causal_question@telco_churn | 101, 202 | goal-level A11 |
 | detection gained | causal_question@wilt | 101, 202 | goal-level A11 |
-| detection gained | messy_formats@house_16h | 101, 202 | v1.0 failed: the audit node timed out (756 s, 711 s > 600 s) |
+| detection gained (timeout artifact, not counted) | messy_formats@house_16h | 101, 202 | v1.0 failed: the audit node timed out (756 s, 711 s > 600 s) |
 | false alarm gone (critical and warning) | causal_question:clean@telco_churn | 101 | A5 critical `number_vmail_messages`; A3 critical `phone_number` |
 | false alarm gone (critical and warning) | cross_split_duplicates:clean@cpu_act | 202 | A3 critical `freeswap` |
 | false alarm gone (critical and warning) | noisy_proxy:clean@steel_plates_fault | 101, 202 | A3 critical `V3`, `V4`, `V8` |
@@ -79,10 +85,16 @@ three clean controls are too few to measure a false-alarm change here.
 
 **Lost detections: none. Lost remediations: none. New false alarms: none.**
 
-- **messy_formats@house_16h is not a better format check.** v1.0's audit timed out because
-  A5 cross-validated numeric pseudo-keys. v1.1's A5 finds no entity-like column, so the audit
-  finishes (606 s and 582 s for the whole unit) and A8's existing warning is reported. The
-  gain depends on the 600 s compute limit.
+- **The raw recall (89.3%) is not the result: like for like it is 85.7%.**
+  messy_formats@house_16h is not a better format check, and it is not counted as an
+  improvement. v1.0's audit timed out because A5 cross-validated numeric pseudo-keys. v1.1's
+  A5 finds no entity-like column, so the audit finishes (606 s and 582 s for the whole
+  unit) and A8's existing warning is reported. The gain depends on the 600 s compute limit.
+  Without it, v1.1 gains the three causal-goal tasks only: 24 of 28 tasks (85.7%) against
+  21 of 28 (75.0%).
+- **The 4/12 -> 1/12 critical false alarms.** In v1.0 three were flags (A3 and A5 false
+  positives, listed above) and one a timeout. In v1.1 the flags are gone and the timeout
+  remains.
 - **The remaining clean false alarm (1/12) is a failure, not a flag.**
   group_leakage:clean@house_16h times out in both versions: in `compile_and_fit` in v1.0, and
   in `profile_fit` (the same fit, moved earlier) in v1.1. Every completed clean control on
@@ -118,21 +130,28 @@ three clean controls are too few to measure a false-alarm change here.
   critical drops it. This is a direct cost of the A3 fix.
 - Detections and the clean controls' flags are identical. Mushroom `odor` (A1), credit_g (A1
   and A2) and kr_vs_kp (A6) still warn, and abalone A6 is still critical on seed 101. None of
-  these was targeted by a fix. The anonymised Diabetes identifier (`col_1`), which v1.1's A3
-  could no longer call ID-like, cost no scored detection.
+  these was targeted by a fix. The Diabetes identifier (`encounter_id`, `col_1` when
+  anonymised) is still detected in every run, as in v1.0.
 
 ## Trade-offs
 
+- Titanic `body` remediation lost on real_world_v1 (remediation 17.9% -> 3.6%): v1.0 dropped this post-outcome leak for the wrong reason (A3 misread it as an identifier). It is left unpatched deliberately, to avoid tuning on the test suite.
+- The messy_formats@house_16h gain on final_v1 is a timeout artifact (v1.0's audit ran out of time; v1.1's finishes), not a better format check, and it is not counted as an improvement: like for like, final_v1 recall is 75.0% -> 85.7%.
+- All 4 real-world clean controls still get warnings (mushroom, credit_g, kr_vs_kp, abalone), as in v1.0.
+- Fix 5 (deduplication as a plan action) does not change the duplicate traps: Holdout's own sealed holdout still overlaps the development rows, so the holdout is invalidated and the run ends.
+- The Gemini planner path of v1.1 is untested live: no API calls were made, and it is covered by fake-LLM tests only.
+
+Also:
+
 - **A3 precision for recall.** The fix removes the `freeswap`, `V3/V4/V8` and
-  `phone_number` false alarms but loses the accidental titanic `body` remediation. It also
-  stops flagging identifiers that have an anonymised name and no sequence or code shape.
+  `phone_number` false alarms but loses the accidental titanic `body` remediation. It
+  also stops flagging identifiers that have an anonymised name and no sequence or code
+  shape.
 - **A5 coverage.** A numeric entity key with a neutral name is no longer tested.
 - **Fix 5 rarely fires on its own.** With a random seal, development data with many
   duplicates nearly always overlaps the sealed holdout by at least 1%, and that invalidates
   the holdout first. Deduplication helps when duplicates across the seal are rare, or when
   the planner chooses it for a warning.
 - **The probe costs a fit when the planner diverges.** When the LLM's first plan differs
-  from the probe, v1.1 cross-validates and audits twice. This is untested live, and its cost
-  in API terms is zero (no extra LLM call), but compute rises.
-- **Untested live:** the Gemini planner's `findings_handled` answers, its repair on a
-  missing answer, and its response to the masking rule.
+  from the probe, v1.1 cross-validates and audits twice: no extra LLM call, but more
+  compute.
