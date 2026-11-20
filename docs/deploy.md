@@ -7,7 +7,7 @@ The repository is already laid out for it: `app/streamlit_app.py` (entry point),
 LightGBM's Linux wheel needs) and `.streamlit/config.toml` (50 MB uploads, no usage
 statistics).
 
-1. Push `main` to GitHub (the app is deployed from a branch; the tag `v1.1.2` marks the
+1. Push `main` to GitHub (the app is deployed from a branch; the tag `v1.1.3` marks the
    release).
 2. Sign in at https://share.streamlit.io with the GitHub account that owns the repository
    and allow it to read the repository.
@@ -22,9 +22,9 @@ statistics).
    `HOLDOUT_PROJECT_CAP_INR = "100"` to lower the server-wide spend cap that the ledger
    enforces across all visitors' Gemini runs (default Rs 750).
 5. **Deploy.** The first build installs the pinned stack (a few minutes). Check the build
-   log for `Successfully installed ... holdout-1.1.2 ... streamlit-1.67.0`.
+   log for `Successfully installed ... holdout-1.1.3 ... streamlit-1.67.0`.
 6. Smoke check in the browser:
-   - The sidebar shows **Holdout 1.1.2**, and the link opens the `v1.1.2` tag.
+   - The sidebar shows **Holdout 1.1.3**, and the link opens the `v1.1.3` tag.
    - Run page: demo "Leaky column (direct_leak)", Offline -> **Run**. You should see a red
      **Critical** block (the leak, resolved), an orange **Warnings** block with the
      "need your judgement" note, and three metrics.
@@ -32,7 +32,7 @@ statistics).
      exploratory ...", with the trade-offs.
 7. If the build fails on `pip install -r requirements.txt`, check that the log runs it
    from the repository root (`.[app]` is relative to it). Otherwise replace the line with
-   `holdout[app] @ git+https://github.com/iamrohitkumaryadav9/holdout@v1.1.2`.
+   `holdout[app] @ git+https://github.com/iamrohitkumaryadav9/holdout@v1.1.3`.
 
 Limits to know: the free tier has about 1 GB of memory and sleeps when idle. Large
 uploads or the `group_leakage` demo (a follow-up run) take a minute or two. Every run
