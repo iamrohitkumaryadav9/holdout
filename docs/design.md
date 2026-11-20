@@ -896,8 +896,17 @@ question in the goal (A11 on the goal text), become findings F1..Fn
   once with an action (`drop_columns`, `change_split`, `change_metric`, `deduplicate`,
   `decline_causal_claim`, `keep_with_reason`) and a reason. The LLM check rejects a missing,
   duplicate or inconsistent answer (e.g. `drop_columns` for a column the plan keeps) with
-  the usual single repair. The offline planner answers deterministically. Revisions keep
-  the answers.
+  the usual single repair. The offline planner cannot reason about the data, so it
+  answers every finding with `deferred_to_audit` (reserved for it; a model must choose an
+  action), naming what code does instead; the outcome column then says what code did.
+  Revisions keep the answers.
+- Plan sources per round: `default` (offline default plan), `llm` (the model's plan),
+  `code_fix` (the offline planner's revision: code applied the audit's fixes) and
+  `code_substitution` (a model revision missed a fix and code's plan replaced it). Only the
+  last is a substitution: it is listed in `substitutions`, counted in the report and not
+  credited to the model. v1.0 manifests used `code_substitution` for both code cases.
+- A11 in agent runs reports its two parts separately: the goal (checked at intake, offline
+  too) and the generated report (checked only when a model wrote the prose).
 - What the planner *says* is recorded, but code decides the outcome (`resolution`): a
   column finding is resolved by the final plan's drop or metric, or by not being raised by
   the final audit; an entity/time finding only by the split; a goal finding by the decline.
