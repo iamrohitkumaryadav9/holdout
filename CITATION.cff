@@ -3,9 +3,9 @@ message: "If you use Holdout, please cite it as below."
 title: "Holdout: a self-auditing data-science agent for tabular CSVs"
 type: software
 authors:
-  - given-names: Rohit Kumar
-    family-names: Yadav
-version: 1.1.0
+  - given-names: Rohit
+    family-names: Kumar
+version: 1.1.1
 date-released: 2026-11-20
 license: MIT
 repository-code: "https://github.com/iamrohitkumaryadav9/holdout"
@@ -18,8 +18,8 @@ abstract: >-
   Holdout seals the holdout set before anything computes a feature-target statistic,
   compiles typed modelling plans into leakage-safe pipelines, audits them with twelve
   deterministic checks, and allows one logged holdout evaluation. Version 1.0.0 was
-  evaluated on a pre-registered benchmark; 1.1.0 adds post-hoc fixes evaluated as
-  exploratory.
+  evaluated on a pre-registered benchmark; 1.1 adds post-hoc fixes evaluated as
+  exploratory, and 1.1.1 adds the web app.
 references:
   - type: article
     title: "The Silent Failures in Agentic Data Science"

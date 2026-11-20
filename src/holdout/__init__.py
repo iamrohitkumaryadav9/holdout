@@ -6,4 +6,4 @@ run through one logged call. Proposals (today a default plan, later an LLM) are 
 deterministic code in this package decides what is allowed.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
