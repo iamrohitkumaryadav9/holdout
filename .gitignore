@@ -28,6 +28,15 @@ runs/
 bench_runs/
 smoke_runs/
 
+# Local assistant settings, secrets and logs: never commit.
+.claude/
+.env
+.env.*
+.streamlit/secrets.toml
+*.log
+*.sqlite
+*.sqlite-*
+
 # Editors / OS
 .vscode/
 .idea/
