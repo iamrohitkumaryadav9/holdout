@@ -41,9 +41,27 @@ def _no_network() -> Iterator[None]:
     def refuse(*args: object, **kwargs: object) -> None:
         raise NetworkBlockedError("network access is blocked in tests (use FakeLLM)")
 
+    connect, connect_ex = socket.socket.connect, socket.socket.connect_ex
+
+    def _loopback(address: object) -> bool:
+        return isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1")
+
+    # Loopback only: on Windows, asyncio (used by Streamlit's AppTest) builds its event
+    # loop's self-pipe with socket.socketpair(), which connects to 127.0.0.1. Nothing here
+    # resolves a name or leaves the machine.
+    def local_connect(self: socket.socket, address: object) -> None:
+        if not _loopback(address):
+            refuse()
+        connect(self, address)  # type: ignore[arg-type]
+
+    def local_connect_ex(self: socket.socket, address: object) -> int:
+        if not _loopback(address):
+            refuse()
+        return connect_ex(self, address)  # type: ignore[arg-type]
+
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(socket.socket, "connect", refuse)
-        patch.setattr(socket.socket, "connect_ex", refuse)
+        patch.setattr(socket.socket, "connect", local_connect)
+        patch.setattr(socket.socket, "connect_ex", local_connect_ex)
         patch.setattr(socket, "create_connection", refuse)
         patch.setattr(socket, "getaddrinfo", refuse)
         yield
