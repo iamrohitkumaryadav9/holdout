@@ -1,5 +1,10 @@
 # Holdout
 
+[![CI](https://github.com/iamrohitkumaryadav9/holdout/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/iamrohitkumaryadav9/holdout/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
+[![Version 1.1.1](https://img.shields.io/badge/version-1.1.1-informational.svg)](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.1)
+
 Holdout is a self-auditing data-science agent for tabular CSVs. Judging data-science agents
 by their scores alone hides methodological failures such as data leakage and inappropriate
 validation, and the majority of agentic solutions contain at least one such failure
@@ -13,9 +18,29 @@ inspect the pipeline on the development rows for leakage, contaminated splits an
 misleading metrics. A critical finding blocks the single, logged holdout evaluation. Every
 run exports a standalone script that reproduces its result without Holdout installed.
 
-**Version 1.1.0** ([tag](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.0)). The
+**Version 1.1.1** ([tag](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.1)). The
 benchmark below was pre-registered and run on v1.0.0; v1.1 adds post-hoc fixes, evaluated
 as exploratory only. A web app runs it offline in the browser ([Web app](#web-app)).
+
+## How a run works
+
+```mermaid
+flowchart LR
+    A["CSV"] --> B["Split proposal"]
+    B --> C["Seal the holdout:<br/>hash, access log"]
+    C --> D["Probe audit on raw dev rows:<br/>data findings"]
+    D --> E["Plan: Gemini or<br/>offline default"]
+    E --> F["Validate and compile a<br/>leakage-safe pipeline"]
+    F --> G["Cross-validate<br/>against a dummy"]
+    G --> H{"12 audit checks"}
+    H -- "critical, fixable in the plan" --> I["Code applies the fix"]
+    I --> F
+    H -- "the split leaks" --> J["New run with the<br/>corrected split"]
+    H -- "no critical left" --> K["Unseal once,<br/>score the holdout"]
+    K --> L["report.md, run_manifest.json,<br/>pipeline.py"]
+```
+
+Code, not the model, decides every arrow: the model only fills the plan and the prose.
 
 ## Pre-registered results (v1.0.0)
 
