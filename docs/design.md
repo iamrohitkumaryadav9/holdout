@@ -905,6 +905,10 @@ question in the goal (A11 on the goal text), become findings F1..Fn
   `code_substitution` (a model revision missed a fix and code's plan replaced it). Only the
   last is a substitution: it is listed in `substitutions`, counted in the report and not
   credited to the model. v1.0 manifests used `code_substitution` for both code cases.
+- Flag explanations are keyed `check:columns` (`A1:refund_issued`), or just the check for
+  a flag without columns (`A12`; v1.1.3 and earlier wrote `A12:`). When code changes a
+  plan's drop list (an audit fix, the group key), the `drop_columns` rationale is rewritten
+  from the final list with each column's reason (v1.1.4).
 - A11 in agent runs reports its two parts separately: the goal (checked at intake, offline
   too) and the generated report (checked only when a model wrote the prose).
 - What the planner *says* is recorded, but code decides the outcome (`resolution`): a
