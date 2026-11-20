@@ -1,0 +1,44 @@
+cff-version: 1.2.0
+message: "If you use Holdout, please cite it as below."
+title: "Holdout: a self-auditing data-science agent for tabular CSVs"
+type: software
+authors:
+  - given-names: Rohit Kumar
+    family-names: Yadav
+version: 1.1.0
+date-released: 2026-11-20
+license: MIT
+repository-code: "https://github.com/iamrohitkumaryadav9/holdout"
+keywords:
+  - data leakage
+  - data science agents
+  - model evaluation
+  - LLM agents
+abstract: >-
+  Holdout seals the holdout set before anything computes a feature-target statistic,
+  compiles typed modelling plans into leakage-safe pipelines, audits them with twelve
+  deterministic checks, and allows one logged holdout evaluation. Version 1.0.0 was
+  evaluated on a pre-registered benchmark; 1.1.0 adds post-hoc fixes evaluated as
+  exploratory.
+references:
+  - type: article
+    title: "The Silent Failures in Agentic Data Science"
+    authors:
+      - given-names: Xue
+        family-names: Li
+      - given-names: Hongqian
+        family-names: Xia
+      - given-names: Daniel
+        family-names: Gomm
+      - given-names: Aécio
+        family-names: Santos
+      - given-names: Cornelius
+        family-names: Wolff
+      - given-names: Madelon
+        family-names: Hulsebos
+    year: 2026
+    month: 10
+    url: "https://arxiv.org/abs/2610.14115"
+    identifiers:
+      - type: other
+        value: "arXiv:2610.14115"
