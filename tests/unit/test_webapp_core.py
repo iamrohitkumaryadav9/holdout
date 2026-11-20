@@ -52,7 +52,7 @@ def test_an_explicit_key_is_used_without_the_environment(
 def test_the_demos_build_without_a_download() -> None:
     labels = [d.label for d in core.demos()]
     assert labels[0] == "Churn (clean)"
-    frame, target, _ = core.demos()[0].build()
+    frame, target = core.demos()[0].build()
     assert target in frame.columns
 
 

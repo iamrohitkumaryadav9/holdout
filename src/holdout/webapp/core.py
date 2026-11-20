@@ -31,27 +31,34 @@ MAX_UPLOAD_ROWS: Final = 50_000
 class Demo:
     label: str
     description: str
-    build: Callable[[], tuple[pd.DataFrame, str, str]]  # frame, target, goal
+    #: What the target means, in the words the goal uses ("convert" for ``converted``).
+    concept: str
+    goal: str
+    build: Callable[[], tuple[pd.DataFrame, str]]  # frame, target
 
 
-def _churn() -> tuple[pd.DataFrame, str, str]:
-    return make_classification_example(), "churned", "predict which customers churn"
+def _churn() -> tuple[pd.DataFrame, str]:
+    return make_classification_example(), "churned"
 
 
-def _trap(name: str, **kwargs: Any) -> Callable[[], tuple[pd.DataFrame, str, str]]:
-    def build() -> tuple[pd.DataFrame, str, str]:
+def _trap(name: str, **kwargs: Any) -> Callable[[], tuple[pd.DataFrame, str]]:
+    def build() -> tuple[pd.DataFrame, str]:
         from bench.traps import build_case  # the repository's trap generators
 
         case = build_case(name, 0, **kwargs)
-        return case.df, case.target, case.goal_text
+        return case.df, case.target
 
     return build
 
 
 def demos() -> list[Demo]:
     """Synthetic demo datasets (no download). The planted traps need the repository's
-    ``bench`` package, present when the app runs from a checkout."""
-    out = [Demo("Churn (clean)", "Synthetic customer churn; no planted problem.", _churn)]
+    ``bench`` package, present when the app runs from a checkout. Each demo's goal names
+    its own target concept; the benchmark's trap goals are not changed."""
+    out = [
+        Demo("Churn (clean)", "Synthetic customer churn; no planted problem.", "churn",
+             "predict which customers churn", _churn),
+    ]  # fmt: skip
     try:
         import bench.traps  # noqa: F401
     except ImportError:
@@ -60,12 +67,15 @@ def demos() -> list[Demo]:
         *out,
         Demo("Leaky column (direct_leak)",
              "`refund_issued` is derived from the target: a critical leak.",
-             _trap("direct_leak")),
+             "convert", "predict which customers convert", _trap("direct_leak")),
         Demo("Repeated customers (group_leakage)",
-             "Rows share customers across the split: the holdout is contaminated.",
+             "Rows share customers (`account`) across the split: the holdout is contaminated.",
+             "convert", "predict which customers convert",
              _trap("group_leakage", n_rows=600)),
         Demo("Causal question (causal_question)",
-             "The goal asks whether X causes Y; Holdout declines a causal conclusion.",
+             "The goal asks whether a column causes the outcome; Holdout declines a causal "
+             "conclusion.",
+             "convert", "Does the contact channel cause customers to convert?",
              _trap("causal_question")),
     ]  # fmt: skip
 

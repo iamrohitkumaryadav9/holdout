@@ -66,6 +66,18 @@ def test_the_benchmark_page_leads_with_the_preregistered_results(home: Path) -> 
     assert "### Detection recall" in body  # the generated tables, not retyped numbers
 
 
+def test_switching_demos_resets_the_target_and_goal(home: Path) -> None:
+    at = _app()
+    first = core.demos()[0]
+    assert at.text_input(key=f"goal::demo:{first.label}").value == first.goal
+    for demo in core.demos()[1:]:
+        at.selectbox(key="demo").set_value(demo.label).run()
+        assert not at.exception
+        _frame, target = demo.build()
+        assert at.selectbox(key=f"target::demo:{demo.label}").value == target
+        assert at.text_input(key=f"goal::demo:{demo.label}").value == demo.goal
+
+
 def test_a_gemini_key_stays_in_the_session(home: Path, tmp_path: Path) -> None:
     at = _app()
     at.radio(key="engine").set_value("Gemini (your API key)").run()

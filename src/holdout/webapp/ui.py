@@ -48,18 +48,23 @@ def _workdir() -> Path:
 
 
 @st.cache_data(show_spinner=False)
-def _demo_frame(label: str) -> tuple[pd.DataFrame, str, str]:
+def _demo_frame(label: str) -> tuple[pd.DataFrame, str]:
     demo = next(d for d in core.demos() if d.label == label)
     return demo.build()
 
 
-def _data() -> tuple[pd.DataFrame, str, str] | None:
+def _data() -> tuple[pd.DataFrame, str, str, str] | None:
+    """The chosen data: frame, default target, default goal and an identity used to key
+    the widgets, so switching datasets resets the target and goal (Streamlit keeps a
+    widget's value across reruns by key)."""
     source = st.radio("Data", ["Demo dataset", "Upload a CSV"], horizontal=True, key="source")
     if source == "Demo dataset":
         options = core.demos()
         label = st.selectbox("Demo", [d.label for d in options], key="demo")
-        st.caption(next(d.description for d in options if d.label == label))
-        return _demo_frame(label)
+        demo = next(d for d in options if d.label == label)
+        st.caption(demo.description)
+        frame, target = _demo_frame(label)
+        return frame, target, demo.goal, f"demo:{label}"
     upload = st.file_uploader("CSV file", type=["csv"], key="upload")
     if upload is None:
         return None
@@ -67,7 +72,7 @@ def _data() -> tuple[pd.DataFrame, str, str] | None:
     if len(frame) > core.MAX_UPLOAD_ROWS:
         st.error(f"This app takes at most {core.MAX_UPLOAD_ROWS:,} rows; use the CLI for more.")
         return None
-    return frame, str(frame.columns[-1]), ""
+    return frame, str(frame.columns[-1]), "", f"upload:{upload.name}:{upload.size}"
 
 
 def run_page() -> None:
@@ -80,14 +85,14 @@ def run_page() -> None:
     loaded = _data()
     if loaded is None:
         return
-    frame, default_target, default_goal = loaded
+    frame, default_target, default_goal, data_id = loaded
     st.caption(f"{len(frame):,} rows x {frame.shape[1]} columns")
     st.dataframe(frame.head(5), hide_index=True)
     columns = [str(c) for c in frame.columns]
     target = st.selectbox(
-        "Target column", columns, index=columns.index(default_target), key="target"
+        "Target column", columns, index=columns.index(default_target), key=f"target::{data_id}"
     )
-    goal = st.text_input("Goal (optional)", value=default_goal, key="goal")
+    goal = st.text_input("Goal (optional)", value=default_goal, key=f"goal::{data_id}")
     entities = st.selectbox(
         "Will predictions be for new entities (customers, patients) or ones already in the data?",
         ["unanswered (treated as new)", "new", "known"],
@@ -118,13 +123,20 @@ def run_page() -> None:
             st.warning("Enter a key, or switch to Offline.")
             return
     if st.button("Run", type="primary", key="run"):
-        _run(frame, target, goal, entities, api_key)
-    outcome = st.session_state.get("outcome")
-    if outcome is not None:
-        show_outcome(outcome)
+        _run(frame, target, goal, entities, api_key, data_id)
+    shown = st.session_state.get("outcome")
+    if shown is not None and shown[0] == data_id:  # never show another dataset's result
+        show_outcome(shown[1])
 
 
-def _run(frame: pd.DataFrame, target: str, goal: str, entities: str, api_key: str | None) -> None:
+def _run(
+    frame: pd.DataFrame,
+    target: str,
+    goal: str,
+    entities: str,
+    api_key: str | None,
+    data_id: str,
+) -> None:
     n = st.session_state.get("n_runs", 0) + 1
     st.session_state["n_runs"] = n
     if api_key is not None:
@@ -149,7 +161,7 @@ def _run(frame: pd.DataFrame, target: str, goal: str, entities: str, api_key: st
             st.error(message)
             return
         status.update(label="Done", state="complete")
-    st.session_state["outcome"] = outcome
+    st.session_state["outcome"] = (data_id, outcome)
 
 
 def show_outcome(outcome: AgentOutcome) -> None:
