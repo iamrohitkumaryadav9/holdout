@@ -5,7 +5,7 @@ type: software
 authors:
   - given-names: Rohit
     family-names: Kumar
-version: 1.1.1
+version: 1.1.2
 date-released: 2026-11-20
 license: MIT
 repository-code: "https://github.com/iamrohitkumaryadav9/holdout"
@@ -19,7 +19,7 @@ abstract: >-
   compiles typed modelling plans into leakage-safe pipelines, audits them with twelve
   deterministic checks, and allows one logged holdout evaluation. Version 1.0.0 was
   evaluated on a pre-registered benchmark; 1.1 adds post-hoc fixes evaluated as
-  exploratory, and 1.1.1 adds the web app.
+  exploratory, and 1.1.1 adds the web app and 1.1.2 polishes its wording.
 references:
   - type: article
     title: "The Silent Failures in Agentic Data Science"
