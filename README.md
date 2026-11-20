@@ -5,7 +5,20 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
 [![Version 1.1.4](https://img.shields.io/badge/version-1.1.4-informational.svg)](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.4)
 
-Holdout is a self-auditing data-science agent for tabular CSVs. Judging data-science agents
+**A self-auditing data-science agent for tabular CSVs: the holdout is sealed before anything
+sees it, and code, not a prompt, decides whether it may be opened.**
+
+**Live demo: [holdout.streamlit.app](https://holdout.streamlit.app)**, offline by default
+(no API key needed). Try the planted-leak, repeated-customer and causal-question demos.
+
+**Headline result (pre-registered, v1.0.0):** on 28 planted-trap tasks, Holdout's
+deterministic audit layer detected 75.0% [57.1%, 89.3%] of the traps and ReAct 60.7%
+[42.9%, 78.6%] (exact McNemar p = 0.27, not significant); the full LLM agent detected
+51.8% [33.9%, 69.6%], less than its own audit layer. No pre-registered hypothesis was
+supported; see [the results](#pre-registered-results-v100) and
+[the limitations](#limitations).
+
+**Why.** Judging data-science agents
 by their scores alone hides methodological failures such as data leakage and inappropriate
 validation, and the majority of agentic solutions contain at least one such failure
 ([The Silent Failures in Agentic Data Science](https://arxiv.org/abs/2610.14115), Li et al.,
@@ -20,7 +33,8 @@ run exports a standalone script that reproduces its result without Holdout insta
 
 **Version 1.1.4** ([tag](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.4)). The
 benchmark below was pre-registered and run on v1.0.0; v1.1 adds post-hoc fixes, evaluated
-as exploratory only. A web app runs it offline in the browser ([Web app](#web-app)).
+as exploratory only. The [web app](#web-app) runs it offline in the browser, live at
+https://holdout.streamlit.app.
 
 ## How a run works
 
@@ -121,8 +135,8 @@ streamlit run app/streamlit_app.py
 
 Runs use the autopilot policy (logged): accept the proposed split and the audit's fixes,
 ask to unseal with warnings acknowledged, never override a critical flag. For interactive
-questions use the CLI (`holdout agent`). Deployment to Streamlit Community Cloud and the
-demo GIF checklist: [docs/deploy.md](docs/deploy.md).
+questions use the CLI (`holdout agent`). The app is live at https://holdout.streamlit.app;
+deploying your own copy to Streamlit Community Cloud: [docs/deploy.md](docs/deploy.md).
 
 ## Quickstart (Windows PowerShell)
 

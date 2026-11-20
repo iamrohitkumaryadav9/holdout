@@ -1,4 +1,8 @@
-# Deploying the web app, and recording the demo GIF
+# Deploying the web app
+
+The app is live at **https://holdout.streamlit.app**, deployed on Streamlit Community Cloud
+from `main` (it redeploys on every push). The steps below set up the same deployment for
+a fork or a fresh account.
 
 ## Streamlit Community Cloud
 
@@ -15,7 +19,8 @@ statistics).
    - Repository: `iamrohitkumaryadav9/holdout`
    - Branch: `main`
    - Main file path: `app/streamlit_app.py`
-   - App URL: choose one (for example `holdout-agent`).
+   - App URL: `holdout` (the live app is https://holdout.streamlit.app; a fork needs its
+     own name).
 4. **Advanced settings** -> Python version **3.12** (the package requires `>=3.12`).
    Secrets: none are needed. The app never uses a server-side Gemini key: visitors who
    choose Gemini paste their own key, which stays in their session. Optionally set
@@ -38,40 +43,3 @@ Limits to know: the free tier has about 1 GB of memory and sleeps when idle. Lar
 uploads or the `group_leakage` demo (a follow-up run) take a minute or two. Every run
 writes to a temporary directory that is gone on restart; downloads (report, manifest,
 `pipeline.py`) are the way to keep a run.
-
-## Demo GIF checklist
-
-Target: 20-30 s, 1280x720 (or 1200 wide), under 8 MB, no audio. Record with ScreenToGif
-(Windows) or Kap (macOS), at 12-15 fps.
-
-Before recording:
-
-- [ ] Use the deployed app (or `streamlit run app/streamlit_app.py`) in a clean browser
-      window at 100% zoom, light theme, bookmarks bar hidden.
-- [ ] **Offline** selected; no API key anywhere on screen (not even masked).
-- [ ] Run each demo once beforehand, so imports and the cache are warm.
-- [ ] Close notifications and other tabs; nothing personal in the window title or URL bar.
-
-Shot list:
-
-1. [ ] (3 s) Run page: the one-line description; select demo **Leaky column
-       (direct_leak)**; the preview table shows `refund_issued`.
-2. [ ] (4 s) Target `converted`, Planner **Offline** -> click **Run**; the status box shows
-       progress lines.
-3. [ ] (6 s) Scroll to **Problems found before planning**: the red **Critical** block
-       (`refund_issued`, status *resolved*) above the orange **Warnings** block with its
-       "warnings need your judgement" note.
-4. [ ] (4 s) The three metrics (validation, dummy, sealed holdout) and the green "holdout
-       was opened once" line.
-5. [ ] (5 s) Switch demo to **Repeated customers (group_leakage)** -> Run: the red **Holdout
-       invalid** banner, then the follow-up run with the corrected split.
-6. [ ] (5 s) Benchmark page: the "Pre-registered results (v1.0.0)" header with
-       51.8% [33.9%, 69.6%], then scroll to the post-hoc header and the trade-offs.
-
-After recording:
-
-- [ ] Trim dead frames and reduce colours (ScreenToGif: "Save as" GIF, quantizer
-      "Octree", 128-256 colours); check the size is under 8 MB.
-- [ ] Watch it once: every number on screen must match docs/results.md or the run shown.
-- [ ] Save as `docs/img/demo.gif` and add `![Holdout demo](docs/img/demo.gif)` under the
-      first paragraph of the README.
