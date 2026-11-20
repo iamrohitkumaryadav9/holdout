@@ -20,7 +20,7 @@ from holdout.webapp import core, text
 from tests.agent_harness import fake_for, write_case
 
 APP = str(Path(__file__).resolve().parents[2] / "app" / "streamlit_app.py")
-FAKE_KEY = "AIzaTESTkey_0123456789abcdefghijklmn"
+FAKE_KEY = "FAKE-test-key_not-real_0123456789"
 
 
 @pytest.fixture

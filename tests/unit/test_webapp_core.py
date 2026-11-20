@@ -23,7 +23,7 @@ def test_the_session_cap() -> None:
 
 @pytest.mark.parametrize(
     ("value", "ok"),
-    [("AIzaSyA-abcdefghijklmnopqrstuvwxyz012345", True), ("short", False),
+    [("FAKE-not-a-real-key_0123456789", True), ("short", False),
      ("has spaces in it but is long enough", False), ("", False)],
 )  # fmt: skip
 def test_the_key_shape_check(value: str, ok: bool) -> None:
