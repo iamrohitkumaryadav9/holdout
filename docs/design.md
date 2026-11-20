@@ -952,6 +952,38 @@ action helps only when duplicates are rare across the seal.
 question is a goal-level finding, and the report carries a code-enforced first caveat
 declining a causal conclusion; the sentence passes A11 itself.
 
+**Found on the deployed app's group_leakage demo (v1.1.3).** The corrected follow-up run
+(group split on `account`) scored CV roc_auc 0.429 against 0.500 for the dummy and was
+unsealed without a word; `account` was no data finding; and `account` stayed a
+target-encoded feature. All three fixes are v1.1 code paths (`thresholds_v11.toml`):
+
+- *A plan that does not beat the dummy is a warning.* A12 used to stop at "plan does not
+  beat the dummy; stability not assessed" (info). With `warn_below_baseline` it warns
+  whenever the Nadeau-Bengio interval of the fold-level lift does not exclude zero on the
+  good side, mean lift at or below zero included. The report summary then starts, in code,
+  with "The model does not beat a baseline that ignores the features; do not rely on it."
+  (or "does not reliably beat ..." when only the interval includes zero), and the app shows
+  the same sentence next to the scores. **It warns and does not block unsealing:** a weak
+  model is not a leak, the single holdout evaluation is still an honest estimate of it, and
+  refusing to evaluate would hide how weak it is. The gate blocks only what makes the
+  holdout score untrustworthy (critical flags, a contaminated holdout, an incomplete audit).
+- *One entity-key rule.* The split proposer's entity question and A5 both take their
+  candidates from `data.structure.entity_keys` with the v1.1 rule (key-like, with
+  entity-constant features), so they agree; a count such as `number_vmail_messages` no
+  longer triggers the question either. A5 used to leave the run's own group column out
+  silently ("no entity-like columns"); it now records it (info: "the split groups by it"),
+  and an entity key is a data finding at any severity, so the report's "Problems found"
+  table says how it was handled: "resolved: group split on 'account'".
+- *The group key is not a feature for new entities.* With a group split and entity scope
+  new (or unanswered), a new entity's identity carries no information, and target-encoding
+  it only memorises the training entities; code drops it from every plan of the run (the
+  probe, the planner's, each revision), and the finding's outcome says so. With
+  `--entities known` it is kept.
+
+The first (invalid) run also says what happens next: its report names the follow-up run,
+and its unseal record lists only the invalid holdout as the blocker (unsealing is never
+asked for an invalid holdout, so a warning acknowledgement is not part of it).
+
 **Harness fix found on the way.** The budget pre-flight refused offline-only invocations
 once the project cap was spent; a run that spends nothing now always fits. The v1.0
 comparison runs use `scripts/run_offline_eval.py` from a `v1.0.0` worktree, which does not

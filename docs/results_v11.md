@@ -133,6 +133,51 @@ three clean controls are too few to measure a false-alarm change here.
   these was targeted by a fix. The Diabetes identifier (`encounter_id`, `col_1` when
   anonymised) is still detected in every run, as in v1.0.
 
+## v1.1.3 re-run (fixes found on the app's group_leakage demo)
+
+v1.1.3 changes three things: A12 warns when the plan does not beat the dummy; one
+entity-key rule is shared by the split proposer and A5, and the run's own group key is a
+finding; the group key is no feature when predictions are for new entities
+([design.md](design.md#v11-post-benchmark-fixes)). All of audits_only was re-run on the
+three suites (`results_v11/v1_1_3/`) and compared with the v1.1.0 runs above, run by run:
+`python -m bench.compare --suite <suite> --before results_v11/v1_1 --after
+results_v11/v1_1_3 --labels v1.1.0 v1.1.3`.
+
+**Detection, remediation and clean false alarms: no change on any suite, task or seed.**
+The tables above therefore hold for v1.1.3 as well.
+
+What did change, run by run (warning and critical issues, and the final pipelines):
+
+| suite | run | change | why |
+|---|---|---|---|
+| dev_v1 | group_leakage@adult s11, s12 | `account` dropped in the corrected follow-up run | the group key is no feature for new entities |
+| dev_v1 | group_leakage@adult s12 | A12 warning gone | without `account`, that follow-up's lift no longer straddles zero |
+| dev_v1 | imbalance_accuracy@adult s11, s12 | new A12 warning | the trap's first plan is scored on accuracy and does not beat the majority-class dummy; the warning is correct (a trap, not a clean control) |
+| final_v1 | group_leakage@house_16h, @qsar_biodeg, @telco_churn, s101 and s202 | `account` dropped in the corrected follow-up run | as above |
+
+No clean control and no real-world case gained or lost a warning.
+
+Scores of the group-leakage traps (the corrected follow-up run; deploy holdout =
+unseen entities):
+
+| run | validation v1.1.0 -> v1.1.3 | deploy holdout v1.1.0 -> v1.1.3 | optimism gap |
+|---|---|---|---|
+| dev_v1 group_leakage@adult s11 (roc_auc) | 0.553 -> 0.550 | 0.555 -> 0.567 | -0.002 -> -0.017 |
+| dev_v1 group_leakage@adult s12 (roc_auc) | 0.539 -> 0.551 | 0.537 -> 0.565 | +0.002 -> -0.014 |
+| final_v1 group_leakage@house_16h s101 (rmse) | 92,828 -> 95,123 | 92,659 -> 94,024 | -170 -> -1,099 |
+| final_v1 group_leakage@house_16h s202 (rmse) | 91,460 -> 93,270 | 88,527 -> 90,141 | -2,933 -> -3,128 |
+| final_v1 group_leakage@qsar_biodeg s101 (roc_auc) | 0.592 -> 0.587 | 0.434 -> 0.423 | +0.158 -> +0.164 |
+| final_v1 group_leakage@qsar_biodeg s202 (roc_auc) | 0.529 -> 0.458 | 0.432 -> 0.408 | +0.096 -> +0.050 |
+| final_v1 group_leakage@telco_churn s101 (roc_auc) | 0.560 -> 0.540 | 0.506 -> 0.530 | +0.053 -> +0.010 |
+| final_v1 group_leakage@telco_churn s202 (roc_auc) | 0.537 -> 0.518 | 0.467 -> 0.523 | +0.070 -> -0.005 |
+
+Mixed, as expected for traps whose signal is the entity itself: dropping the key improves
+the deploy holdout on adult and telco_churn and makes it worse on qsar_biodeg and
+house_16h (RMSE is lower-is-better). Of the 6 classification runs, the optimism gap
+shrinks on 3 (qsar_biodeg s202, telco_churn s101 and s202), grows on 1 (qsar_biodeg s101)
+and turns slightly pessimistic on 2 (adult). The app's group_leakage demo follow-up: CV 0.429 -> 0.485 (dummy 0.500), holdout
+0.549 -> 0.584, now with the A12 warning and the summary sentence.
+
 ## Trade-offs
 
 - Titanic `body` remediation lost on real_world_v1 (remediation 17.9% -> 3.6%): v1.0 dropped this post-outcome leak for the wrong reason (A3 misread it as an identifier). It is left unpatched deliberately, to avoid tuning on the test suite.

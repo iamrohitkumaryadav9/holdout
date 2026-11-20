@@ -44,6 +44,13 @@ every manifest. v1.0 behaviour = the v1.0 thresholds without the v1.1 layer.
 | **A5** | An entity candidate must look like a key (a string or categorical column, or a numeric column with a key-like name) **and** have at least one entity-constant feature. | Section 3: `telco_churn` `number_vmail_messages` (a 0-52 count) was treated as an entity key on two clean tasks. | A numeric entity key with a neutral name (e.g. `x17`) is no longer tested. |
 | **A11** | Also runs on the **goal** at intake (offline runs too). A causal question becomes a goal-level finding; the report carries a code-enforced decline: "This analysis is predictive: it cannot establish whether X affects Y, and no causal conclusion is drawn." Agent runs (offline too) record A11 as *ran*, stating the goal part and the report part separately; `holdout run` still records it as skipped. | Section 1: a causal goal was answered without a decline whenever the prose avoided causal phrasing; offline runs never checked the goal. | The same lexicon, so a causal question phrased outside it ("is X responsible for Y?") is missed. |
 
+v1.1.3 (found on the app's group_leakage demo, same layer):
+
+| Check | v1.1 change | New blind spot |
+|---|---|---|
+| **A5** | The split proposer and A5 share one entity-key rule (`data.structure.entity_keys`). The run's own group column is recorded as info ("the split groups by it") instead of being left out silently, and is a data finding. | None new. |
+| **A12** | A plan that does not beat the dummy (the lift interval does not exclude zero, mean at or below zero included) is a **warning**; the report summary and the app say "The model does not beat a baseline that ignores the features; do not rely on it." It never blocks unsealing. | None new; on small data with a weak true signal, five folds may warn although the model is slightly better than the dummy. |
+
 **Data findings.** Before the planner, v1.1 audits a probe plan (every usable column, the
 default model) on the raw development rows; the warning-or-critical flags of A1-A6 and A8
 (and the goal's A11) become findings F1..Fn that persist for the run. The planner must
