@@ -74,6 +74,9 @@ def _isolated_holdout_home(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("HOLDOUT_HOME", str(home))
         patch.delenv("GEMINI_API_KEY", raising=False)
+        # A raised cap in the developer's shell must not change what the tests check: they
+        # start from the documented default and set an override themselves when needed.
+        patch.delenv("HOLDOUT_PROJECT_CAP_INR", raising=False)
         yield home
 
 
