@@ -3,7 +3,7 @@
 [![CI](https://github.com/iamrohitkumaryadav9/holdout/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/iamrohitkumaryadav9/holdout/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
-[![Version 1.1.3](https://img.shields.io/badge/version-1.1.3-informational.svg)](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.3)
+[![Version 1.1.4](https://img.shields.io/badge/version-1.1.4-informational.svg)](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.4)
 
 Holdout is a self-auditing data-science agent for tabular CSVs. Judging data-science agents
 by their scores alone hides methodological failures such as data leakage and inappropriate
@@ -18,7 +18,7 @@ inspect the pipeline on the development rows for leakage, contaminated splits an
 misleading metrics. A critical finding blocks the single, logged holdout evaluation. Every
 run exports a standalone script that reproduces its result without Holdout installed.
 
-**Version 1.1.3** ([tag](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.3)). The
+**Version 1.1.4** ([tag](https://github.com/iamrohitkumaryadav9/holdout/tree/v1.1.4)). The
 benchmark below was pre-registered and run on v1.0.0; v1.1 adds post-hoc fixes, evaluated
 as exploratory only. A web app runs it offline in the browser ([Web app](#web-app)).
 
