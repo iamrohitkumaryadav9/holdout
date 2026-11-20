@@ -1,0 +1,4 @@
+# Streamlit Community Cloud installs this file from the repository root: Holdout itself
+# with the web app extra (versions as pinned in pyproject.toml). For local development use
+# `pip install -e ".[dev,app]"`; for the exact tested environment see requirements.lock.
+.[app]

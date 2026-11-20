@@ -1,0 +1,6 @@
+[server]
+# Megabytes; the app also refuses CSVs over 50,000 rows.
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
