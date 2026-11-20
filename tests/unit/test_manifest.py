@@ -162,7 +162,9 @@ def test_report_for_a_sealed_run() -> None:
     report = render_report(_manifest(None))
     assert "| Holdout (single evaluation) | not unsealed |" in report
     assert "| Optimism gap (validation - holdout) | n/a |" in report
-    assert "split chosen by the user (--split)" in report  # spec differs from the proposal
+    assert (
+        "split chosen by the user instead of the proposed one" in report
+    )  # spec differs from the proposal
     assert "- reused before" in report
 
 

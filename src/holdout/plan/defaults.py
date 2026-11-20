@@ -23,8 +23,8 @@ from holdout.plan.schema import (
 
 _DROP_REASONS = {
     ColumnKind.ID_LIKE: "identifier; unique per row or entity, so it cannot generalise",
-    ColumnKind.DATETIME: "raw timestamp; Week 1 does not engineer date features",
-    ColumnKind.TEXT: "free text; Week 1 has no text featurizer",
+    ColumnKind.DATETIME: "raw timestamp; the pipeline does not engineer date features",
+    ColumnKind.TEXT: "free text; the pipeline has no text featurizer",
 }
 
 

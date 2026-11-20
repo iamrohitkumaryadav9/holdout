@@ -31,7 +31,7 @@ def test_unanswered_scope_asks_and_offers_a_group_split() -> None:
     profile = profile_schema(_accounts(), "y")
     proposal = propose_split(profile, Task.CLASSIFICATION, DataType.TABULAR, seed=1)
     assert proposal.spec.strategy is SplitStrategy.STRATIFIED
-    question = next(w for w in proposal.warnings if "--entities new" in w)
+    question = next(w for w in proposal.warnings if "entity scope new or known" in w)
     assert "'account' looks like an entity identifier" in question
     assert (
         SplitSpec(strategy=SplitStrategy.GROUP, group_col="account", seed=1)
@@ -47,7 +47,7 @@ def test_new_entities_get_a_group_split() -> None:
     assert proposal.spec.strategy is SplitStrategy.GROUP
     assert proposal.spec.group_col == "account"
     assert proposal.spec.entity_scope is EntityScope.NEW
-    assert not any("--entities new" in w for w in proposal.warnings)
+    assert not any("entity scope new or known" in w for w in proposal.warnings)
 
 
 def test_known_entities_keep_a_row_level_split() -> None:

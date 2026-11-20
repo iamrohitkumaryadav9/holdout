@@ -44,7 +44,8 @@ from holdout.plan.schema import ModelPlan
 
 _ORDER = list(CheckId)
 
-A11_SKIP_DETAIL = "skipped: no report text (causal-claim check runs on generated reports, Week 3)"
+#: ``holdout run`` writes no prose, so the report-level causal-claim check has nothing to read.
+A11_SKIP_DETAIL = "skipped: no generated report to check (this run writes no prose)"
 
 
 class _Recorder:

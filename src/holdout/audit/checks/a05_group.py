@@ -159,8 +159,10 @@ def run(ctx: AuditContext) -> CheckOutcome:
                 fix=ChangeSplit(
                     new_spec=new_spec,
                     instruction=(
-                        f"start a new run with --split group:{candidate.column} --entities new, "
-                        f"or --entities known if predictions are for entities already in the data"
+                        f"start a new run with a group split by {candidate.column!r} and entity "
+                        f"scope new (CLI: --split group:{candidate.column} --entities new), "
+                        "or declare entity scope known if predictions are for entities "
+                        "already in the data (CLI: --entities known)"
                     ),
                 ),
                 invalidates_holdout=critical,
@@ -191,7 +193,8 @@ def _known_flag(ctx: AuditContext, candidate: EntityCandidate) -> AuditFlag:
         evidence=_evidence(ctx, candidate, None),
         message=(
             f"{candidate.column!r} looks like an entity key; you declared predictions are for "
-            "known entities (--entities known), so a row-level split is legitimate."
+            "known entities (entity scope known; CLI: --entities known), so a row-level "
+            "split is legitimate."
         ),
         fix=NoAction(reason="entities declared known by the user"),
     )

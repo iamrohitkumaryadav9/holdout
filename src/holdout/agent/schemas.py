@@ -81,7 +81,12 @@ class Substitution(_Strict):
 class RoundRecord(_Strict):
     round: int
     plan: ModelPlan
-    plan_source: Literal["llm", "code_substitution", "default"]
+    #: default: the offline default plan; llm: the model's plan, accepted; code_fix: the
+    #: offline planner's revision, where code applied the audit's fixes (no model answer to
+    #: replace, so not a substitution); code_substitution: the model's revision missed a
+    #: fix, so code's plan replaced it, recorded in ``AgentRecord.substitutions`` and not
+    #: credited to the model. v1.0 manifests used code_substitution for both code cases.
+    plan_source: Literal["llm", "code_substitution", "code_fix", "default"]
     cv: CVResult
     flag_counts: dict[str, int]
     flags: list[str] = Field(description="check id, severity, category and columns per flag")

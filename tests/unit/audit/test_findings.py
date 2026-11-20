@@ -152,8 +152,15 @@ def test_the_offline_answers_are_valid() -> None:
     plan = _plan()
     findings = collect_findings(_report(_id_flag(), _group_flag()))
     answered = with_handling(plan, offline_handling(plan, findings))
-    assert handling_problems(answered, findings) == []
-    assert [h.action for h in answered.findings_handled] == ["keep_with_reason", "change_split"]
+    assert handling_problems(answered, findings, offline=True) == []
+    assert [h.action for h in answered.findings_handled] == ["deferred_to_audit"] * 2
+    assert answered.findings_handled[0].reason == (
+        "the offline planner does not act on findings; code applies the audit's fixes"
+    )
+    # A model may not defer: it must say what it does.
+    assert any(
+        "reserved for the offline planner" in p for p in handling_problems(answered, findings)
+    )
 
 
 # --------------------------------------------------------------------- no masking (fix 2)
@@ -232,7 +239,7 @@ def test_the_report_table_lists_every_finding() -> None:
     assert "## Problems found and how they were handled" in text
     assert "| F1 | A3 | critical | `ticket` |" in text
     assert "| F2 | A5 | critical | `account` |" in text
-    assert "change split: a row-level split leaks" in text
+    assert "deferred to audit: the offline planner does not act on findings" in text
     assert "0 handled, 2 open." in text
 
 

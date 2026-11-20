@@ -259,7 +259,9 @@ def _time_flag(
                 seed=ctx.spec.seed,
                 entity_scope=ctx.spec.entity_scope,
             ),
-            instruction=f"start a new run with --split time:{column}",
+            instruction=(
+                f"start a new run with a time split by {column!r} (CLI: --split time:{column})"
+            ),
         )
     else:
         fix = ChangeSplit(
@@ -267,7 +269,7 @@ def _time_flag(
             instruction=(
                 "the time order exists only as row order: add a row-number column "
                 "(e.g. row_number = 1..n in file order) and start a new run with "
-                "--split time:row_number"
+                "a time split by it (CLI: --split time:row_number)"
             ),
         )
     return AuditFlag(

@@ -617,11 +617,14 @@ def build_graph(deps: AgentDeps) -> AgentGraph:
             update["stop_reason"] = f"stopped after the maximum of {MAX_FIX_ROUNDS} fix rounds"
         else:
             update["proposed_plan"] = proposed
-            update["proposed_source"] = (
-                "code_substitution"
-                if outcome.substitution is not None or planner.offline
-                else "llm"
-            )
+            # A substitution replaces a model answer (and is listed in substitutions); the
+            # offline planner has none, so its code-applied fixes are "code_fix".
+            if planner.offline:
+                update["proposed_source"] = "code_fix"
+            elif outcome.substitution is not None:
+                update["proposed_source"] = "code_substitution"
+            else:
+                update["proposed_source"] = "llm"
         return update
 
     def review(state: AgentState) -> dict[str, Any]:
@@ -849,8 +852,9 @@ def _write_report(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
             ),
         )
     final_audit = _with_causal_check(
-        audit_report, outcome.causal_flags, ran=not deps.planner.offline
-    )
+        audit_report, outcome.causal_flags, ran=not deps.planner.offline,
+        causal_goal=bool(decline),
+    )  # fmt: skip
     if final_audit is not audit_report:
         write_audit(run_state.audit_path, final_audit)
     substitutions = [Substitution.model_validate(s) for s in state.get("substitutions", [])]
@@ -939,22 +943,36 @@ def _unseal_from_state(state: AgentState) -> UnsealDecision:
     return UnsealDecision.model_validate(state["unseal"])
 
 
-def _with_causal_check(report: AuditReport, causal: list[AuditFlag], *, ran: bool) -> AuditReport:
-    """A11 on the generated report (agent runs); offline runs keep the Week 2 skip."""
-    if not ran:
-        return report
+def a11_detail(*, causal_goal: bool, report_checked: bool, n_flags: int) -> str:
+    """A11's two parts in agent runs, stated separately: the goal (checked at intake, v1.1)
+    and the generated report (checked only when a model wrote the prose)."""
+    goal = (
+        "causal question found; the report declines a causal conclusion"
+        if causal_goal
+        else "no causal question found"
+    )
+    report = (
+        f"generated report checked, {n_flags} causal-claim flag(s)"
+        if report_checked
+        else "not checked (offline runs write template prose, not generated text)"
+    )
+    return f"goal (at intake): {goal}; report: {report}"
+
+
+def _with_causal_check(
+    report: AuditReport, causal: list[AuditFlag], *, ran: bool, causal_goal: bool
+) -> AuditReport:
+    """A11 in agent runs: the goal is always checked at intake; the generated report is
+    checked when a model wrote it (``ran``), and its flags are added."""
+    detail = a11_detail(causal_goal=causal_goal, report_checked=ran, n_flags=len(causal))
     runs = [
         r
         if r.check is not CheckId.A11
-        else CheckRun(
-            check=CheckId.A11,
-            status="ran",
-            seconds=0.0,
-            detail=f"generated report checked; {len(causal)} causal-claim flag(s)",
-        )
+        else CheckRun(check=CheckId.A11, status="ran", seconds=0.0, detail=detail)
         for r in report.checks_run
     ]
-    return report.model_copy(update={"flags": [*report.flags, *causal], "checks_run": runs})
+    flags = [*report.flags, *causal] if ran else report.flags
+    return report.model_copy(update={"flags": flags, "checks_run": runs})
 
 
 def llm_quality(calls: list[dict[str, Any]], substitutions: int) -> LLMQuality:

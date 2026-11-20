@@ -167,6 +167,8 @@ FindingAction = Literal[
     "deduplicate",
     "decline_causal_claim",
     "keep_with_reason",
+    # The offline planner only: it does not act on findings; code applies the audit's fixes.
+    "deferred_to_audit",
 ]
 
 
@@ -319,7 +321,7 @@ def validate_plan(plan: ModelPlan, profile: DatasetProfile) -> list[PlanIssue]:
             error(
                 "unmodellable_column",
                 "drop_columns",
-                f"column {column.name!r} is {column.kind.value}; Week 1 pipelines cannot use "
+                f"column {column.name!r} is {column.kind.value}; the pipeline cannot use "
                 "it, so add it to drop_columns with a reason",
             )
     if not kept:

@@ -58,6 +58,13 @@ def test_a_causal_goal_is_declined_in_the_report(tmp_path: Path, offline: bool) 
     assert status.resolved
     assert status.outcome == "handled: the report declines a causal conclusion"
     assert "no causal conclusion is drawn" in (outcome.run_dir / "report.md").read_text("utf-8")
+    (a11,) = [r for r in manifest.audit.checks_run if r.check.value == "A11"]
+    assert a11.status == "ran"
+    assert a11.detail is not None
+    assert a11.detail.startswith(
+        "goal (at intake): causal question found; the report declines a causal conclusion"
+    )
+    assert ("report: not checked" in a11.detail) is offline
 
 
 def test_a_predictive_goal_gets_no_decline(tmp_path: Path) -> None:

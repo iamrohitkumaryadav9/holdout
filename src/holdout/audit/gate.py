@@ -72,11 +72,15 @@ def decide_unseal(
     ]
     if criticals and reason is None:
         blocked.append(
-            f'critical flag(s): {"; ".join(criticals)} (override only with --accept-risk "reason")'
+            f"critical flag(s): {'; '.join(criticals)} (override only by accepting the "
+            'risk with a stated reason; CLI: --accept-risk "reason")'
         )
     warnings = [f for f in report.flags if f.severity is Severity.WARNING]
     if warnings and not ack_warnings:
-        blocked.append(f"{len(warnings)} warning(s) not acknowledged (use --ack-warnings)")
+        blocked.append(
+            f"{len(warnings)} warning(s) not acknowledged (acknowledge them to unseal; "
+            "CLI: --ack-warnings)"
+        )
     return UnsealDecision(
         requested=requested,
         allowed=requested and not blocked,

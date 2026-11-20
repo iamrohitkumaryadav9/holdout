@@ -155,8 +155,8 @@ def entity_question(entity: StructuralEntity) -> str:
         f"{entity.column!r} looks like an entity identifier ({entity.n_groups} values, "
         f"~{entity.mean_rows_per_group:.1f} rows each, "
         f"{entity.constant_feature_share:.0%} of other columns constant within it). "
-        "Will predictions be made for new entities (--entities new) or for entities already "
-        "in the data (--entities known)? Unanswered is treated as new."
+        "Will predictions be made for new entities or for entities already in the data "
+        "(entity scope new or known; CLI: --entities)? Unanswered is treated as new."
     )
 
 
@@ -210,7 +210,8 @@ def propose_split(
         if user_data_type is DataType.TIMESERIES:
             warnings.append(
                 "data declared as time series, but no parseable datetime or monotonic index "
-                "column was found; pass --split time:COLUMN to choose the time column"
+                "column was found; choose the time column with a time split (CLI: --split "
+                "time:COLUMN)"
             )
         if group_candidates and not known:
             group_col = group_candidates[0]
@@ -231,7 +232,7 @@ def propose_split(
             reasons.append("regression target with no entity or time structure: random split")
         if known and (profile.entity_candidates or structural):
             reasons.append(
-                "entities declared known (--entities known): predictions are for entities "
+                "entities declared known (entity scope known): predictions are for entities "
                 "already in the data, so a row-level split is legitimate"
             )
 

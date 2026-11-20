@@ -110,12 +110,15 @@ def _resolves(plan: ModelPlan, finding: DataFinding) -> FindingAction | None:
     return None
 
 
-def handling_problems(plan: ModelPlan, findings: Sequence[DataFinding]) -> list[str]:
+def handling_problems(
+    plan: ModelPlan, findings: Sequence[DataFinding], *, offline: bool = False
+) -> list[str]:
     """Why ``plan.findings_handled`` does not answer ``findings`` (empty when it does).
 
     Every finding needs exactly one entry; an action must be one the plan can actually
     take for that finding (dropping its columns, a split change only for a split-level
-    finding, declining a causal claim only for a goal finding).
+    finding, declining a causal claim only for a goal finding). ``deferred_to_audit`` is
+    the offline planner's answer only: a model must say what it does.
     """
     if not findings:
         return []
@@ -140,6 +143,11 @@ def handling_problems(plan: ModelPlan, findings: Sequence[DataFinding]) -> list[
             problems.append(f"{entry.finding_id}: decline_causal_claim applies to the goal")
         if entry.action == "change_metric" and not isinstance(finding.flag.fix, ChangeMetric):
             problems.append(f"{entry.finding_id}: change_metric does not address this finding")
+        if entry.action == "deferred_to_audit" and not offline:
+            problems.append(
+                f"{entry.finding_id}: deferred_to_audit is reserved for the offline planner; "
+                "choose an action and give a reason"
+            )
         if entry.action == "deduplicate" and not plan.deduplicate:
             problems.append(
                 f"{entry.finding_id}: action deduplicate, but plan.deduplicate is false"
@@ -152,23 +160,25 @@ def handling_problems(plan: ModelPlan, findings: Sequence[DataFinding]) -> list[
     return problems
 
 
+#: What code does about each kind of finding when the offline planner defers it.
+_DEFERRED: dict[FindingLevel, str] = {
+    "column": "the offline planner does not act on findings; code applies the audit's fixes",
+    "rows": "the offline planner does not act on findings; code applies the audit's fixes",
+    "split": (
+        "the offline planner does not act on findings; code ends a leaking run and starts "
+        "one with the corrected split"
+    ),
+    "goal": "the offline planner does not act on findings; code adds the decline to the report",
+}
+
+
 def offline_handling(plan: ModelPlan, findings: Sequence[DataFinding]) -> list[FindingHandling]:
-    """The offline planner's deterministic answers (it cannot reason about the data)."""
-    out: list[FindingHandling] = []
-    for finding in findings:
-        taken = _resolves(plan, finding)
-        if taken is not None:
-            action: FindingAction = taken
-            reason = "the plan already does this"
-        elif finding.level == "split":
-            action, reason = "change_split", "a row-level split leaks; code enforces the split"
-        elif finding.level == "goal":
-            action, reason = "decline_causal_claim", "a predictive model cannot answer it"
-        else:
-            action = "keep_with_reason"
-            reason = "kept in the first plan; the audit re-checks it and code applies fixes"
-        out.append(FindingHandling(finding_id=finding.id, action=action, reason=reason))
-    return out
+    """The offline planner's answers: it cannot reason about the data, so it defers every
+    finding to code; the outcome column then says what code did."""
+    return [
+        FindingHandling(finding_id=f.id, action="deferred_to_audit", reason=_DEFERRED[f.level])
+        for f in findings
+    ]
 
 
 def with_handling(plan: ModelPlan, handled: Sequence[FindingHandling]) -> ModelPlan:

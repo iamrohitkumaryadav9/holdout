@@ -41,7 +41,7 @@ def test_offline_autopilot_runs_end_to_end(churn_csv: Path, tmp_path: Path) -> N
     run_dir = next(p for p in tmp_path.iterdir() if p.is_dir())
     report = (run_dir / "report.md").read_text(encoding="utf-8")
     assert "## Agent" in report
-    assert "**Substitutions:** 0" in report
+    assert "**Substitutions:** none (offline run: no model answers to replace)" in report
 
 
 @pytest.mark.full_only

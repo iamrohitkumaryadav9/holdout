@@ -108,11 +108,19 @@ class SplitRecord(_Record):
         holdout_sha256: str,
         reuse_warnings: list[str],
     ) -> "SplitRecord":
-        user_chosen = spec != proposal.spec
+        # Declaring the entity scope answers a question about the proposal; it does not
+        # choose another split. Only a different split (strategy, column, size) is "user".
+        same_split = spec == proposal.spec.model_copy(update={"entity_scope": spec.entity_scope})
+        if same_split:
+            reasons = list(proposal.reasons)
+            if spec.entity_scope is not None and proposal.spec.entity_scope is None:
+                reasons.append(f"entity scope declared: {spec.entity_scope.value}")
+        else:
+            reasons = ["split chosen by the user instead of the proposed one"]
         return cls(
             spec=spec,
-            source="user" if user_chosen else "proposed",
-            reasons=["split chosen by the user (--split)"] if user_chosen else proposal.reasons,
+            source="proposed" if same_split else "user",
+            reasons=reasons,
             warnings=proposal.warnings,
             alternatives=proposal.alternatives,
             n_dev_rows=n_dev_rows,
@@ -368,6 +376,9 @@ def _audit_section(manifest: RunManifest) -> list[str]:
         lines.append("")
     errors = [r for r in audit.checks_run if r.status == "error"]
     lines += [f"- {r.check.value} failed: {r.detail}" for r in errors]
+    a11 = next((r for r in audit.checks_run if r.check.value == "A11"), None)
+    if a11 is not None and a11.status != "error" and a11.detail:
+        lines += [f"- Causal claims (A11): {a11.detail}", ""]
     unseal = manifest.unseal
     if unseal.requested:
         verdict = "allowed" if unseal.allowed else "refused"
@@ -387,8 +398,7 @@ def _agent_section(agent: AgentRecord) -> list[str]:
         f"{agent.cache_hits} cached response(s); {agent.retries} transient-error retr"
         f"{'y' if agent.retries == 1 else 'ies'}",
         f"- **Fix rounds:** {max(0, len(agent.rounds) - 1)}; stop reason: {agent.stop_reason}",
-        f"- **Substitutions:** {len(agent.substitutions)} (fixes applied by code because the "
-        "model's integrated plan or report missed them; not credited to the model)",
+        substitutions_line(agent),
     ]
     if agent.quality is not None:
         lines.append(f"- **Answer quality:** {quality_line(agent)}")
@@ -426,6 +436,25 @@ def _agent_section(agent: AgentRecord) -> list[str]:
             if items:
                 lines += [f"**{title}**", ""] + [f"- {item}" for item in items] + [""]
     return lines
+
+
+def substitutions_line(agent: AgentRecord) -> str:
+    """One definition: a substitution replaces a model answer with code's (listed in
+    ``substitutions``, counted here, ``code_substitution`` rounds). Offline runs have no
+    model answers; their code-applied fix rounds (``code_fix``) are counted separately."""
+    code_fixes = sum(r.plan_source == "code_fix" for r in agent.rounds)
+    if agent.offline:
+        fixes = (
+            f"code applied the audit's fixes in {code_fixes} round(s)"
+            if code_fixes
+            else "the audit asked for no plan fix"
+        )
+        return f"- **Substitutions:** none (offline run: no model answers to replace); {fixes}"
+    return (
+        f"- **Substitutions:** {len(agent.substitutions)} (model answers replaced by code "
+        "because the model's integrated plan or report missed a fix; not credited to the "
+        "model)"
+    )
 
 
 def quality_line(agent: AgentRecord) -> str:

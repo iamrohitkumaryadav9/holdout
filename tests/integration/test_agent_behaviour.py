@@ -237,7 +237,12 @@ def test_offline_runs_make_no_calls_and_keep_the_a11_skip(tmp_path: Path) -> Non
     assert manifest.agent.total_inr == 0
     assert manifest.agent.rounds[0].plan_source == "default"
     a11 = next(r for r in manifest.audit.checks_run if r.check.value == "A11")
-    assert a11.status == "skipped"
+    # v1.1: the goal is checked at intake even offline; the report part is not (template).
+    assert a11.status == "ran"
+    assert a11.detail == (
+        "goal (at intake): no causal question found; report: not checked (offline runs "
+        "write template prose, not generated text)"
+    )
     assert manifest.plans[-1].plan.dropped >= {"refund_issued"}  # the code fix still applies
 
 
@@ -281,6 +286,12 @@ def test_a_repeated_plan_stops_the_loop(tmp_path: Path) -> None:
     assert outcome.manifest.agent is not None
     # The code-applied plan is substituted, so the leak is still fixed once...
     assert outcome.manifest.agent.substitutions
+    # The same definition everywhere: the code_substitution round is a listed substitution.
+    sources = [r.plan_source for r in outcome.manifest.agent.rounds]
+    assert "code_substitution" in sources
+    assert "code_fix" not in sources  # code_fix is the offline planner's alone
+    explain = [s for s in outcome.manifest.agent.substitutions if s.node == "explain_and_fix"]
+    assert len(explain) >= sources.count("code_substitution")
     assert "refund_issued" in outcome.manifest.plans[-1].plan.dropped
 
 
