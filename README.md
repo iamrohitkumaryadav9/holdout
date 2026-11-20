@@ -11,12 +11,12 @@ sees it, and code, not a prompt, decides whether it may be opened.**
 **Live demo: [holdout.streamlit.app](https://holdout.streamlit.app)**, offline by default
 (no API key needed). Try the planted-leak, repeated-customer and causal-question demos.
 
-**Headline result (pre-registered, v1.0.0):** on 28 planted-trap tasks, Holdout's
-deterministic audit layer detected 75.0% [57.1%, 89.3%] of the traps and ReAct 60.7%
-[42.9%, 78.6%] (exact McNemar p = 0.27, not significant); the full LLM agent detected
-51.8% [33.9%, 69.6%], less than its own audit layer. No pre-registered hypothesis was
-supported; see [the results](#pre-registered-results-v100) and
-[the limitations](#limitations).
+**Headline results (pre-registered benchmark, v1.0.0, 28 planted-trap tasks):**
+
+- Holdout's deterministic audit layer detected 75.0% [57.1%, 89.3%] of the traps vs 35.7% [19.6%, 53.6%] for an LLM judge: exact McNemar p = 0.0118, significant (uncorrected; one of 10 pairwise tests), at Rs 0 per run.
+- Against ReAct, 60.7% [42.9%, 78.6%]: p = 0.2668, not significant (ReAct costs Rs 8.84 per run).
+- The full LLM agent detected 51.8% [33.9%, 69.6%], less than its own audit layer, because its planner avoided or masked problems the audits would have reported.
+- No pre-registered hypothesis favouring Holdout was supported; see [the results](#pre-registered-results-v100) and [the limitations](#limitations).
 
 **Why.** Judging data-science agents
 by their scores alone hides methodological failures such as data leakage and inappropriate
